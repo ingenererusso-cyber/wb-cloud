@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Прогноз поставок</title>
+    <style>
+        :root {
+            --bg: #f4f6f8;
+            --surface: #ffffff;
+            --text: #17212b;
+            --muted: #66727f;
+            --line: #e3e8ee;
+            --primary: #0f766e;
+            --primary-soft: #ccfbf1;
+            --danger-soft: #fee2e2;
+            --shadow: 0 8px 22px rgba(19, 39, 60, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 20% 10%, #dff7f3 0%, transparent 32%),
+                radial-gradient(circle at 80% 0%, #eaf4ff 0%, transparent 28%),
+                var(--bg);
+            min-height: 100vh;
+            padding: 24px 14px 40px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 28px;
+            line-height: 1.2;
+        }
+
+        .controls {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+        }
+
+        .controls label {
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .controls select {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: #fff;
+            color: var(--text);
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+        }
+
+        thead th {
+            text-align: left;
+            font-size: 13px;
+            color: var(--muted);
+            background: #f8fafc;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        tbody td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            font-size: 14px;
+        }
+
+        tbody tr:hover td {
+            background: #f9fcff;
+        }
+
+        .group-row td {
+            background: var(--primary-soft);
+            border-top: 1px solid #8de4d3;
+            border-bottom: 1px solid #8de4d3;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .to-ship {
+            font-weight: 700;
+        }
+
+        .to-ship.positive {
+            color: #b91c1c;
+            background: var(--danger-soft);
+            border-radius: 6px;
+            display: inline-block;
+            padding: 2px 8px;
+        }
+
+        .align-right {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .summary {
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Прогноз поставок</h1>
+            <div class="controls">
+                <label for="groupBy">Группировка</label>
+                <select id="groupBy">
+                    <option value="none">Без группировки</option>
+                    <option value="region" selected>По регионам</option>
+                    <option value="nm_id">По артикулам</option>
+                    <option value="supplier_article">По supplier_article</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Артикул</th>
+                        <th>supplier_article</th>
+                        <th>Регион</th>
+                        <th class="align-right">Прогноз заказов на 30д</th>
+                        <th class="align-right">Текущий остаток</th>
+                        <th class="align-right">Нужно отгрузить</th>
+                    </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+            </table>
+        </div>
+        <div class="summary" id="summaryText"></div>
+    </div>
+
+    {{ rows|json_script:"report-data" }}
+
+    <script>
+        const reportData = JSON.parse(document.getElementById("report-data").textContent || "[]");
+        const reportBody = document.getElementById("reportBody");
+        const groupBySelect = document.getElementById("groupBy");
+        const summaryText = document.getElementById("summaryText");
+
+        function safeText(value) {
+            return value === null || value === undefined || value === "" ? "Не указан" : String(value);
+        }
+
+        function toNumber(value) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : 0;
+        }
+
+        function formatNum(value) {
+            return new Intl.NumberFormat("ru-RU").format(toNumber(value));
+        }
+
+        function renderDataRows(items) {
+            return items
+                .slice()
+                .sort((a, b) => {
+                    const regionA = safeText(a.region);
+                    const regionB = safeText(b.region);
+                    if (regionA !== regionB) {
+                        return regionA.localeCompare(regionB, "ru");
+                    }
+                    const supplierArticleA = safeText(a.supplier_article);
+                    const supplierArticleB = safeText(b.supplier_article);
+                    if (supplierArticleA !== supplierArticleB) {
+                        return supplierArticleA.localeCompare(supplierArticleB, "ru", { numeric: true });
+                    }
+                    return String(a.nm_id).localeCompare(String(b.nm_id), "ru", { numeric: true });
+                })
+                .map((row) => `
+                    <tr>
+                        <td>${safeText(row.nm_id)}</td>
+                        <td>${safeText(row.supplier_article)}</td>
+                        <td>${safeText(row.region)}</td>
+                        <td class="align-right">${formatNum(row.forecast_30_days)}</td>
+                        <td class="align-right">${formatNum(row.current_stock)}</td>
+                        <td class="align-right">
+                            <span class="to-ship ${toNumber(row.to_ship) > 0 ? "positive" : ""}">
+                                ${formatNum(row.to_ship)}
+                            </span>
+                        </td>
+                    </tr>
+                `)
+                .join("");
+        }
+
+        function renderGrouped(items, key) {
+            const groups = items.reduce((acc, row) => {
+                const groupName = safeText(row[key]);
+                if (!acc[groupName]) {
+                    acc[groupName] = [];
+                }
+                acc[groupName].push(row);
+                return acc;
+            }, {});
+
+            return Object.keys(groups)
+                .sort((a, b) => a.localeCompare(b, "ru", { numeric: true }))
+                .map((groupName) => {
+                    const groupItems = groups[groupName];
+                    const totalForecast = groupItems.reduce((sum, row) => sum + toNumber(row.forecast_30_days), 0);
+                    const totalStock = groupItems.reduce((sum, row) => sum + toNumber(row.current_stock), 0);
+                    const totalToShip = groupItems.reduce((sum, row) => sum + toNumber(row.to_ship), 0);
+                    const labelMap = {
+                        region: "Регион",
+                        nm_id: "Артикул",
+                        supplier_article: "supplier_article",
+                    };
+                    const label = labelMap[key] || key;
+
+                    return `
+                        <tr class="group-row">
+                            <td colspan="3">${label}: ${groupName} (${groupItems.length})</td>
+                            <td class="align-right">${formatNum(totalForecast)}</td>
+                            <td class="align-right">${formatNum(totalStock)}</td>
+                            <td class="align-right">${formatNum(totalToShip)}</td>
+                        </tr>
+                        ${renderDataRows(groupItems)}
+                    `;
+                })
+                .join("");
+        }
+
+        function render() {
+            const mode = groupBySelect.value;
+
+            if (mode === "none") {
+                reportBody.innerHTML = renderDataRows(reportData);
+            } else {
+                reportBody.innerHTML = renderGrouped(reportData, mode);
+            }
+
+            const totalRows = reportData.length;
+            const totalToShip = reportData.reduce((sum, row) => sum + toNumber(row.to_ship), 0);
+            summaryText.textContent = `Позиций в отчете: ${formatNum(totalRows)}. К отгрузке: ${formatNum(totalToShip)} шт.`;
+        }
+
+        groupBySelect.addEventListener("change", render);
+        render();
+    </script>
+</body>
+</html>

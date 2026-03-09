@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MP SaaS</title>
+    <style>
+        :root {
+            --ink: #132033;
+            --muted: #5a6778;
+            --accent: #14532d;
+            --accent-2: #065f46;
+            --line: rgba(19, 32, 51, 0.12);
+            --surface: rgba(255, 255, 255, 0.84);
+            --shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+            display: grid;
+            place-items: center;
+            padding: 20px;
+        }
+
+        .hero {
+            width: min(920px, 100%);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: var(--surface);
+            backdrop-filter: blur(3px);
+            box-shadow: var(--shadow);
+            padding: 34px 30px;
+            animation: rise .6s ease-out;
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: clamp(30px, 4vw, 48px);
+            letter-spacing: -0.02em;
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            max-width: 700px;
+            line-height: 1.5;
+            font-size: 17px;
+        }
+
+        .actions {
+            margin-top: 26px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .metrics {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 12px;
+        }
+
+        .metric-card {
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.72);
+            border-radius: 14px;
+            padding: 14px 15px;
+        }
+
+        .metric-title {
+            font-size: 13px;
+            color: var(--muted);
+            margin: 0;
+        }
+
+        .metric-value {
+            margin: 6px 0 4px;
+            font-size: 31px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: #0f5132;
+        }
+
+        .metric-value-row {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 6px 0 4px;
+        }
+
+        .metric-change {
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .metric-change-up {
+            color: #15803d;
+        }
+
+        .metric-change-down {
+            color: #b91c1c;
+        }
+
+        .metric-change-neutral {
+            color: var(--muted);
+        }
+
+        .metric-meta {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .chart-card {
+            margin-top: 12px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.72);
+            border-radius: 14px;
+            padding: 14px 15px;
+        }
+
+        .chart-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .chart-title {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .chart-range {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .chart-wrap {
+            height: 220px;
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(6, 95, 70, 0.08) 0%, rgba(6, 95, 70, 0.02) 100%);
+            border: 1px solid rgba(6, 95, 70, 0.12);
+            padding: 8px;
+        }
+
+        #local-orders-chart {
+            width: 100%;
+            height: 100%;
+        }
+
+        .chart-empty {
+            display: grid;
+            place-items: center;
+            width: 100%;
+            height: 100%;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .btn {
+            text-decoration: none;
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+            border-radius: 12px;
+            padding: 12px 20px;
+            font-weight: 700;
+            transition: transform .18s ease, box-shadow .18s ease;
+            box-shadow: 0 8px 20px rgba(20, 83, 45, 0.28);
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(6, 95, 70, 0.34);
+        }
+
+        .pill {
+            margin-top: 20px;
+            display: inline-block;
+            padding: 7px 11px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @keyframes rise {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="hero">
+        <h1>MP SaaS Dashboard</h1>
+        <p>
+            Главная страница сервиса. Здесь будут размещены аналитические графики,
+            таблицы и обзор ключевых метрик. Сейчас доступен первый рабочий отчёт.
+        </p>
+        <section class="metrics">
+            <article class="metric-card">
+                <p class="metric-title">% локальных заказов (последние 7 полных дней)</p>
+                {% if local_orders_percent %}
+                    <div class="metric-value-row">
+                        <p class="metric-value">{{ local_orders_percent.percent }}%</p>
+                        {% if local_orders_percent.change_direction == "up" %}
+                            <span class="metric-change metric-change-up">+{{ local_orders_percent.change_percent }}%</span>
+                        {% elif local_orders_percent.change_direction == "down" %}
+                            <span class="metric-change metric-change-down">{{ local_orders_percent.change_percent }}%</span>
+                        {% else %}
+                            <span class="metric-change metric-change-neutral">{{ local_orders_percent.change_percent }}%</span>
+                        {% endif %}
+                    </div>
+                    <p class="metric-meta">
+                        Локальные заказы: {{ local_orders_percent.local_orders }} из {{ local_orders_percent.total_orders }}
+                    </p>
+                    <p class="metric-meta">
+                        Период: {{ local_orders_percent.date_from|date:"d.m.Y" }} - {{ local_orders_percent.date_to|date:"d.m.Y" }}
+                    </p>
+                    <p class="metric-meta">
+                        Изменение к предыдущим 7 дням ({{ local_orders_percent.previous_date_from|date:"d.m" }} - {{ local_orders_percent.previous_date_to|date:"d.m" }})
+                    </p>
+                {% else %}
+                    <p class="metric-value">-</p>
+                    <p class="metric-meta">Нет данных по продавцу</p>
+                {% endif %}
+            </article>
+        </section>
+        <section class="chart-card">
+            <div class="chart-head">
+                <p class="chart-title">Динамика % локальных заказов по полным неделям</p>
+                {% if local_orders_trend.start_label and local_orders_trend.end_label %}
+                    <p class="chart-range">{{ local_orders_trend.start_label }} - {{ local_orders_trend.end_label }}</p>
+                {% endif %}
+            </div>
+            <div class="chart-wrap">
+                <svg id="local-orders-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
+            </div>
+        </section>
+        <div class="actions">
+            <a class="btn" href="{% url 'replenishment_report' %}">Открыть отчёт пополнения</a>
+        </div>
+        <span class="pill">Раздел в разработке</span>
+    </main>
+    {{ local_orders_trend|json_script:"local-orders-trend-data" }}
+    <script>
+        function renderLineChart(config) {
+            const svg = document.getElementById(config.svgId);
+            const points = (config.data && config.data.points) ? config.data.points : [];
+            const getNumeric = (value) => {
+                if (value === null || value === undefined || value === "") {
+                    return null;
+                }
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            };
+
+            if (!points.length) {
+                svg.outerHTML = '<div class="chart-empty">Нет данных для графика</div>';
+                return;
+            }
+
+            const width = 1000;
+            const height = 260;
+            const padX = 52;
+            const padY = 22;
+            const innerW = width - padX * 2;
+            const innerH = height - padY * 2;
+            const xStep = points.length > 1 ? innerW / (points.length - 1) : 0;
+
+            const values = points
+                .map((p) => getNumeric(p[config.valueKey]))
+                .filter((v) => v !== null);
+
+            if (!values.length) {
+                svg.outerHTML = '<div class="chart-empty">Нет данных для графика</div>';
+                return;
+            }
+
+            const minVal = Math.min(...values, config.minValue);
+            const maxVal = Math.max(...values, config.maxValue);
+            const valueRange = Math.max(maxVal - minVal, config.minRange || 1);
+
+            const coords = points.map((p, idx) => {
+                const x = padX + idx * xStep;
+                const rawValue = getNumeric(p[config.valueKey]);
+                const y = rawValue === null
+                    ? (height - padY)
+                    : padY + (1 - ((rawValue - minVal) / valueRange)) * innerH;
+                return { x, y, ...p };
+            });
+
+            const line = coords.map((p) => `${p.x},${p.y}`).join(" ");
+            const area = `${padX},${height - padY} ${line} ${padX + innerW},${height - padY}`;
+
+            const tickCount = 5;
+            const yTicks = Array.from({ length: tickCount }, (_, idx) => {
+                    const k = idx / (tickCount - 1);
+                    return minVal + (maxVal - minVal) * k;
+                })
+                .map((tick) => {
+                    const y = padY + (1 - ((tick - minVal) / valueRange)) * innerH;
+                    const label = config.tickFormatter ? config.tickFormatter(tick) : tick.toFixed(1);
+                    return `
+                        <line x1="${padX}" y1="${y}" x2="${padX + innerW}" y2="${y}" stroke="rgba(19,32,51,0.14)" stroke-width="1"/>
+                        <text x="${padX - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5a6778">${label}</text>
+                    `;
+                })
+                .join("");
+
+            const xLabels = coords
+                .filter((_, idx) => idx === 0 || idx === coords.length - 1 || idx % 3 === 0)
+                .map((p) => `
+                    <text x="${p.x}" y="${height - 6}" text-anchor="middle" font-size="11" fill="#5a6778">${p.label}</text>
+                `)
+                .join("");
+
+            const dots = coords
+                .map((p) => `
+                    <circle cx="${p.x}" cy="${p.y}" r="5.6" fill="#0f5132" stroke="#ffffff" stroke-width="1.4">
+                        <title>${config.titleFormatter(p)}</title>
+                    </circle>
+                `)
+                .join("");
+
+            svg.innerHTML = `
+                ${yTicks}
+                <polygon points="${area}" fill="rgba(15,81,50,0.14)"></polygon>
+                <polyline points="${line}" fill="none" stroke="#0f5132" stroke-width="3"></polyline>
+                ${dots}
+                ${xLabels}
+            `;
+        }
+
+        const localOrdersTrendData = JSON.parse(
+            document.getElementById("local-orders-trend-data").textContent || '{"points": []}'
+        );
+        renderLineChart({
+            svgId: "local-orders-chart",
+            data: localOrdersTrendData,
+            valueKey: "percent",
+            minValue: 0,
+            maxValue: 100,
+            minRange: 100,
+            tickFormatter: (v) => `${Math.round(v)}%`,
+            titleFormatter: (p) => `${p.label}: ${p.percent}% (${p.local_orders}/${p.total_orders})`,
+        });
+    </script>
+</body>
+</html>
