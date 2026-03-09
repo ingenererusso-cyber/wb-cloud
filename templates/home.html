@@ -44,6 +44,26 @@
             animation: rise .6s ease-out;
         }
 
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-badge {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
         h1 {
             margin: 0 0 10px;
             font-size: clamp(30px, 4vw, 48px);
@@ -77,6 +97,29 @@
             background: rgba(255, 255, 255, 0.72);
             border-radius: 14px;
             padding: 14px 15px;
+        }
+
+        .hint-banner {
+            margin-top: 14px;
+            margin-bottom: 6px;
+            border: 1px solid #facc15;
+            background: #fef9c3;
+            color: #713f12;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+
+        .hint-banner-error {
+            border-color: #fecaca;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .hint-banner-success {
+            border-color: #bbf7d0;
+            background: #dcfce7;
+            color: #166534;
         }
 
         .metric-title {
@@ -182,6 +225,17 @@
             font-weight: 700;
             transition: transform .18s ease, box-shadow .18s ease;
             box-shadow: 0 8px 20px rgba(20, 83, 45, 0.28);
+            border: none;
+            cursor: pointer;
+            display: inline-block;
+        }
+
+        .btn-ghost {
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.8);
+            color: var(--ink);
+            box-shadow: none;
+            cursor: pointer;
         }
 
         .btn:hover {
@@ -214,11 +268,33 @@
 </head>
 <body>
     <main class="hero">
+        <div class="topbar">
+            <span class="user-badge">Пользователь: {{ request.user.username }}</span>
+            <div class="topbar-actions">
+                <a class="btn btn-ghost" href="{% url 'account_settings' %}">Настройки</a>
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button class="btn btn-ghost" type="submit">Выйти</button>
+                </form>
+            </div>
+        </div>
         <h1>MP SaaS Dashboard</h1>
         <p>
             Главная страница сервиса. Здесь будут размещены аналитические графики,
             таблицы и обзор ключевых метрик. Сейчас доступен первый рабочий отчёт.
         </p>
+        {% if missing_api_token %}
+            <div class="hint-banner">
+                Добавьте API-ключ в <a href="{% url 'account_settings' %}">настройках аккаунта</a>, чтобы начать синхронизацию данных.
+            </div>
+        {% endif %}
+        {% if messages %}
+            {% for message in messages %}
+                <div class="hint-banner {% if message.tags == 'error' %}hint-banner-error{% elif message.tags == 'success' %}hint-banner-success{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
         <section class="metrics">
             <article class="metric-card">
                 <p class="metric-title">% локальных заказов (последние 7 полных дней)</p>
@@ -244,7 +320,7 @@
                     </p>
                 {% else %}
                     <p class="metric-value">-</p>
-                    <p class="metric-meta">Нет данных по продавцу</p>
+                    <p class="metric-meta">Для этого пользователя ещё не назначен кабинет продавца.</p>
                 {% endif %}
             </article>
         </section>
@@ -260,6 +336,11 @@
             </div>
         </section>
         <div class="actions">
+            <form method="post" action="{% url 'home' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="sync_orders">
+                <button class="btn" type="submit">Синхронизировать заказы</button>
+            </form>
             <a class="btn" href="{% url 'replenishment_report' %}">Открыть отчёт пополнения</a>
         </div>
         <span class="pill">Раздел в разработке</span>

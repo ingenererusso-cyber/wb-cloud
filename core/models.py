@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.db import models
 
 class SellerAccount(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, related_name="seller_account")
     name = models.CharField(max_length=255)
     api_token = models.CharField(max_length=500)
 

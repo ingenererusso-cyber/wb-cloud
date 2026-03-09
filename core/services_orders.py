@@ -19,7 +19,7 @@ def _to_aware_datetime(value, default_tz):
     return dt
 
 
-def sync_fbw_orders(seller: SellerAccount, days_back: int = 90):
+def sync_fbw_orders(seller: SellerAccount, days_back: int = 175):
     """
     Загружает заказы за последние days_back дней.
     """
@@ -30,8 +30,6 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 90):
     date_from = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
     rows = client.get_orders(date_from=date_from)
-
-    print(f"Получено заказов: {len(rows)}")
 
     for r in rows:
         is_fbw = r.get("warehouseType") == "Склад WB"
@@ -58,3 +56,5 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 90):
                 "is_local": is_local,
             }
         )
+
+    return len(rows)

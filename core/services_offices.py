@@ -24,4 +24,4 @@ def sync_wb_offices(seller):
     # После обновления справочника складов сбрасываем кеш матчинга.
     clear_offices_cache()
 
-    print(f"Складов синхронизировано: {len(offices)}")
+    return len(offices)
