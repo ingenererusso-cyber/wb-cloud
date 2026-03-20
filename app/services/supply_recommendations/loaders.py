@@ -595,11 +595,14 @@ def list_available_transit_warehouses(seller: SellerAccount | None = None) -> Li
 
 
 def _resolve_target_region(row: TransitDirectionTariff) -> str | None:
+    target_warehouse = _normalize_str(row.target_warehouse)
+    if "шушар" in target_warehouse.lower().replace("ё", "е"):
+        return "Северо-Западный федеральный округ"
+
     target_region = _normalize_str(row.target_region)
     if target_region:
         return normalize_district(target_region) or target_region
 
-    target_warehouse = _normalize_str(row.target_warehouse)
     if not target_warehouse:
         return None
 

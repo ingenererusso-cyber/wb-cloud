@@ -94,10 +94,12 @@ def _normalize_target_region_for_known_warehouses(target_warehouse: str, target_
     """
     Исправляет известные аномалии определения региона склада назначения.
 
-    Шушары относятся к СЗФО. Если по ошибке получился "Восток" — заменяем.
+    Шушары относятся к СЗФО. Иногда WB/справочник возвращает некорректный округ
+    (например, "Восток" или "Центральный федеральный округ"), поэтому для Шушар
+    принудительно ставим СЗФО.
     """
     normalized_warehouse = _normalize_text(target_warehouse).lower().replace("ё", "е")
-    if "шушар" in normalized_warehouse and _normalize_text(target_region) == "Восток":
+    if "шушар" in normalized_warehouse:
         return "Северо-Западный федеральный округ"
     return target_region
 
