@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Коэффициенты приёмки</title>
+    <style>
+        :root {
+            --ink: #132033;
+            --muted: #5a6778;
+            --accent: #14532d;
+            --accent-2: #065f46;
+            --line: rgba(19, 32, 51, 0.12);
+            --surface: rgba(255, 255, 255, 0.9);
+            --shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+            padding: 20px;
+        }
+
+        .page {
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+            padding: 18px;
+            overflow: hidden;
+        }
+
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        h1 { margin: 0; font-size: 30px; }
+
+        .btn {
+            text-decoration: none;
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+            border-radius: 12px;
+            padding: 10px 16px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-ghost {
+            color: var(--ink);
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+
+        .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+        .filters {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: end;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.74);
+            margin-bottom: 10px;
+        }
+
+        .field { display: grid; gap: 4px; }
+        .field label { font-size: 12px; color: var(--muted); }
+        .field input, .field select {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 14px;
+            background: #fff;
+        }
+
+        .messages { margin: 8px 0; display: grid; gap: 6px; }
+        .msg {
+            border-radius: 10px;
+            padding: 9px 11px;
+            font-size: 14px;
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+        .msg.success { border-color: #bbf7d0; background: #dcfce7; color: #166534; }
+        .msg.error { border-color: #fecaca; background: #fee2e2; color: #991b1b; }
+
+        .table-scroll {
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+        }
+
+        table {
+            border-collapse: separate;
+            border-spacing: 0;
+            min-width: 1550px;
+            width: 100%;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--line);
+            padding: 10px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        th.warehouse-head {
+            left: 0;
+            z-index: 4;
+            text-align: left;
+            min-width: 250px;
+        }
+
+        tbody td, tbody th {
+            border-bottom: 1px solid var(--line);
+            padding: 8px 10px;
+            background: #fff;
+            vertical-align: top;
+        }
+
+        tbody th {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            min-width: 250px;
+            text-align: left;
+            font-size: 22px;
+            background: #fcfdff;
+        }
+
+        .cell {
+            min-width: 260px;
+            display: grid;
+            gap: 7px;
+        }
+
+        .block {
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            border-radius: 10px;
+            padding: 6px 8px;
+            background: rgba(248, 250, 252, 0.7);
+        }
+
+        .block-title {
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 3px;
+        }
+
+        .block-value {
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .coef {
+            margin-top: 3px;
+            display: inline-block;
+            font-size: 11px;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: #fee2e2;
+            color: #b91c1c;
+            font-weight: 700;
+        }
+
+        .pill {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid;
+        }
+        .pill-ok { background: #dcfce7; color: #166534; border-color: #86efac; }
+        .pill-warn { background: #e5e7eb; color: #111827; border-color: #d1d5db; }
+        .pill-bad { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+        .pill-neutral { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
+
+        .muted { color: var(--muted); font-size: 13px; }
+    </style>
+</head>
+<body>
+<main class="page">
+    <div class="top">
+        <h1>Тарифы на поставку: коэффициенты</h1>
+        <div class="actions">
+            <a class="btn btn-ghost" href="{% url 'home' %}">На главную</a>
+            <form method="post" action="{% url 'acceptance_coefficients_report' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="sync_acceptance">
+                <button class="btn" type="submit">Синхронизировать коэффициенты</button>
+            </form>
+        </div>
+    </div>
+
+    <form method="get" action="{% url 'acceptance_coefficients_report' %}" class="filters">
+        <div class="field">
+            <label for="date_from">Дата с</label>
+            <input id="date_from" type="date" name="date_from" value="{{ date_from }}">
+        </div>
+        <div class="field">
+            <label for="date_to">Дата по</label>
+            <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
+        </div>
+        <div class="field">
+            <label for="box_type">Тип поставки</label>
+            <select id="box_type" name="box_type">
+                <option value="2" {% if box_type == "2" %}selected{% endif %}>Короба</option>
+                <option value="5" {% if box_type == "5" %}selected{% endif %}>Монопаллеты</option>
+                <option value="6" {% if box_type == "6" %}selected{% endif %}>Суперсейф</option>
+                <option value="all" {% if box_type == "all" %}selected{% endif %}>Все типы</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="warehouse">Склад</label>
+            <input id="warehouse" type="text" name="warehouse" value="{{ warehouse_query }}" placeholder="Все склады">
+        </div>
+        <div class="field">
+            <label><input type="checkbox" name="only_available" value="1" {% if only_available %}checked{% endif %}> Только доступные к отгрузке</label>
+            <label><input type="checkbox" name="hide_sc" value="1" {% if hide_sc %}checked{% endif %}> Скрыть СЦ</label>
+        </div>
+        <button class="btn btn-ghost" type="submit">Применить</button>
+    </form>
+
+    {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="msg {% if message.tags == 'success' %}success{% elif message.tags == 'error' %}error{% endif %}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="muted">Таблица прокручивается вправо. Показаны даты из выбранного диапазона.</p>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th class="warehouse-head">Склад</th>
+                    {% for d in date_columns %}
+                        <th>{{ d|date:"d.m, D" }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in warehouse_rows %}
+                    <tr>
+                        <th>{{ row.warehouse_name }}</th>
+                        {% for cell in row.cells %}
+                            <td>
+                                {% if cell %}
+                                    <div class="cell">
+                                        <div class="block">
+                                            <div class="block-title">Приёмка</div>
+                                            <div class="block-value"><span class="pill {{ cell.acceptance_class }}">{{ cell.acceptance_label }}</span></div>
+                                        </div>
+                                        <div class="block">
+                                            <div class="block-title">Логистика, ₽ (1-й / доп. литр)</div>
+                                            <div class="block-value">{{ cell.logistics_text }}</div>
+                                            {% if cell.logistics_coef_text %}<span class="coef">{{ cell.logistics_coef_text }}</span>{% endif %}
+                                        </div>
+                                        <div class="block">
+                                            <div class="block-title">Хранение, ₽ (1-й / доп. литр)</div>
+                                            <div class="block-value">{{ cell.storage_text }}</div>
+                                            {% if cell.storage_coef_text %}<span class="coef">{{ cell.storage_coef_text }}</span>{% endif %}
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <span class="muted">—</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <th>Нет данных</th>
+                        <td colspan="{{ date_columns|length }}">Сделайте синхронизацию или измените фильтры.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</main>
+</body>
+</html>

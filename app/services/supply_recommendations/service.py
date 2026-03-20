@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+from datetime import date
+
+from app.services.supply_recommendations.calculators import calculate_local_share
+from app.services.supply_recommendations.loaders import (
+    build_default_warehouse_coefficients,
+    calculate_theoretical_logistics_sum_for_period,
+    estimate_base_logistics_per_order_from_tariffs,
+    get_warehouse_logistics_coef,
+    list_available_transit_warehouses,
+    list_regular_warehouses,
+    load_transit_tariffs_from_directions,
+    load_transit_tariffs_for_transit_warehouse,
+    load_transit_tariff_options_for_transit_warehouse,
+    load_transit_tariffs_from_tariffs,
+    load_warehouse_coefficients_from_tariffs,
+    load_order_aggregates,
+)
+from app.services.supply_recommendations.recommendations import build_supply_recommendations, get_ktr_for_share
+from app.services.supply_recommendations.serializers import serialize_recommendations_for_dashboard
+from core.models import SellerAccount
+
+
+def get_dashboard_supply_recommendations(
+    date_from: date,
+    date_to: date,
+    seller: SellerAccount | None = None,
+    transit_warehouse: str | None = None,
+    main_warehouse: str | None = None,
+    base_logistics_per_order: float | None = None,
+    penalty_factor: float = 1.0,
+) -> dict:
+    """
+    Service-layer facade for dashboard recommendations API.
+
+    Loads source data, builds recommendations and returns serialized payload.
+    """
+    order_aggregates = load_order_aggregates(date_from=date_from, date_to=date_to, seller=seller)
+    if not order_aggregates:
+        return serialize_recommendations_for_dashboard([])
+
+    total_orders = sum(max(item.orders_count, 0) for item in order_aggregates)
+    current_local_orders = sum(
+        max(min(item.local_orders_count, item.orders_count), 0)
+        for item in order_aggregates
+    )
+
+    selected_main_warehouse = (main_warehouse or "").strip() or None
+    warehouse_coefficients = load_warehouse_coefficients_from_tariffs(
+        order_aggregates,
+        seller=seller,
+        extra_warehouses=[selected_main_warehouse] if selected_main_warehouse else None,
+    )
+    if transit_warehouse:
+        transit_tariff_options_by_region = load_transit_tariff_options_for_transit_warehouse(
+            transit_warehouse=transit_warehouse,
+            order_aggregates=order_aggregates,
+            seller=seller,
+        )
+        transit_tariffs = load_transit_tariffs_for_transit_warehouse(
+            transit_warehouse=transit_warehouse,
+            order_aggregates=order_aggregates,
+            seller=seller,
+        )
+    else:
+        transit_tariff_options_by_region = {}
+        transit_tariffs = load_transit_tariffs_from_directions(order_aggregates, seller=seller)
+        if not transit_tariffs:
+            transit_tariffs = load_transit_tariffs_from_tariffs(order_aggregates, seller=seller)
+    if not warehouse_coefficients:
+        warehouse_coefficients = build_default_warehouse_coefficients(order_aggregates)
+
+    effective_base_logistics = (
+        float(base_logistics_per_order)
+        if base_logistics_per_order is not None
+        else estimate_base_logistics_per_order_from_tariffs(
+            order_aggregates=order_aggregates,
+            seller=seller,
+            fallback_value=50.0,
+        )
+    )
+
+    baseline_warehouse_coef = 1.0
+    if selected_main_warehouse:
+        loaded_coef = get_warehouse_logistics_coef(
+            warehouse_name=selected_main_warehouse,
+            order_aggregates=order_aggregates,
+            seller=seller,
+        )
+        if loaded_coef is not None and loaded_coef > 0:
+            baseline_warehouse_coef = loaded_coef
+
+    current_theoretical_logistics_sum = calculate_theoretical_logistics_sum_for_period(
+        date_from=date_from,
+        date_to=date_to,
+        seller=seller,
+    )
+
+    results = build_supply_recommendations(
+        order_aggregates=order_aggregates,
+        warehouse_coefficients=warehouse_coefficients,
+        transit_tariffs=transit_tariffs,
+        base_logistics_per_order=effective_base_logistics,
+        penalty_factor=penalty_factor,
+        baseline_warehouse_coef=baseline_warehouse_coef,
+        as_of_date=date_to,
+        current_theoretical_logistics_sum=current_theoretical_logistics_sum,
+        missing_transit_comment=(
+            "Для этого направления нет тарифа с выбранного транзитного склада. Выберите другой транзитный склад."
+            if transit_warehouse else None
+        ),
+        transit_tariff_options_by_region=transit_tariff_options_by_region,
+    )
+    payload = serialize_recommendations_for_dashboard(results)
+    # Суммарный плюс считаем как единый общий эффект локализации:
+    # в локальные переводятся только нелокальные заказы регионов с recommended=True.
+    if total_orders > 0:
+        recommended_non_local_orders = sum(
+            max(int(item.non_local_orders), 0)
+            for item in results
+            if item.recommended
+        )
+        current_share = calculate_local_share(total_orders, min(current_local_orders, total_orders))
+        projected_local_orders = min(current_local_orders + recommended_non_local_orders, total_orders)
+        projected_share = calculate_local_share(total_orders, projected_local_orders)
+        current_index = get_ktr_for_share(current_share * 100.0, as_of_date=date_to)
+        projected_index = get_ktr_for_share(projected_share * 100.0, as_of_date=date_to)
+        current_total_cost = round(float(current_theoretical_logistics_sum) * float(current_index), 2)
+        projected_total_cost = round(float(current_theoretical_logistics_sum) * float(projected_index), 2)
+        payload["summary"]["total_positive_effect"] = round(current_total_cost - projected_total_cost, 2)
+        payload["summary"]["recommended_non_local_orders"] = int(recommended_non_local_orders)
+        payload["summary"]["current_local_share_percent"] = round(current_share * 100.0, 2)
+        payload["summary"]["current_localization_index"] = round(float(current_index), 4)
+        payload["summary"]["projected_local_share_percent"] = round(projected_share * 100.0, 2)
+        payload["summary"]["projected_localization_index"] = round(float(projected_index), 4)
+    else:
+        payload["summary"]["total_positive_effect"] = 0.0
+        payload["summary"]["recommended_non_local_orders"] = 0
+        payload["summary"]["current_local_share_percent"] = 0.0
+        payload["summary"]["current_localization_index"] = 0.0
+        payload["summary"]["projected_local_share_percent"] = 0.0
+        payload["summary"]["projected_localization_index"] = 0.0
+
+    payload["summary"]["selected_transit_warehouse"] = transit_warehouse or ""
+    payload["summary"]["selected_main_warehouse"] = selected_main_warehouse or ""
+    payload["summary"]["available_transit_warehouses"] = list_available_transit_warehouses(seller=seller)
+    payload["summary"]["available_main_warehouses"] = list_regular_warehouses(seller=seller)
+    payload["summary"]["base_logistics_per_order"] = round(effective_base_logistics, 2)
+    return payload

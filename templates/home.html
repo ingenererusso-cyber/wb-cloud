@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MP SaaS</title>
+    <title>Vendra dashboard</title>
     <style>
         :root {
             --ink: #132033;
@@ -42,6 +42,110 @@
             box-shadow: var(--shadow);
             padding: 34px 30px;
             animation: rise .6s ease-out;
+        }
+
+        .nav-shell {
+            width: min(1280px, 100%);
+            margin: 0 auto 12px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 10px 22px rgba(19, 39, 60, 0.1);
+            position: relative;
+            z-index: 20;
+        }
+
+        .wb-nav {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            flex-wrap: wrap;
+        }
+
+        .home-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            color: var(--ink);
+            font-size: 14px;
+            font-weight: 700;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 8px 10px;
+            background: #fff;
+            white-space: nowrap;
+        }
+
+        .menu-item {
+            position: relative;
+            padding-bottom: 8px;
+            margin-bottom: -8px;
+        }
+
+        .menu-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            color: var(--ink);
+            font-size: 14px;
+            font-weight: 700;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            padding: 8px 12px;
+            white-space: nowrap;
+        }
+
+        .menu-link:hover,
+        .menu-item:hover > .menu-link,
+        .menu-item:focus-within > .menu-link {
+            border-color: var(--line);
+            background: #fff;
+        }
+
+        .mega {
+            display: none;
+            position: absolute;
+            left: 0;
+            top: 100%;
+            min-width: 700px;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            box-shadow: 0 14px 26px rgba(19, 39, 60, 0.14);
+            padding: 14px 16px;
+            z-index: 30;
+        }
+
+        .menu-item:hover .mega,
+        .menu-item:focus-within .mega {
+            display: block;
+        }
+
+        .mega-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(170px, 1fr));
+            gap: 16px;
+        }
+
+        .mega-col h4 {
+            margin: 0 0 8px;
+            font-size: 14px;
+            color: var(--ink);
+        }
+
+        .mega-col a {
+            display: block;
+            text-decoration: none;
+            color: #1f2a37;
+            font-size: 14px;
+            padding: 6px 0;
+        }
+
+        .mega-col a:hover {
+            color: #065f46;
         }
 
         .topbar {
@@ -120,6 +224,12 @@
             border-color: #bbf7d0;
             background: #dcfce7;
             color: #166534;
+        }
+
+        .hint-banner-info {
+            border-color: #bfdbfe;
+            background: #dbeafe;
+            color: #1e3a8a;
         }
 
         .metric-title {
@@ -216,6 +326,46 @@
             font-size: 13px;
         }
 
+        .bar-chart {
+            display: grid;
+            gap: 10px;
+            padding: 4px 2px;
+        }
+
+        .bar-row {
+            display: grid;
+            grid-template-columns: minmax(110px, 1.1fr) minmax(160px, 3fr) auto;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .bar-label {
+            font-size: 12px;
+            color: var(--ink);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .bar-track {
+            height: 14px;
+            border-radius: 999px;
+            background: rgba(19, 32, 51, 0.1);
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%);
+        }
+
+        .bar-value {
+            font-size: 12px;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
         .btn {
             text-decoration: none;
             color: #fff;
@@ -264,9 +414,83 @@
                 transform: translateY(0);
             }
         }
+
+        @media (max-width: 900px) {
+            .mega {
+                min-width: 280px;
+                max-width: min(90vw, 420px);
+            }
+
+            .mega-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
+    <div class="nav-shell">
+        <nav class="wb-nav" aria-label="Основное меню">
+            <a class="home-link" href="{% url 'home' %}">⌂ На главную</a>
+
+            <div class="menu-item">
+                <a class="menu-link" href="{% url 'home' %}">Аналитика</a>
+                <div class="mega">
+                    <div class="mega-grid">
+                        <div class="mega-col">
+                            <h4>Дашборд</h4>
+                            <a href="{% url 'home' %}">Главные метрики</a>
+                            <a href="{% url 'home' %}#local-orders-chart">Динамика локальности</a>
+                            <a href="{% url 'home' %}#fact-localization-index-chart">Фактический ИЛ</a>
+                        </div>
+                        <div class="mega-col">
+                            <h4>Отчёты</h4>
+                            <a href="{% url 'replenishment_report' %}">Отчёт пополнения</a>
+                            <a href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
+                        </div>
+                        <div class="mega-col">
+                            <h4>Справочники</h4>
+                            <a href="{% url 'acceptance_coefficients_report' %}">Коэффициенты приёмки</a>
+                            <a href="{% url 'account_settings' %}">Настройки API</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
+                <div class="mega">
+                    <div class="mega-grid">
+                        <div class="mega-col">
+                            <h4>Поставки</h4>
+                            <a href="{% url 'supply_recommendations_report' %}">Сценарии поставок</a>
+                            <a href="{% url 'acceptance_coefficients_report' %}">Тарифы на поставку</a>
+                        </div>
+                        <div class="mega-col">
+                            <h4>Запасы</h4>
+                            <a href="{% url 'replenishment_report' %}">Пополнение по регионам</a>
+                        </div>
+                        <div class="mega-col">
+                            <h4>Операции</h4>
+                            <a href="#" id="sync-menu-link">Синхронизировать данные</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="{% url 'account_settings' %}">Аккаунт</a>
+                <div class="mega">
+                    <div class="mega-grid">
+                        <div class="mega-col">
+                            <h4>Профиль</h4>
+                            <a href="{% url 'account_settings' %}">Настройки кабинета</a>
+                            <a href="{% url 'logout' %}">Выход</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </div>
     <main class="hero">
         <div class="topbar">
             <span class="user-badge">Пользователь: {{ request.user.username }}</span>
@@ -278,10 +502,9 @@
                 </form>
             </div>
         </div>
-        <h1>MP SaaS Dashboard</h1>
+        <h1>Vendra dashboard</h1>
         <p>
-            Главная страница сервиса. Здесь будут размещены аналитические графики,
-            таблицы и обзор ключевых метрик. Сейчас доступен первый рабочий отчёт.
+            Здесь размещаются аналитические графики, таблицы и обзор ключевых метрик.
         </p>
         {% if missing_api_token %}
             <div class="hint-banner">
@@ -295,6 +518,7 @@
                 </div>
             {% endfor %}
         {% endif %}
+        <div id="sync-status-banner" class="hint-banner hint-banner-info" style="display:none;"></div>
         <section class="metrics">
             <article class="metric-card">
                 <p class="metric-title">% локальных заказов (последние 7 полных дней)</p>
@@ -335,17 +559,53 @@
                 <svg id="local-orders-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
             </div>
         </section>
+        <section class="chart-card">
+            <div class="chart-head">
+                <p class="chart-title">Фактический индекс локализации (выкупленные заказы) по полным неделям</p>
+                {% if fact_localization_index_trend.start_label and fact_localization_index_trend.end_label %}
+                    <p class="chart-range">{{ fact_localization_index_trend.start_label }} - {{ fact_localization_index_trend.end_label }}</p>
+                {% endif %}
+            </div>
+            <div class="chart-wrap">
+                <svg id="fact-localization-index-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
+            </div>
+        </section>
+        <section class="chart-card">
+            <div class="chart-head">
+                <p class="chart-title">Теоретический индекс локализации (13 недель, аппроксимация WB)</p>
+                {% if theoretical_localization_index_trend.start_label and theoretical_localization_index_trend.end_label %}
+                    <p class="chart-range">{{ theoretical_localization_index_trend.start_label }} - {{ theoretical_localization_index_trend.end_label }}</p>
+                {% endif %}
+            </div>
+            <div class="chart-wrap">
+                <svg id="theoretical-localization-index-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
+            </div>
+        </section>
+        <section class="chart-card">
+            <div class="chart-head">
+                <p class="chart-title">Топ-5 oblast_okrug_name по нелокальным заказам (приоритет пополнения)</p>
+                {% if top_non_local_districts.date_from and top_non_local_districts.date_to %}
+                    <p class="chart-range">
+                        {{ top_non_local_districts.date_from|date:"d.m.Y" }} - {{ top_non_local_districts.date_to|date:"d.m.Y" }}
+                    </p>
+                {% endif %}
+            </div>
+            <div class="chart-wrap">
+                <div id="non-local-districts-chart" class="bar-chart"></div>
+            </div>
+        </section>
         <div class="actions">
-            <form method="post" action="{% url 'home' %}">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="sync_orders">
-                <button class="btn" type="submit">Синхронизировать заказы</button>
-            </form>
+            <button class="btn" type="button" id="sync-orders-btn">Синхронизировать заказы</button>
+            <a class="btn" href="{% url 'acceptance_coefficients_report' %}">Коэффициенты приёмки</a>
+            <a class="btn" href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
             <a class="btn" href="{% url 'replenishment_report' %}">Открыть отчёт пополнения</a>
         </div>
         <span class="pill">Раздел в разработке</span>
     </main>
     {{ local_orders_trend|json_script:"local-orders-trend-data" }}
+    {{ fact_localization_index_trend|json_script:"fact-localization-index-trend-data" }}
+    {{ theoretical_localization_index_trend|json_script:"theoretical-localization-index-trend-data" }}
+    {{ top_non_local_districts|json_script:"top-non-local-districts-data" }}
     <script>
         function renderLineChart(config) {
             const svg = document.getElementById(config.svgId);
@@ -448,6 +708,147 @@
             tickFormatter: (v) => `${Math.round(v)}%`,
             titleFormatter: (p) => `${p.label}: ${p.percent}% (${p.local_orders}/${p.total_orders})`,
         });
+
+        const factLocalizationIndexTrendData = JSON.parse(
+            document.getElementById("fact-localization-index-trend-data").textContent || '{"points": []}'
+        );
+        renderLineChart({
+            svgId: "fact-localization-index-chart",
+            data: factLocalizationIndexTrendData,
+            valueKey: "fact_index",
+            minValue: 0.8,
+            maxValue: 1.8,
+            minRange: 0.3,
+            tickFormatter: (v) => v.toFixed(2),
+            titleFormatter: (p) => `${p.label}: ${Number(p.fact_index).toFixed(3)} (строк: ${p.rows_considered})`,
+        });
+
+        const theoreticalLocalizationIndexTrendData = JSON.parse(
+            document.getElementById("theoretical-localization-index-trend-data").textContent || '{"points": []}'
+        );
+        renderLineChart({
+            svgId: "theoretical-localization-index-chart",
+            data: theoreticalLocalizationIndexTrendData,
+            valueKey: "theoretical_index",
+            minValue: 0.8,
+            maxValue: 1.8,
+            minRange: 0.3,
+            tickFormatter: (v) => v.toFixed(2),
+            titleFormatter: (p) => `${p.label}: ${Number(p.theoretical_index).toFixed(3)} (13н заказов: ${p.orders_total_13w})`,
+        });
+
+        function renderTopNonLocalDistricts(data) {
+            const container = document.getElementById("non-local-districts-chart");
+            const points = (data && data.points) ? data.points : [];
+            if (!points.length) {
+                container.outerHTML = '<div class="chart-empty">Недостаточно данных для диаграммы</div>';
+                return;
+            }
+
+            const maxValue = Math.max(...points.map((p) => Number(p.non_local_orders) || 0), 1);
+            container.innerHTML = points
+                .map((p) => {
+                    const value = Number(p.non_local_orders) || 0;
+                    const width = Math.max((value / maxValue) * 100, 2);
+                    return `
+                        <div class="bar-row">
+                            <div class="bar-label" title="${p.district_name}">${p.district_name}</div>
+                            <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+                            <div class="bar-value">${value} (${p.non_local_share}%)</div>
+                        </div>
+                    `;
+                })
+                .join("");
+        }
+
+        const topNonLocalDistrictsData = JSON.parse(
+            document.getElementById("top-non-local-districts-data").textContent || '{"points":[]}'
+        );
+        renderTopNonLocalDistricts(topNonLocalDistrictsData);
+
+        const syncBtn = document.getElementById("sync-orders-btn");
+        const syncBanner = document.getElementById("sync-status-banner");
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) {
+                return parts.pop().split(";").shift();
+            }
+            return "";
+        }
+
+        function setSyncBanner(text, mode) {
+            syncBanner.style.display = "block";
+            syncBanner.classList.remove("hint-banner-info", "hint-banner-error", "hint-banner-success");
+            syncBanner.classList.add(mode || "hint-banner-info");
+            syncBanner.textContent = text;
+        }
+
+        async function pollSyncStatus(taskId) {
+            const statusUrl = `{% url 'sync_orders_status_api' %}?task_id=${encodeURIComponent(taskId)}`;
+            try {
+                const res = await fetch(statusUrl, { headers: { "Accept": "application/json" } });
+                const data = await res.json();
+                if (!res.ok) {
+                    setSyncBanner(`Ошибка статуса: ${data.error || "не удалось получить статус"}`, "hint-banner-error");
+                    syncBtn.disabled = false;
+                    return;
+                }
+
+                const progress = Number(data.progress || 0);
+                const step = data.step ? `${data.step}. ` : "";
+                setSyncBanner(`${step}${data.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
+
+                if (data.status === "running") {
+                    window.setTimeout(() => pollSyncStatus(taskId), 2000);
+                    return;
+                }
+
+                if (data.status === "success") {
+                    setSyncBanner(data.message || "Синхронизация завершена.", "hint-banner-success");
+                } else {
+                    setSyncBanner(data.message || "Ошибка синхронизации.", "hint-banner-error");
+                }
+                syncBtn.disabled = false;
+            } catch (err) {
+                setSyncBanner("Ошибка сети при проверке статуса синхронизации.", "hint-banner-error");
+                syncBtn.disabled = false;
+            }
+        }
+
+        async function startSyncOrders() {
+            syncBtn.disabled = true;
+            setSyncBanner("Запускаю синхронизацию...", "hint-banner-info");
+            try {
+                const res = await fetch("{% url 'sync_orders_start_api' %}", {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCookie("csrftoken"),
+                        "Accept": "application/json",
+                    },
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    setSyncBanner(`Ошибка запуска: ${data.error || "не удалось запустить синхронизацию"}`, "hint-banner-error");
+                    syncBtn.disabled = false;
+                    return;
+                }
+                pollSyncStatus(data.task_id);
+            } catch (err) {
+                setSyncBanner("Ошибка сети при запуске синхронизации.", "hint-banner-error");
+                syncBtn.disabled = false;
+            }
+        }
+
+        syncBtn.addEventListener("click", startSyncOrders);
+        const syncMenuLink = document.getElementById("sync-menu-link");
+        if (syncMenuLink) {
+            syncMenuLink.addEventListener("click", (event) => {
+                event.preventDefault();
+                startSyncOrders();
+            });
+        }
     </script>
 </body>
 </html>

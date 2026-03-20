@@ -33,14 +33,18 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 175):
 
     for r in rows:
         is_fbw = r.get("warehouseType") == "Склад WB"
-        is_local = determine_locality(r["warehouseName"], r.get("oblastOkrugName")) if is_fbw else False
+        oblast_okrug_name = (r.get("oblastOkrugName") or "").strip()
+        if not oblast_okrug_name:
+            oblast_okrug_name = (r.get("countryName") or "").strip()
+
+        is_local = determine_locality(r["warehouseName"], oblast_okrug_name) if is_fbw else False
         order_date = _to_aware_datetime(r.get("date"), default_tz)
         last_change_date = _to_aware_datetime(r.get("lastChangeDate"), default_tz)
 
         Order.objects.update_or_create(
-            srid=r["srid"],  # уникальный ID заказа
+            seller=seller,
+            srid=r["srid"],  # уникальный ID заказа в рамках seller
             defaults={
-                "seller": seller,
                 "nm_id": r["nmId"],
                 "supplier_article": r["supplierArticle"],
                 "tech_size": r["techSize"],
@@ -48,7 +52,7 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 175):
                 "warehouse_type": r["warehouseType"],
                 "region_name": r.get("regionName"),
                 "country_name": r.get("countryName"),
-                "oblast_okrug_name": r.get("oblastOkrugName"),
+                "oblast_okrug_name": oblast_okrug_name or None,
                 "is_cancel": r["isCancel"],
                 "finished_price": r.get("finishedPrice"),
                 "order_date": order_date,

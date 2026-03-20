@@ -17,13 +17,27 @@ Including another URLconf
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path
-from core.views import account_settings, home, replenishment_report
+from core.views import (
+    account_settings,
+    acceptance_coefficients_report,
+    dashboard_supply_recommendations_api,
+    home,
+    replenishment_report,
+    sync_orders_start_api,
+    sync_orders_status_api,
+    supply_recommendations_report,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('account/settings/', account_settings, name='account_settings'),
+    path('api/sync/orders/start/', sync_orders_start_api, name='sync_orders_start_api'),
+    path('api/sync/orders/status/', sync_orders_status_api, name='sync_orders_status_api'),
+    path('acceptance_coefficients/', acceptance_coefficients_report, name='acceptance_coefficients_report'),
+    path('api/dashboard/supply-recommendations/', dashboard_supply_recommendations_api, name='dashboard_supply_recommendations_api'),
+    path('supply_recommendations/', supply_recommendations_report, name='supply_recommendations_report'),
     path('', home, name='home'),
     path('replenishment_report/', replenishment_report, name='replenishment_report'),
 ]

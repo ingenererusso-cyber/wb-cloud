@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Рекомендации к поставкам</title>
+    <style>
+        :root {
+            --bg: #f4f6f8;
+            --surface: #ffffff;
+            --text: #17212b;
+            --muted: #66727f;
+            --line: #e3e8ee;
+            --primary: #0f766e;
+            --good: #166534;
+            --bad: #991b1b;
+            --shadow: 0 8px 22px rgba(19, 39, 60, 0.08);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 20% 10%, #dff7f3 0%, transparent 32%),
+                radial-gradient(circle at 80% 0%, #eaf4ff 0%, transparent 28%),
+                var(--bg);
+            min-height: 100vh;
+            padding: 24px 14px 40px;
+        }
+
+        .container { max-width: 1260px; margin: 0 auto; }
+
+        .header {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        h1 { margin: 0; font-size: 28px; line-height: 1.2; }
+
+        .controls {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: end;
+            gap: 10px;
+            padding: 10px 12px;
+            flex-wrap: wrap;
+        }
+
+        .field { display: grid; gap: 4px; }
+        .field label { font-size: 13px; color: var(--muted); }
+
+        .field input,
+        .field select {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: #fff;
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .btn {
+            text-decoration: none;
+            color: #0f172a;
+            border: 1px solid var(--line);
+            background: #fff;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+            font-weight: 700;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .summary-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 12px;
+        }
+
+        .summary-card .k { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+        .summary-card .v { font-size: 24px; font-weight: 700; }
+        .summary-card .sub { font-size: 14px; color: var(--text); margin-top: 2px; }
+        .v.good { color: var(--good); }
+        .v.bad { color: var(--bad); }
+
+        .table-wrap {
+            overflow-x: auto;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+        }
+
+        table { width: 100%; border-collapse: collapse; min-width: 980px; }
+
+        thead th {
+            text-align: left;
+            font-size: 13px;
+            color: var(--muted);
+            background: #f8fafc;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        thead th[title] { cursor: help; }
+
+        tbody td {
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--line);
+            font-size: 14px;
+        }
+
+        tbody tr:hover td { background: #f9fcff; }
+
+        .align-right { text-align: right; white-space: nowrap; }
+        .status { margin: 10px 0; color: var(--muted); font-size: 14px; }
+        .pill { padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+        .pill-yes { background: #dcfce7; color: #166534; }
+        .pill-no { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Рекомендации к поставкам</h1>
+            <div class="controls">
+                <a class="btn" href="{% url 'home' %}">На главную</a>
+                <a class="btn" href="{% url 'replenishment_report' %}">Отчёт пополнения</a>
+                <div class="field">
+                    <label for="dateFrom">Дата с</label>
+                    <input id="dateFrom" type="date" value="{{ default_date_from }}">
+                </div>
+                <div class="field">
+                    <label for="dateTo">Дата по</label>
+                    <input id="dateTo" type="date" value="{{ default_date_to }}">
+                </div>
+                <div class="field">
+                    <label for="transitWarehouse">Транзитный склад</label>
+                    <select id="transitWarehouse">
+                        <option value="">Не выбран</option>
+                        {% for w in transit_warehouses %}
+                            <option value="{{ w }}" {% if w == default_transit_warehouse %}selected{% endif %}>{{ w }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="mainWarehouse">Основной склад</label>
+                    <select id="mainWarehouse">
+                        <option value="">Не выбран</option>
+                        {% for w in main_warehouses %}
+                            <option value="{{ w }}" {% if w == default_main_warehouse %}selected{% endif %}>{{ w }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button id="loadBtn" class="btn btn-primary" type="button">Построить</button>
+            </div>
+        </div>
+
+        {% if not seller %}
+            <div class="status">Для пользователя не назначен SellerAccount: данные могут быть пустыми.</div>
+        {% endif %}
+
+        <div class="summary">
+            <div class="summary-card"><div class="k">Проверено регионов</div><div class="v" id="sumTotal">0</div></div>
+            <div class="summary-card"><div class="k">Рекомендовано регионов</div><div class="v" id="sumRecommended">0</div></div>
+            <div class="summary-card"><div class="k">Суммарный плюс, ₽</div><div class="v good" id="sumPlus">0</div></div>
+            <div class="summary-card">
+                <div class="k">Текущие метрики</div>
+                <div class="sub">Доля локальных: <strong id="sumCurrentShare">0%</strong></div>
+                <div class="sub">Индекс локализации: <strong id="sumCurrentIndex">0</strong></div>
+            </div>
+            <div class="summary-card">
+                <div class="k">Проектные метрики</div>
+                <div class="sub">Доля локальных: <strong id="sumProjectedShare">0%</strong></div>
+                <div class="sub">Индекс локализации: <strong id="sumProjectedIndex">0</strong></div>
+            </div>
+        </div>
+
+        <div id="status" class="status">Нажмите «Построить», чтобы загрузить рекомендации.</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th title="Регион (федеральный округ), для которого рассчитан сценарий поставки.">Регион</th>
+                        <th class="align-right" title="Количество заказов в регионе за выбранный период.">Заказы</th>
+                        <th class="align-right" title="Количество нелокальных заказов в регионе за выбранный период.">Нелокальные заказы</th>
+                        <th class="align-right" title="Текущая суммарная стоимость логистики в текущей модели работы, без нового размещения в регионе.">Тек. стоимость</th>
+                        <th class="align-right" title="Прогнозная суммарная стоимость после сценария поставки: новая глобальная логистика + транзит + стоимость обработки на целевом складе.">Прогноз. стоимость</th>
+                        <th class="align-right" title="Затраты на транзит коробов по выбранному направлению для объема заказов региона.">Транзит</th>
+                        <th class="align-right" title="Дополнительные затраты из-за более дорогого коэффициента целевого склада относительно базового.">Доп. склад</th>
+                        <th class="align-right" title="Экономия за счет роста локализации (снижения индекса локализации в модели).">Экономия локализации</th>
+                        <th class="align-right" title="Итоговый эффект = Тек. стоимость - Прогноз. стоимость. Плюс — выгодно, минус — невыгодно.">Net effect</th>
+                        <th title="Автоматическое решение по сценарию на основе Net effect.">Рекомендация</th>
+                        <th title="Пояснение, почему сценарий рекомендован, невыгоден или пограничный.">Комментарий</th>
+                    </tr>
+                </thead>
+                <tbody id="rows"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const dateFromEl = document.getElementById("dateFrom");
+        const dateToEl = document.getElementById("dateTo");
+        const transitWarehouseEl = document.getElementById("transitWarehouse");
+        const mainWarehouseEl = document.getElementById("mainWarehouse");
+        const loadBtn = document.getElementById("loadBtn");
+        const statusEl = document.getElementById("status");
+        const rowsEl = document.getElementById("rows");
+
+        const sumTotal = document.getElementById("sumTotal");
+        const sumRecommended = document.getElementById("sumRecommended");
+        const sumPlus = document.getElementById("sumPlus");
+        const sumCurrentShare = document.getElementById("sumCurrentShare");
+        const sumCurrentIndex = document.getElementById("sumCurrentIndex");
+        const sumProjectedShare = document.getElementById("sumProjectedShare");
+        const sumProjectedIndex = document.getElementById("sumProjectedIndex");
+
+        function fmtMoney(v) {
+            const num = Number(v);
+            return Number.isFinite(num) ? new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num) : "0.00";
+        }
+
+        function safe(value) {
+            return value === null || value === undefined || value === "" ? "-" : String(value);
+        }
+
+        function renderWarehouseOptions(regionRow) {
+            const options = Array.isArray(regionRow.warehouse_options) ? regionRow.warehouse_options : [];
+            if (!options.length) {
+                return `<span style="color:#66727f;font-size:12px">${safe(regionRow.target_warehouse_name)}</span>`;
+            }
+            return options.map((opt) => {
+                const isPrimary = String(opt.warehouse_name || "") === String(regionRow.target_warehouse_name || "");
+                return `<div style="margin-top:4px;line-height:1.25;${isPrimary ? "font-weight:700;" : ""}">
+                    ${safe(opt.warehouse_name)}:
+                    <span style="color:#66727f">транзит ${fmtMoney(opt.projected_transit_cost)},</span>
+                    <span style="color:#66727f">доп.склад ${fmtMoney(opt.projected_extra_warehouse_cost)},</span>
+                    <span style="color:#66727f">итого ${fmtMoney(opt.total_additional_cost)}</span>
+                </div>`;
+            }).join("");
+        }
+
+        function render(payload) {
+            const summary = payload.summary || {};
+            const regions = Array.isArray(payload.regions) ? payload.regions : [];
+
+            sumTotal.textContent = safe(summary.total_regions_checked || 0);
+            sumRecommended.textContent = safe(summary.recommended_regions || 0);
+            sumPlus.textContent = fmtMoney(summary.total_positive_effect || 0);
+            sumCurrentShare.textContent = `${safe(summary.current_local_share_percent || 0)}%`;
+            sumCurrentIndex.textContent = safe(summary.current_localization_index || 0);
+            sumProjectedShare.textContent = `${safe(summary.projected_local_share_percent || 0)}%`;
+            sumProjectedIndex.textContent = safe(summary.projected_localization_index || 0);
+
+            rowsEl.innerHTML = regions.map((r) => `
+                <tr>
+                    <td>${safe(r.region_name)}</td>
+                    <td class="align-right">${safe(r.orders_count)}</td>
+                    <td class="align-right">${safe(r.non_local_orders)}</td>
+                    <td class="align-right">${fmtMoney(r.current_total_cost)}</td>
+                    <td class="align-right">${fmtMoney(r.projected_total_cost)}</td>
+                    <td class="align-right">${fmtMoney(r.projected_transit_cost)}</td>
+                    <td class="align-right">${fmtMoney(r.projected_extra_warehouse_cost)}${renderWarehouseOptions(r)}</td>
+                    <td class="align-right">${fmtMoney(r.projected_localization_savings)}</td>
+                    <td class="align-right">${fmtMoney(r.net_effect)}</td>
+                    <td><span class="pill ${r.recommended ? "pill-yes" : "pill-no"}">${r.recommended ? "Да" : "Нет"}</span></td>
+                    <td>${safe(r.comment)}</td>
+                </tr>
+            `).join("");
+
+            if (!regions.length) {
+                rowsEl.innerHTML = '<tr><td colspan="11">Нет данных для выбранного периода.</td></tr>';
+            }
+        }
+
+        async function loadData() {
+            const dateFrom = dateFromEl.value;
+            const dateTo = dateToEl.value;
+            const transitWarehouse = transitWarehouseEl.value;
+            const mainWarehouse = mainWarehouseEl.value;
+
+            if (!dateFrom || !dateTo) {
+                statusEl.textContent = "Укажите даты date_from и date_to.";
+                return;
+            }
+
+            loadBtn.disabled = true;
+            statusEl.textContent = "Загрузка...";
+
+            try {
+                const params = new URLSearchParams({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                });
+                if (transitWarehouse) {
+                    params.set("transit_warehouse", transitWarehouse);
+                }
+                if (mainWarehouse) {
+                    params.set("main_warehouse", mainWarehouse);
+                }
+                const url = `/api/dashboard/supply-recommendations/?${params.toString()}`;
+                const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    statusEl.textContent = `Ошибка: ${safe(data.error || "не удалось загрузить рекомендации")}`;
+                    return;
+                }
+
+                render(data);
+                statusEl.textContent = transitWarehouse
+                    ? `Период: ${dateFrom} — ${dateTo}. Транзитный склад: ${transitWarehouse}.`
+                    : `Период: ${dateFrom} — ${dateTo}.`;
+            } catch (err) {
+                statusEl.textContent = "Ошибка сети при загрузке рекомендаций.";
+            } finally {
+                loadBtn.disabled = false;
+            }
+        }
+
+        loadBtn.addEventListener("click", loadData);
+        loadData();
+    </script>
+</body>
+</html>
