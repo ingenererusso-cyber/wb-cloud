@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from app.services.supply_recommendations.loaders import list_available_transit_warehouses, list_regular_warehouses
 from app.services.supply_recommendations.service import get_dashboard_supply_recommendations
-from core.models import SellerAccount, WbAcceptanceCoefficient
+from core.models import SellerAccount, SyncTask, WbAcceptanceCoefficient
 from core.services.replenishment import calculate_replenishment
 from core.services_realization import (
     get_fact_localization_index_trend_last_full_weeks,
@@ -32,10 +32,6 @@ from core.services.localization import (
     get_theoretical_localization_index_trend_last_full_weeks,
     get_top_non_local_districts_last_full_weeks,
 )
-
-_SYNC_TASKS: dict[str, dict] = {}
-_SYNC_TASKS_LOCK = threading.Lock()
-
 
 def _get_seller_for_user(user):
     try:
@@ -57,13 +53,30 @@ def _get_or_create_seller_for_user(user):
 
 
 def _set_sync_task(task_id: str, payload: dict) -> None:
-    with _SYNC_TASKS_LOCK:
-        _SYNC_TASKS[task_id] = payload
+    user_id = payload.pop("user_id", None)
+    seller_id = payload.pop("seller_id", None)
+    defaults = {
+        "status": payload.get("status") or SyncTask.STATUS_RUNNING,
+        "progress": int(payload.get("progress") or 0),
+        "step": payload.get("step") or "",
+        "message": payload.get("message") or "",
+        "result": payload.get("result") or {},
+        "finished_at": payload.get("finished_at"),
+    }
+    task, _ = SyncTask.objects.update_or_create(
+        task_id=task_id,
+        defaults=defaults,
+    )
+    if user_id and task.user_id != user_id:
+        task.user_id = user_id
+        task.save(update_fields=["user"])
+    if seller_id and task.seller_id != seller_id:
+        task.seller_id = seller_id
+        task.save(update_fields=["seller"])
 
 
-def _get_sync_task(task_id: str) -> dict | None:
-    with _SYNC_TASKS_LOCK:
-        return _SYNC_TASKS.get(task_id)
+def _get_sync_task(task_id: str) -> SyncTask | None:
+    return SyncTask.objects.filter(task_id=task_id).first()
 
 
 def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
@@ -78,7 +91,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     "status": "error",
                     "progress": 0,
                     "message": "SellerAccount не найден для текущего пользователя.",
-                    "finished_at": timezone.now().isoformat(),
+                    "finished_at": timezone.now(),
                     "result": {},
                 },
             )
@@ -120,10 +133,10 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                 "progress": int(((idx - 1) / total_steps) * 100),
                 "step": "Отчёты реализации",
                 "message": f"Шаг {idx}/{total_steps}: Отчёты реализации...",
-                "finished_at": None,
-                "result": result,
-            },
-        )
+                    "finished_at": None,
+                    "result": result,
+                },
+            )
         try:
             today = timezone.localdate()
             realization_result = sync_realization_report_detail(
@@ -157,7 +170,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                 "progress": 100,
                 "step": "Готово",
                 "message": message,
-                "finished_at": timezone.now().isoformat(),
+                "finished_at": timezone.now(),
                 "result": result,
             },
         )
@@ -170,7 +183,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                 "progress": 100,
                 "step": "Ошибка",
                 "message": f"Ошибка синхронизации: {exc}",
-                "finished_at": timezone.now().isoformat(),
+                "finished_at": timezone.now(),
                 "result": {},
             },
         )
@@ -278,6 +291,7 @@ def sync_orders_start_api(request):
             "finished_at": None,
             "result": {},
             "user_id": request.user.id,
+            "seller_id": seller.id,
         },
     )
 
@@ -300,10 +314,18 @@ def sync_orders_status_api(request):
     task = _get_sync_task(task_id)
     if not task:
         return JsonResponse({"error": "task not found"}, status=404)
-    if task.get("user_id") not in {None, request.user.id}:
+    if task.user_id != request.user.id:
         return JsonResponse({"error": "forbidden"}, status=403)
 
-    payload = {k: v for k, v in task.items() if k != "user_id"}
+    payload = {
+        "task_id": task.task_id,
+        "status": task.status,
+        "progress": task.progress,
+        "step": task.step,
+        "message": task.message,
+        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
+        "result": task.result or {},
+    }
     return JsonResponse(payload, status=200)
 
 

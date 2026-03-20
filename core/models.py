@@ -210,3 +210,38 @@ class RealizationReportDetail(models.Model):
             models.Index(fields=["seller", "srid"]),
             models.Index(fields=["seller", "office_name"]),
         ]
+
+
+class SyncTask(models.Model):
+    """
+    Фоновая задача синхронизации данных на главной.
+
+    Хранится в БД, чтобы статус был доступен из любого воркера.
+    """
+
+    STATUS_RUNNING = "running"
+    STATUS_SUCCESS = "success"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "Running"),
+        (STATUS_SUCCESS, "Success"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    task_id = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    progress = models.PositiveSmallIntegerField(default=0)
+    step = models.CharField(max_length=255, null=True, blank=True)
+    message = models.TextField(blank=True, default="")
+    result = models.JSONField(default=dict, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["task_id"]),
+        ]
