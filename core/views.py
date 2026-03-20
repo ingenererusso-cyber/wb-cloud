@@ -63,16 +63,11 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
         "result": payload.get("result") or {},
         "finished_at": payload.get("finished_at"),
     }
-    task, _ = SyncTask.objects.update_or_create(
-        task_id=task_id,
-        defaults=defaults,
-    )
-    if user_id and task.user_id != user_id:
-        task.user_id = user_id
-        task.save(update_fields=["user"])
-    if seller_id and task.seller_id != seller_id:
-        task.seller_id = seller_id
-        task.save(update_fields=["seller"])
+    if user_id is not None:
+        defaults["user_id"] = user_id
+    if seller_id is not None:
+        defaults["seller_id"] = seller_id
+    SyncTask.objects.update_or_create(task_id=task_id, defaults=defaults)
 
 
 def _get_sync_task(task_id: str) -> SyncTask | None:
