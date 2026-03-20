@@ -271,62 +271,68 @@ def home(request):
 @login_required
 @require_POST
 def sync_orders_start_api(request):
-    seller = _get_or_create_seller_for_user(request.user)
-    api_token = (seller.api_token or "").strip()
-    if not api_token:
-        return JsonResponse(
-            {"error": "Сначала добавьте API-ключ в настройках аккаунта."},
-            status=400,
+    try:
+        seller = _get_or_create_seller_for_user(request.user)
+        api_token = (seller.api_token or "").strip()
+        if not api_token:
+            return JsonResponse(
+                {"error": "Сначала добавьте API-ключ в настройках аккаунта."},
+                status=400,
+            )
+
+        task_id = uuid.uuid4().hex
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "running",
+                "progress": 0,
+                "step": "Инициализация",
+                "message": "Задача синхронизации запущена...",
+                "finished_at": None,
+                "result": {},
+                "user_id": request.user.id,
+                "seller_id": seller.id,
+            },
         )
 
-    task_id = uuid.uuid4().hex
-    _set_sync_task(
-        task_id,
-        {
-            "task_id": task_id,
-            "status": "running",
-            "progress": 0,
-            "step": "Инициализация",
-            "message": "Задача синхронизации запущена...",
-            "finished_at": None,
-            "result": {},
-            "user_id": request.user.id,
-            "seller_id": seller.id,
-        },
-    )
-
-    worker = threading.Thread(
-        target=_run_sync_orders_task,
-        args=(task_id, seller.id, request.user.id),
-        daemon=True,
-    )
-    worker.start()
-    return JsonResponse({"task_id": task_id, "status": "running"}, status=202)
+        worker = threading.Thread(
+            target=_run_sync_orders_task,
+            args=(task_id, seller.id, request.user.id),
+            daemon=True,
+        )
+        worker.start()
+        return JsonResponse({"task_id": task_id, "status": "running"}, status=202)
+    except Exception as exc:
+        return JsonResponse({"error": f"Не удалось запустить синхронизацию: {exc}"}, status=500)
 
 
 @login_required
 @require_GET
 def sync_orders_status_api(request):
-    task_id = (request.GET.get("task_id") or "").strip()
-    if not task_id:
-        return JsonResponse({"error": "task_id is required"}, status=400)
+    try:
+        task_id = (request.GET.get("task_id") or "").strip()
+        if not task_id:
+            return JsonResponse({"error": "task_id is required"}, status=400)
 
-    task = _get_sync_task(task_id)
-    if not task:
-        return JsonResponse({"error": "task not found"}, status=404)
-    if task.user_id != request.user.id:
-        return JsonResponse({"error": "forbidden"}, status=403)
+        task = _get_sync_task(task_id)
+        if not task:
+            return JsonResponse({"error": "task not found"}, status=404)
+        if task.user_id != request.user.id:
+            return JsonResponse({"error": "forbidden"}, status=403)
 
-    payload = {
-        "task_id": task.task_id,
-        "status": task.status,
-        "progress": task.progress,
-        "step": task.step,
-        "message": task.message,
-        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
-        "result": task.result or {},
-    }
-    return JsonResponse(payload, status=200)
+        payload = {
+            "task_id": task.task_id,
+            "status": task.status,
+            "progress": task.progress,
+            "step": task.step,
+            "message": task.message,
+            "finished_at": task.finished_at.isoformat() if task.finished_at else None,
+            "result": task.result or {},
+        }
+        return JsonResponse(payload, status=200)
+    except Exception as exc:
+        return JsonResponse({"error": f"Не удалось получить статус синхронизации: {exc}"}, status=500)
 
 
 @login_required

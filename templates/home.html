@@ -789,7 +789,14 @@
             const statusUrl = `{% url 'sync_orders_status_api' %}?task_id=${encodeURIComponent(taskId)}`;
             try {
                 const res = await fetch(statusUrl, { headers: { "Accept": "application/json" } });
-                const data = await res.json();
+                let data = null;
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("application/json")) {
+                    data = await res.json();
+                } else {
+                    const text = await res.text();
+                    data = { error: text || "Неизвестная ошибка" };
+                }
                 if (!res.ok) {
                     setSyncBanner(`Ошибка статуса: ${data.error || "не удалось получить статус"}`, "hint-banner-error");
                     syncBtn.disabled = false;
@@ -828,7 +835,14 @@
                         "Accept": "application/json",
                     },
                 });
-                const data = await res.json();
+                let data = null;
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("application/json")) {
+                    data = await res.json();
+                } else {
+                    const text = await res.text();
+                    data = { error: text || "Неизвестная ошибка" };
+                }
                 if (!res.ok) {
                     setSyncBanner(`Ошибка запуска: ${data.error || "не удалось запустить синхронизацию"}`, "hint-banner-error");
                     syncBtn.disabled = false;
@@ -836,7 +850,7 @@
                 }
                 pollSyncStatus(data.task_id);
             } catch (err) {
-                setSyncBanner("Ошибка сети при запуске синхронизации.", "hint-banner-error");
+                setSyncBanner(`Ошибка сети при запуске синхронизации: ${err && err.message ? err.message : "unknown"}`, "hint-banner-error");
                 syncBtn.disabled = false;
             }
         }
