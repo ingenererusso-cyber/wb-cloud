@@ -21,6 +21,7 @@ from core.services_realization import (
 from core.services_offices import sync_wb_offices
 from core.services_orders import sync_fbw_orders
 from core.services_products import sync_products_content
+from core.services_stocks import sync_supplier_stocks
 from core.services_tariffs import (
     sync_acceptance_coefficients,
     sync_transit_direction_tariffs,
@@ -100,6 +101,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             ("Склады WB", "offices", sync_wb_offices, {"seller": seller}),
             ("Транзитные направления", "transit", sync_transit_direction_tariffs, {"seller": seller}),
             ("Заказы", "orders", sync_fbw_orders, {"seller": seller, "days_back": 175}),
+            ("Остатки", "stocks", sync_supplier_stocks, {"seller": seller}),
         ]
 
         total_steps = len(steps) + 1  # + отчеты реализации
@@ -152,6 +154,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             f"тарифов приёмки {result.get('acceptance', 0)}, "
             f"транзитных направлений {result.get('transit', 0)}, "
             f"складов {result.get('offices', 0)}, заказов {result.get('orders', 0)}, "
+            f"остатков {result.get('stocks', 0)}, "
             f"строк отчёта реализации {result.get('realization_rows', 0)}."
         )
         if realization_warning:
@@ -202,6 +205,7 @@ def home(request):
             offices_count = sync_wb_offices(seller)
             transit_tariffs_count = sync_transit_direction_tariffs(seller)
             orders_count = sync_fbw_orders(seller, days_back=175)
+            stocks_count = sync_supplier_stocks(seller)
             realization_upserted_rows = 0
             realization_sync_error = None
             try:
@@ -222,6 +226,7 @@ def home(request):
                     f"Синхронизация завершена: карточек {products_count}, тарифов коробов {tariffs_count}, "
                     f"тарифов приемки {acceptance_coeffs_count}, "
                     f"транзитных направлений {transit_tariffs_count}, складов {offices_count}, заказов {orders_count}, "
+                    f"остатков {stocks_count}, "
                     f"строк отчета реализации {realization_upserted_rows}."
                 ),
             )
@@ -247,6 +252,13 @@ def home(request):
         fact_localization_index_trend = get_fact_localization_index_trend_last_full_weeks(seller, weeks=25)
         theoretical_localization_index_trend = get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25)
         top_non_local_districts = get_top_non_local_districts_last_full_weeks(seller, weeks=13, limit=5)
+    last_sync_task = (
+        SyncTask.objects
+        .filter(user=request.user, status=SyncTask.STATUS_SUCCESS, finished_at__isnull=False)
+        .order_by("-finished_at")
+        .first()
+    )
+    last_sync_at = last_sync_task.finished_at if last_sync_task else None
 
     return render(
         request,
@@ -259,6 +271,7 @@ def home(request):
             "top_non_local_districts": top_non_local_districts,
             "seller": seller,
             "missing_api_token": missing_api_token,
+            "last_sync_at": last_sync_at,
         },
     )
 
@@ -396,6 +409,7 @@ def dashboard_supply_recommendations_api(request):
     date_to_raw = request.GET.get("date_to")
     transit_warehouse = (request.GET.get("transit_warehouse") or "").strip()
     main_warehouse = (request.GET.get("main_warehouse") or "").strip()
+    include_food = (request.GET.get("include_food") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     if not date_from_raw or not date_to_raw:
         return JsonResponse(
@@ -419,6 +433,7 @@ def dashboard_supply_recommendations_api(request):
             seller=_get_seller_for_user(request.user),
             transit_warehouse=transit_warehouse or None,
             main_warehouse=main_warehouse or None,
+            include_food=include_food,
         )
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)

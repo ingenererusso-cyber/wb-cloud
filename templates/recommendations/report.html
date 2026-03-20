@@ -9,9 +9,12 @@
             --bg: #f4f6f8;
             --surface: #ffffff;
             --text: #17212b;
+            --ink: #132033;
             --muted: #66727f;
             --line: #e3e8ee;
             --primary: #0f766e;
+            --accent: #14532d;
+            --accent-2: #065f46;
             --good: #166534;
             --bad: #991b1b;
             --shadow: 0 8px 22px rgba(19, 39, 60, 0.08);
@@ -34,11 +37,8 @@
         .container { max-width: 1260px; margin: 0 auto; }
 
         .header {
-            display: flex;
+            display: grid;
             gap: 12px;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
             margin-bottom: 16px;
         }
 
@@ -47,44 +47,105 @@
         .controls {
             background: var(--surface);
             border: 1px solid var(--line);
-            border-radius: 12px;
+            border-radius: 16px;
             box-shadow: var(--shadow);
-            display: flex;
+            display: grid;
+            grid-template-columns: 170px 170px minmax(220px, 1fr) minmax(220px, 1fr) 120px auto;
+            gap: 12px;
             align-items: end;
-            gap: 10px;
-            padding: 10px 12px;
-            flex-wrap: wrap;
+            padding: 14px;
         }
 
-        .field { display: grid; gap: 4px; }
-        .field label { font-size: 13px; color: var(--muted); }
+        .field { display: grid; gap: 6px; min-width: 0; }
+        .field label {
+            font-size: 13px;
+            color: var(--muted);
+            white-space: nowrap;
+            line-height: 1;
+            min-height: 13px;
+        }
+
+        .field-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 4px;
+            min-height: 46px;
+        }
+
+        .field-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        .field-checkbox label {
+            margin: 0;
+            min-height: 0;
+            line-height: 1.2;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
 
         .field input,
         .field select {
             border: 1px solid var(--line);
-            border-radius: 8px;
-            padding: 8px 10px;
+            border-radius: 12px;
+            padding: 10px 12px;
             background: #fff;
             color: var(--text);
-            font-size: 14px;
+            font-size: 18px;
+            line-height: 1.1;
+            height: 46px;
+            width: 100%;
         }
 
-        .btn {
+        .select-wrap {
+            position: relative;
+        }
+
+        .select-wrap::after {
+            content: "";
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid #5b6777;
+            border-bottom: 2px solid #5b6777;
+            transform: translateY(-70%) rotate(45deg);
+            pointer-events: none;
+        }
+
+        .field select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            padding-right: 38px;
+            cursor: pointer;
+        }
+
+        .controls .btn {
             text-decoration: none;
             color: #0f172a;
             border: 1px solid var(--line);
             background: #fff;
-            border-radius: 10px;
-            padding: 8px 12px;
-            font-size: 14px;
+            border-radius: 14px;
+            padding: 10px 20px;
+            font-size: 16px;
             cursor: pointer;
+            height: 52px;
         }
 
-        .btn-primary {
+        .controls .btn-primary {
             border-color: var(--primary);
             background: var(--primary);
             color: #fff;
             font-weight: 700;
+            min-width: 150px;
         }
 
         .summary {
@@ -144,15 +205,54 @@
         .pill { padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
         .pill-yes { background: #dcfce7; color: #166534; }
         .pill-no { background: #fee2e2; color: #991b1b; }
+        .num-positive { color: #b91c1c; font-weight: 700; }
+        .num-negative { color: #15803d; font-weight: 700; }
+        .num-neutral { color: var(--text); font-weight: 700; }
+        .warehouse-name { color: #66727f; font-weight: 600; }
+        .hint-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            margin-left: 6px;
+            border-radius: 50%;
+            border: 1px solid #c8d0da;
+            color: #6b7786;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: help;
+            vertical-align: middle;
+            background: #fff;
+        }
+
+        @media (max-width: 1080px) {
+            .controls {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .controls .btn-primary {
+                grid-column: 1 / -1;
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 680px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+        }
+
     </style>
+    {% include "partials/top_nav_css.html" %}
 </head>
 <body>
+    {% include "partials/top_nav.html" %}
     <div class="container">
         <div class="header">
             <h1>Рекомендации к поставкам</h1>
             <div class="controls">
-                <a class="btn" href="{% url 'home' %}">На главную</a>
-                <a class="btn" href="{% url 'replenishment_report' %}">Отчёт пополнения</a>
                 <div class="field">
                     <label for="dateFrom">Дата с</label>
                     <input id="dateFrom" type="date" value="{{ default_date_from }}">
@@ -163,21 +263,32 @@
                 </div>
                 <div class="field">
                     <label for="transitWarehouse">Транзитный склад</label>
-                    <select id="transitWarehouse">
-                        <option value="">Не выбран</option>
-                        {% for w in transit_warehouses %}
-                            <option value="{{ w }}" {% if w == default_transit_warehouse %}selected{% endif %}>{{ w }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="select-wrap">
+                        <select id="transitWarehouse">
+                            <option value="">Не выбран</option>
+                            {% for w in transit_warehouses %}
+                                <option value="{{ w }}" {% if w == default_transit_warehouse %}selected{% endif %}>{{ w }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
                 <div class="field">
                     <label for="mainWarehouse">Основной склад</label>
-                    <select id="mainWarehouse">
-                        <option value="">Не выбран</option>
-                        {% for w in main_warehouses %}
-                            <option value="{{ w }}" {% if w == default_main_warehouse %}selected{% endif %}>{{ w }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="select-wrap">
+                        <select id="mainWarehouse">
+                            <option value="">Не выбран</option>
+                            {% for w in main_warehouses %}
+                                <option value="{{ w }}" {% if w == default_main_warehouse %}selected{% endif %}>{{ w }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>&nbsp;</label>
+                    <div class="field-checkbox">
+                        <input id="includeFood" type="checkbox">
+                        <label for="includeFood">Питание</label>
+                    </div>
                 </div>
                 <button id="loadBtn" class="btn btn-primary" type="button">Построить</button>
             </div>
@@ -190,7 +301,13 @@
         <div class="summary">
             <div class="summary-card"><div class="k">Проверено регионов</div><div class="v" id="sumTotal">0</div></div>
             <div class="summary-card"><div class="k">Рекомендовано регионов</div><div class="v" id="sumRecommended">0</div></div>
-            <div class="summary-card"><div class="k">Суммарный плюс, ₽</div><div class="v good" id="sumPlus">0</div></div>
+            <div class="summary-card">
+                <div class="k">
+                    Суммарный плюс, ₽
+                    <span class="hint-icon" title="Суммарная экономия, если отгрузить все рекомендованные поставки" aria-label="Подсказка">?</span>
+                </div>
+                <div class="v good" id="sumPlus">0</div>
+            </div>
             <div class="summary-card">
                 <div class="k">Текущие метрики</div>
                 <div class="sub">Доля локальных: <strong id="sumCurrentShare">0%</strong></div>
@@ -208,17 +325,17 @@
             <table>
                 <thead>
                     <tr>
-                        <th title="Регион (федеральный округ), для которого рассчитан сценарий поставки.">Регион</th>
-                        <th class="align-right" title="Количество заказов в регионе за выбранный период.">Заказы</th>
-                        <th class="align-right" title="Количество нелокальных заказов в регионе за выбранный период.">Нелокальные заказы</th>
-                        <th class="align-right" title="Текущая суммарная стоимость логистики в текущей модели работы, без нового размещения в регионе.">Тек. стоимость</th>
-                        <th class="align-right" title="Прогнозная суммарная стоимость после сценария поставки: новая глобальная логистика + транзит + стоимость обработки на целевом складе.">Прогноз. стоимость</th>
-                        <th class="align-right" title="Затраты на транзит коробов по выбранному направлению для объема заказов региона.">Транзит</th>
-                        <th class="align-right" title="Дополнительные затраты из-за более дорогого коэффициента целевого склада относительно базового.">Доп. склад</th>
-                        <th class="align-right" title="Экономия за счет роста локализации (снижения индекса локализации в модели).">Экономия локализации</th>
-                        <th class="align-right" title="Итоговый эффект = Тек. стоимость - Прогноз. стоимость. Плюс — выгодно, минус — невыгодно.">Net effect</th>
-                        <th title="Автоматическое решение по сценарию на основе Net effect.">Рекомендация</th>
-                        <th title="Пояснение, почему сценарий рекомендован, невыгоден или пограничный.">Комментарий</th>
+                        <th>Регион <span class="hint-icon" title="Регион (федеральный округ), для которого рассчитан сценарий поставки." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Заказы <span class="hint-icon" title="Количество заказов в регионе за выбранный период." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Нелокальные заказы <span class="hint-icon" title="Количество нелокальных заказов в регионе за выбранный период." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Тек. стоимость <span class="hint-icon" title="Текущая суммарная стоимость логистики в текущей модели работы, без нового размещения в регионе." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Прогноз. стоимость <span class="hint-icon" title="Прогнозная суммарная стоимость после сценария поставки: новая глобальная логистика + транзит + стоимость обработки на целевом складе." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Транзит <span class="hint-icon" title="Затраты на транзит коробов по выбранному направлению для объема заказов региона." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Дополнительные расходы склада <span class="hint-icon" title="Дополнительные затраты из-за более дорогого коэффициента целевого склада относительно базового." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Экономия локализации <span class="hint-icon" title="Экономия за счет роста локализации (снижения индекса локализации в модели)." aria-label="Подсказка">?</span></th>
+                        <th class="align-right">Итоговый эффект <span class="hint-icon" title="Итоговый эффект = Тек. стоимость - Прогноз. стоимость. Плюс — выгодно, минус — невыгодно." aria-label="Подсказка">?</span></th>
+                        <th>Рекомендация <span class="hint-icon" title="Автоматическое решение по сценарию на основе итогового эффекта." aria-label="Подсказка">?</span></th>
+                        <th>Комментарий <span class="hint-icon" title="Пояснение, почему сценарий рекомендован, невыгоден или пограничный." aria-label="Подсказка">?</span></th>
                     </tr>
                 </thead>
                 <tbody id="rows"></tbody>
@@ -231,6 +348,7 @@
         const dateToEl = document.getElementById("dateTo");
         const transitWarehouseEl = document.getElementById("transitWarehouse");
         const mainWarehouseEl = document.getElementById("mainWarehouse");
+        const includeFoodEl = document.getElementById("includeFood");
         const loadBtn = document.getElementById("loadBtn");
         const statusEl = document.getElementById("status");
         const rowsEl = document.getElementById("rows");
@@ -252,20 +370,22 @@
             return value === null || value === undefined || value === "" ? "-" : String(value);
         }
 
-        function renderWarehouseOptions(regionRow) {
+        function signClass(value) {
+            const num = Number(value);
+            if (!Number.isFinite(num) || num === 0) {
+                return "num-neutral";
+            }
+            return num > 0 ? "num-positive" : "num-negative";
+        }
+
+        function buildWarehouseOptionsTooltip(regionRow) {
             const options = Array.isArray(regionRow.warehouse_options) ? regionRow.warehouse_options : [];
             if (!options.length) {
-                return `<span style="color:#66727f;font-size:12px">${safe(regionRow.target_warehouse_name)}</span>`;
+                return "";
             }
-            return options.map((opt) => {
-                const isPrimary = String(opt.warehouse_name || "") === String(regionRow.target_warehouse_name || "");
-                return `<div style="margin-top:4px;line-height:1.25;${isPrimary ? "font-weight:700;" : ""}">
-                    ${safe(opt.warehouse_name)}:
-                    <span style="color:#66727f">транзит ${fmtMoney(opt.projected_transit_cost)},</span>
-                    <span style="color:#66727f">доп.склад ${fmtMoney(opt.projected_extra_warehouse_cost)},</span>
-                    <span style="color:#66727f">итого ${fmtMoney(opt.total_additional_cost)}</span>
-                </div>`;
-            }).join("");
+            return options.map((opt) =>
+                `${safe(opt.warehouse_name)}: транзит ${fmtMoney(opt.projected_transit_cost)}, доп.склад ${fmtMoney(opt.projected_extra_warehouse_cost)}, итого ${fmtMoney(opt.total_additional_cost)}`
+            ).join("\n");
         }
 
         function render(payload) {
@@ -288,7 +408,10 @@
                     <td class="align-right">${fmtMoney(r.current_total_cost)}</td>
                     <td class="align-right">${fmtMoney(r.projected_total_cost)}</td>
                     <td class="align-right">${fmtMoney(r.projected_transit_cost)}</td>
-                    <td class="align-right">${fmtMoney(r.projected_extra_warehouse_cost)}${renderWarehouseOptions(r)}</td>
+                    <td class="align-right" title="${buildWarehouseOptionsTooltip(r)}">
+                        <span class="warehouse-name">${safe(r.target_warehouse_name)}</span>:
+                        <span class="${signClass(r.projected_extra_warehouse_cost)}">${fmtMoney(r.projected_extra_warehouse_cost)}</span>
+                    </td>
                     <td class="align-right">${fmtMoney(r.projected_localization_savings)}</td>
                     <td class="align-right">${fmtMoney(r.net_effect)}</td>
                     <td><span class="pill ${r.recommended ? "pill-yes" : "pill-no"}">${r.recommended ? "Да" : "Нет"}</span></td>
@@ -306,6 +429,7 @@
             const dateTo = dateToEl.value;
             const transitWarehouse = transitWarehouseEl.value;
             const mainWarehouse = mainWarehouseEl.value;
+            const includeFood = includeFoodEl.checked;
 
             if (!dateFrom || !dateTo) {
                 statusEl.textContent = "Укажите даты date_from и date_to.";
@@ -325,6 +449,9 @@
                 }
                 if (mainWarehouse) {
                     params.set("main_warehouse", mainWarehouse);
+                }
+                if (includeFood) {
+                    params.set("include_food", "1");
                 }
                 const url = `/api/dashboard/supply-recommendations/?${params.toString()}`;
                 const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });

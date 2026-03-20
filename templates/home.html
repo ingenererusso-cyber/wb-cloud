@@ -44,110 +44,6 @@
             animation: rise .6s ease-out;
         }
 
-        .nav-shell {
-            width: min(1280px, 100%);
-            margin: 0 auto 12px;
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.9);
-            box-shadow: 0 10px 22px rgba(19, 39, 60, 0.1);
-            position: relative;
-            z-index: 20;
-        }
-
-        .wb-nav {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 10px;
-            flex-wrap: wrap;
-        }
-
-        .home-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            text-decoration: none;
-            color: var(--ink);
-            font-size: 14px;
-            font-weight: 700;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            padding: 8px 10px;
-            background: #fff;
-            white-space: nowrap;
-        }
-
-        .menu-item {
-            position: relative;
-            padding-bottom: 8px;
-            margin-bottom: -8px;
-        }
-
-        .menu-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            text-decoration: none;
-            color: var(--ink);
-            font-size: 14px;
-            font-weight: 700;
-            border: 1px solid transparent;
-            border-radius: 10px;
-            padding: 8px 12px;
-            white-space: nowrap;
-        }
-
-        .menu-link:hover,
-        .menu-item:hover > .menu-link,
-        .menu-item:focus-within > .menu-link {
-            border-color: var(--line);
-            background: #fff;
-        }
-
-        .mega {
-            display: none;
-            position: absolute;
-            left: 0;
-            top: 100%;
-            min-width: 700px;
-            background: #fff;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            box-shadow: 0 14px 26px rgba(19, 39, 60, 0.14);
-            padding: 14px 16px;
-            z-index: 30;
-        }
-
-        .menu-item:hover .mega,
-        .menu-item:focus-within .mega {
-            display: block;
-        }
-
-        .mega-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(170px, 1fr));
-            gap: 16px;
-        }
-
-        .mega-col h4 {
-            margin: 0 0 8px;
-            font-size: 14px;
-            color: var(--ink);
-        }
-
-        .mega-col a {
-            display: block;
-            text-decoration: none;
-            color: #1f2a37;
-            font-size: 14px;
-            padding: 6px 0;
-        }
-
-        .mega-col a:hover {
-            color: #065f46;
-        }
-
         .topbar {
             display: flex;
             justify-content: space-between;
@@ -415,93 +311,14 @@
             }
         }
 
-        @media (max-width: 900px) {
-            .mega {
-                min-width: 280px;
-                max-width: min(90vw, 420px);
-            }
-
-            .mega-grid {
-                grid-template-columns: 1fr;
-            }
-        }
     </style>
+    {% include "partials/top_nav_css.html" %}
 </head>
 <body>
-    <div class="nav-shell">
-        <nav class="wb-nav" aria-label="Основное меню">
-            <a class="home-link" href="{% url 'home' %}">⌂ На главную</a>
-
-            <div class="menu-item">
-                <a class="menu-link" href="{% url 'home' %}">Аналитика</a>
-                <div class="mega">
-                    <div class="mega-grid">
-                        <div class="mega-col">
-                            <h4>Дашборд</h4>
-                            <a href="{% url 'home' %}">Главные метрики</a>
-                            <a href="{% url 'home' %}#local-orders-chart">Динамика локальности</a>
-                            <a href="{% url 'home' %}#fact-localization-index-chart">Фактический ИЛ</a>
-                        </div>
-                        <div class="mega-col">
-                            <h4>Отчёты</h4>
-                            <a href="{% url 'replenishment_report' %}">Отчёт пополнения</a>
-                            <a href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
-                        </div>
-                        <div class="mega-col">
-                            <h4>Справочники</h4>
-                            <a href="{% url 'acceptance_coefficients_report' %}">Коэффициенты приёмки</a>
-                            <a href="{% url 'account_settings' %}">Настройки API</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="menu-item">
-                <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
-                <div class="mega">
-                    <div class="mega-grid">
-                        <div class="mega-col">
-                            <h4>Поставки</h4>
-                            <a href="{% url 'supply_recommendations_report' %}">Сценарии поставок</a>
-                            <a href="{% url 'acceptance_coefficients_report' %}">Тарифы на поставку</a>
-                        </div>
-                        <div class="mega-col">
-                            <h4>Запасы</h4>
-                            <a href="{% url 'replenishment_report' %}">Пополнение по регионам</a>
-                        </div>
-                        <div class="mega-col">
-                            <h4>Операции</h4>
-                            <a href="#" id="sync-menu-link">Синхронизировать данные</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="menu-item">
-                <a class="menu-link" href="{% url 'account_settings' %}">Аккаунт</a>
-                <div class="mega">
-                    <div class="mega-grid">
-                        <div class="mega-col">
-                            <h4>Профиль</h4>
-                            <a href="{% url 'account_settings' %}">Настройки кабинета</a>
-                            <a href="{% url 'logout' %}">Выход</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </nav>
-    </div>
+    {% with enable_sync_button=True %}
+        {% include "partials/top_nav.html" %}
+    {% endwith %}
     <main class="hero">
-        <div class="topbar">
-            <span class="user-badge">Пользователь: {{ request.user.username }}</span>
-            <div class="topbar-actions">
-                <a class="btn btn-ghost" href="{% url 'account_settings' %}">Настройки</a>
-                <form method="post" action="{% url 'logout' %}">
-                    {% csrf_token %}
-                    <button class="btn btn-ghost" type="submit">Выйти</button>
-                </form>
-            </div>
-        </div>
         <h1>Vendra dashboard</h1>
         <p>
             Здесь размещаются аналитические графики, таблицы и обзор ключевых метрик.
@@ -594,12 +411,6 @@
                 <div id="non-local-districts-chart" class="bar-chart"></div>
             </div>
         </section>
-        <div class="actions">
-            <button class="btn" type="button" id="sync-orders-btn">Синхронизировать заказы</button>
-            <a class="btn" href="{% url 'acceptance_coefficients_report' %}">Коэффициенты приёмки</a>
-            <a class="btn" href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
-            <a class="btn" href="{% url 'replenishment_report' %}">Открыть отчёт пополнения</a>
-        </div>
         <span class="pill">Раздел в разработке</span>
     </main>
     {{ local_orders_trend|json_script:"local-orders-trend-data" }}
@@ -766,8 +577,47 @@
         );
         renderTopNonLocalDistricts(topNonLocalDistrictsData);
 
+        function scrollToHashCenter(hash, updateHistory = true) {
+            if (!hash || !hash.startsWith("#")) {
+                return false;
+            }
+            const target = document.querySelector(hash);
+            if (!target) {
+                return false;
+            }
+            target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+            if (updateHistory) {
+                history.pushState(null, "", hash);
+            }
+            return true;
+        }
+
+        document.querySelectorAll('a[href*="#"]').forEach((link) => {
+            link.addEventListener("click", (event) => {
+                const href = link.getAttribute("href") || "";
+                const [path, hash] = href.split("#");
+                if (!hash) {
+                    return;
+                }
+                const currentPath = window.location.pathname.replace(/\/+$/, "");
+                const targetPath = (path || "").replace(/\/+$/, "");
+                if (targetPath && targetPath !== currentPath) {
+                    return;
+                }
+                event.preventDefault();
+                scrollToHashCenter(`#${hash}`);
+            });
+        });
+
+        if (window.location.hash) {
+            window.setTimeout(() => {
+                scrollToHashCenter(window.location.hash, false);
+            }, 120);
+        }
+
         const syncBtn = document.getElementById("sync-orders-btn");
         const syncBanner = document.getElementById("sync-status-banner");
+        const syncLastAt = document.getElementById("sync-last-at");
 
         function getCookie(name) {
             const value = `; ${document.cookie}`;
@@ -814,6 +664,13 @@
 
                 if (data.status === "success") {
                     setSyncBanner(data.message || "Синхронизация завершена.", "hint-banner-success");
+                    if (syncLastAt) {
+                        const finishedAt = data.finished_at ? new Date(data.finished_at) : new Date();
+                        const text = Number.isNaN(finishedAt.getTime())
+                            ? "Последняя синхронизация: только что"
+                            : `Последняя синхронизация: ${finishedAt.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+                        syncLastAt.textContent = text;
+                    }
                 } else {
                     setSyncBanner(data.message || "Ошибка синхронизации.", "hint-banner-error");
                 }
@@ -856,13 +713,6 @@
         }
 
         syncBtn.addEventListener("click", startSyncOrders);
-        const syncMenuLink = document.getElementById("sync-menu-link");
-        if (syncMenuLink) {
-            syncMenuLink.addEventListener("click", (event) => {
-                event.preventDefault();
-                startSyncOrders();
-            });
-        }
     </script>
 </body>
 </html>

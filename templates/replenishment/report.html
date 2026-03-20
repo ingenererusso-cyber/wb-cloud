@@ -9,9 +9,12 @@
             --bg: #f4f6f8;
             --surface: #ffffff;
             --text: #17212b;
+            --ink: #132033;
             --muted: #66727f;
             --line: #e3e8ee;
             --primary: #0f766e;
+            --accent: #14532d;
+            --accent-2: #065f46;
             --primary-soft: #ccfbf1;
             --danger-soft: #fee2e2;
             --shadow: 0 8px 22px rgba(19, 39, 60, 0.08);
@@ -169,26 +172,23 @@
             color: var(--muted);
             font-size: 13px;
         }
+
     </style>
+    {% include "partials/top_nav_css.html" %}
 </head>
 <body>
+    {% include "partials/top_nav.html" %}
     <div class="container">
         <div class="header">
             <h1>Прогноз поставок</h1>
             <div class="top-actions">
-                <a class="btn" href="{% url 'home' %}">На главную</a>
-                <a class="btn" href="{% url 'account_settings' %}">Настройки</a>
-                <form method="post" action="{% url 'logout' %}">
-                    {% csrf_token %}
-                    <button class="btn" type="submit">Выйти</button>
-                </form>
                 <div class="controls">
                     <label for="groupBy">Группировка</label>
                     <select id="groupBy">
                         <option value="none">Без группировки</option>
                         <option value="region" selected>По регионам</option>
                         <option value="nm_id">По артикулам</option>
-                        <option value="supplier_article">По supplier_article</option>
+                        <option value="supplier_article">По артикулу продавца</option>
                     </select>
                 </div>
             </div>
@@ -203,7 +203,7 @@
                 <thead>
                     <tr>
                         <th>Артикул</th>
-                        <th>supplier_article</th>
+                        <th>Артикул продавца</th>
                         <th>Регион</th>
                         <th class="align-right">Прогноз заказов на 30д</th>
                         <th class="align-right">Текущий остаток</th>
@@ -290,7 +290,7 @@
                     const labelMap = {
                         region: "Регион",
                         nm_id: "Артикул",
-                        supplier_article: "supplier_article",
+                        supplier_article: "Артикул продавца",
                     };
                     const label = labelMap[key] || key;
 

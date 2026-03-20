@@ -201,14 +201,16 @@
         .pill-neutral { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
 
         .muted { color: var(--muted); font-size: 13px; }
+
     </style>
+    {% include "partials/top_nav_css.html" %}
 </head>
 <body>
+{% include "partials/top_nav.html" %}
 <main class="page">
     <div class="top">
         <h1>Тарифы на поставку: коэффициенты</h1>
         <div class="actions">
-            <a class="btn btn-ghost" href="{% url 'home' %}">На главную</a>
             <form method="post" action="{% url 'acceptance_coefficients_report' %}">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="sync_acceptance">

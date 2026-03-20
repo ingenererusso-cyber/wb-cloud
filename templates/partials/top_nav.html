@@ -1,0 +1,61 @@
+<div class="nav-shell">
+    <nav class="wb-nav" aria-label="Основное меню">
+        <a class="home-link" href="{% url 'home' %}">⌂ На главную</a>
+
+        <div class="menu-item">
+            <a class="menu-link" href="{% url 'home' %}">Аналитика</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>Дашборд</h4>
+                        <a href="{% url 'home' %}#local-orders-chart">Динамика локальности</a>
+                        <a href="{% url 'home' %}#fact-localization-index-chart">Фактический ИЛ</a>
+                        <a href="{% url 'home' %}#theoretical-localization-index-chart">Теоретический ИЛ</a>
+                        <a href="{% url 'home' %}#non-local-districts-chart">Топ нелокальных регионов</a>
+                    </div>
+                    <div class="mega-col">
+                        <h4>Справочники</h4>
+                        <a href="{% url 'acceptance_coefficients_report' %}">Коэффициенты приёмки</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="menu-item">
+            <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>Поставки</h4>
+                        <a href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
+                        <a href="{% url 'replenishment_report' %}">Пополнение по регионам</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-spacer"></div>
+        {% if enable_sync_button %}
+            <div class="sync-control">
+                <button class="btn" type="button" id="sync-orders-btn">Синхронизировать данные</button>
+                <span class="sync-meta" id="sync-last-at">
+                    {% if last_sync_at %}
+                        Последняя синхронизация: {{ last_sync_at|date:"d.m.Y H:i" }}
+                    {% else %}
+                        Последняя синхронизация: не было
+                    {% endif %}
+                </span>
+            </div>
+        {% else %}
+            <a class="btn" href="{% url 'home' %}">Синхронизировать данные</a>
+        {% endif %}
+        <span class="nav-user">Аккаунт: {{ request.user.username }}</span>
+        <div class="nav-account-actions">
+            <a class="btn btn-ghost" href="{% url 'account_settings' %}">Настройки</a>
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button class="btn btn-ghost" type="submit">Выйти</button>
+            </form>
+        </div>
+    </nav>
+</div>

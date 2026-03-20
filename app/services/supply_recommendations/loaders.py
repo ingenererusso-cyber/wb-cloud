@@ -5,7 +5,14 @@ from typing import Dict, Iterable, List
 
 from django.db.models import Count, Q
 
-from core.models import Order, Product, SellerAccount, TransitDirectionTariff, WbWarehouseTariff
+from core.models import (
+    Order,
+    Product,
+    SellerAccount,
+    TransitDirectionTariff,
+    WbAcceptanceCoefficient,
+    WbWarehouseTariff,
+)
 from core.services.localization import find_office, normalize_district
 from core.services_realization import _calculate_box_logistics_per_unit
 
@@ -66,6 +73,73 @@ def _load_latest_tariffs_by_warehouse(
         if row.warehouse_name not in latest_by_warehouse:
             latest_by_warehouse[row.warehouse_name] = row
     return latest_by_warehouse
+
+
+def _pick_nearest_acceptance_coef_row(
+    rows: List[WbAcceptanceCoefficient],
+    target_date: date,
+) -> WbAcceptanceCoefficient | None:
+    """
+    Возвращает строку коэффициента приёмки:
+    - сначала на target_date (обычно сегодня),
+    - иначе ближайшую по дате.
+    """
+    if not rows:
+        return None
+
+    exact = [row for row in rows if row.coeff_date == target_date]
+    if exact:
+        return exact[0]
+
+    # При равной дистанции предпочитаем более свежую дату.
+    return min(rows, key=lambda row: (abs((row.coeff_date - target_date).days), -row.coeff_date.toordinal()))
+
+
+def _load_acceptance_delivery_coef_by_warehouse(
+    warehouse_names: Iterable[str],
+    seller: SellerAccount | None = None,
+    target_date: date | None = None,
+    box_type_id: int = 2,
+) -> Dict[str, float]:
+    """
+    Загружает коэффициенты логистики складов из WbAcceptanceCoefficient.
+
+    Логика даты:
+    - берём запись на target_date (сегодня), если есть;
+    - иначе ближайшую доступную дату по складу.
+
+    Возвращаем logistics_coef в виде множителя (delivery_coef / 100).
+    """
+    normalized_names = [_normalize_str(name) for name in warehouse_names if _normalize_str(name)]
+    if not normalized_names:
+        return {}
+
+    qs = WbAcceptanceCoefficient.objects.filter(warehouse_name__in=normalized_names)
+    if seller is not None:
+        qs = qs.filter(seller=seller)
+    qs = qs.filter(box_type_id=box_type_id).exclude(delivery_coef__isnull=True)
+
+    rows_by_warehouse: Dict[str, List[WbAcceptanceCoefficient]] = {}
+    for row in qs.iterator(chunk_size=2000):
+        warehouse_name = _normalize_str(row.warehouse_name)
+        if not warehouse_name:
+            continue
+        rows_by_warehouse.setdefault(warehouse_name, []).append(row)
+
+    if not rows_by_warehouse:
+        return {}
+
+    as_of = target_date or date.today()
+    result: Dict[str, float] = {}
+    for warehouse_name, rows in rows_by_warehouse.items():
+        picked = _pick_nearest_acceptance_coef_row(rows, target_date=as_of)
+        if not picked or picked.delivery_coef is None:
+            continue
+        delivery_coef = float(picked.delivery_coef)
+        if delivery_coef <= 0:
+            continue
+        result[warehouse_name] = round(delivery_coef / 100.0, 6)
+    return result
 
 
 def _load_volume_by_supplier_article(seller: SellerAccount | None = None) -> Dict[str, float]:
@@ -284,9 +358,16 @@ def load_warehouse_coefficients_from_tariffs(
     extra_warehouses: Iterable[str] | None = None,
 ) -> List[WarehouseCoefficient]:
     """
-    Строит коэффициенты складов из WbWarehouseTariff (boxDeliveryBase).
+    Строит коэффициенты складов для расчёта рекомендаций.
 
-    logistics_coef = boxDeliveryBase / min(boxDeliveryBase) среди выбранных складов.
+    Источник: WbAcceptanceCoefficient.delivery_coef (тип поставки: короба),
+    как на странице "Тарифы на поставку: коэффициенты".
+
+    Дата:
+    - сегодня, если есть запись;
+    - иначе ближайшая доступная дата по складу.
+
+    Значение: logistics_coef = delivery_coef / 100.
     """
     region_by_warehouse: Dict[str, str] = {}
     for item in order_aggregates:
@@ -302,20 +383,18 @@ def load_warehouse_coefficients_from_tariffs(
     if not region_by_warehouse:
         return []
 
-    latest_by_warehouse = _load_latest_tariffs_by_warehouse(
+    acceptance_coef_by_warehouse = _load_acceptance_delivery_coef_by_warehouse(
         warehouse_names=region_by_warehouse.keys(),
         seller=seller,
-        tariff_date=tariff_date,
+        target_date=tariff_date or date.today(),
+        box_type_id=2,
     )
-
-    base_values = [t.box_delivery_base for t in latest_by_warehouse.values() if (t.box_delivery_base or 0) > 0]
-    baseline = min(base_values) if base_values else 1.0
 
     result: List[WarehouseCoefficient] = []
     for warehouse_name, region_name in region_by_warehouse.items():
-        tariff = latest_by_warehouse.get(warehouse_name)
-        if tariff and (tariff.box_delivery_base or 0) > 0:
-            logistics_coef = float(tariff.box_delivery_base) / baseline
+        acceptance_coef = acceptance_coef_by_warehouse.get(warehouse_name)
+        if acceptance_coef is not None and acceptance_coef > 0:
+            logistics_coef = float(acceptance_coef)
         else:
             logistics_coef = 1.0
         result.append(
