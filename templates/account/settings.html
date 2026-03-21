@@ -58,6 +58,13 @@
             font-size: 14px;
         }
 
+        .helper-row {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .ok {
             margin-top: 12px;
             border-radius: 10px;
@@ -101,6 +108,7 @@
             padding: 10px 14px;
             font-size: 14px;
             cursor: pointer;
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
         }
 
         .btn-primary {
@@ -109,20 +117,112 @@
             color: #fff;
             font-weight: 700;
         }
+
+        .btn-danger {
+            border-color: #b91c1c;
+            background: #b91c1c;
+            color: #fff;
+            font-weight: 700;
+        }
+
+        .head-form {
+            margin: 0;
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(19, 32, 51, 0.45);
+            z-index: 1000;
+            padding: 18px;
+        }
+
+        .modal.open {
+            display: flex;
+        }
+
+        .modal-card {
+            width: min(760px, 100%);
+            max-height: 88vh;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: #fff;
+            padding: 18px;
+        }
+
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .modal-close {
+            border: 1px solid var(--line);
+            background: #fff;
+            border-radius: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+        }
+
+        .btn:hover,
+        .btn:focus-visible,
+        .modal-close:hover,
+        .modal-close:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(19, 39, 60, 0.14);
+            filter: saturate(1.04);
+        }
+
+        .guide-list {
+            margin: 0;
+            padding-left: 20px;
+            line-height: 1.55;
+            color: var(--ink);
+            font-size: 14px;
+        }
+
+        .guide-note {
+            margin-top: 12px;
+            border: 1px solid #bfdbfe;
+            background: #dbeafe;
+            color: #1e3a8a;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
     <main class="card">
         <div class="head">
             <h1>Настройки аккаунта</h1>
-            <a class="btn" href="{% url 'home' %}">На главную</a>
+            <form method="post" action="{% url 'logout' %}" class="head-form">
+                {% csrf_token %}
+                <button class="btn btn-danger" type="submit">Выйти</button>
+            </form>
         </div>
         <p class="muted">Пользователь: {{ request.user.username }}</p>
-        <p class="muted">Кабинет продавца: {{ seller.name }}</p>
 
         {% if saved %}
             <div class="ok">API-ключ сохранён.</div>
         {% endif %}
+
+        <div class="helper-row">
+            <button id="openApiGuide" class="btn" type="button">Инструкция по созданию ключа API</button>
+        </div>
 
         <form method="post">
             {% csrf_token %}
@@ -134,10 +234,61 @@
                 <button class="btn btn-primary" type="submit">Сохранить</button>
             </div>
         </form>
-        <form method="post" action="{% url 'logout' %}" class="actions">
-            {% csrf_token %}
-            <button class="btn" type="submit">Выйти</button>
-        </form>
+        <div class="actions">
+            <a class="btn" href="{% url 'home' %}">На главную</a>
+        </div>
     </main>
+
+    <div id="apiGuideModal" class="modal" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="apiGuideTitle">
+            <div class="modal-head">
+                <h2 id="apiGuideTitle" class="modal-title">Как получить базовый API-ключ WB (чтение)</h2>
+                <button id="closeApiGuide" class="modal-close" type="button">Закрыть</button>
+            </div>
+            <ol class="guide-list">
+                <li>Войдите в личный кабинет продавца Wildberries (WB Partners).</li>
+                <li>Откройте раздел профиля/настроек и перейдите в блок Интеграции по API.</li>
+                <li>Нажмите «Создать токен», для интеграции вручную, базовый токен.</li>
+                <li>Укажите название ключа, например: <code>Vendra Read Only</code>.</li>
+                <li>Выберите права только на чтение (контент, статистика, финансы, аналитика, поставки).</li>
+                <li>Не включайте права на изменение данных, если они не нужны.</li>
+                <li>Подтвердите создание ключа и скопируйте токен сразу после генерации.</li>
+                <li>Вставьте ключ в поле «API-ключ Wildberries» на этой странице и нажмите «Сохранить».</li>
+            </ol>
+            <div class="guide-note">
+                Важно: WB обычно показывает ключ только один раз. Сохраните его в безопасном месте.
+                Если ключ потерян, создайте новый и удалите старый.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const guideModal = document.getElementById("apiGuideModal");
+        const openGuideBtn = document.getElementById("openApiGuide");
+        const closeGuideBtn = document.getElementById("closeApiGuide");
+
+        function openGuide() {
+            guideModal.classList.add("open");
+            guideModal.setAttribute("aria-hidden", "false");
+        }
+
+        function closeGuide() {
+            guideModal.classList.remove("open");
+            guideModal.setAttribute("aria-hidden", "true");
+        }
+
+        openGuideBtn.addEventListener("click", openGuide);
+        closeGuideBtn.addEventListener("click", closeGuide);
+        guideModal.addEventListener("click", (event) => {
+            if (event.target === guideModal) {
+                closeGuide();
+            }
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && guideModal.classList.contains("open")) {
+                closeGuide();
+            }
+        });
+    </script>
 </body>
 </html>

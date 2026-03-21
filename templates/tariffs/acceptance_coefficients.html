@@ -58,12 +58,20 @@
             font-weight: 700;
             border: none;
             cursor: pointer;
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
         }
 
         .btn-ghost {
             color: var(--ink);
             border: 1px solid var(--line);
             background: #fff;
+        }
+
+        .btn:hover,
+        .btn:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(19, 39, 60, 0.14);
+            filter: saturate(1.04);
         }
 
         .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

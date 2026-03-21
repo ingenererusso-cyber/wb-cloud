@@ -66,6 +66,14 @@
             padding: 8px 12px;
             font-size: 14px;
             cursor: pointer;
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+        }
+
+        .btn:hover,
+        .btn:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(19, 39, 60, 0.14);
+            filter: saturate(1.04);
         }
 
         .status {

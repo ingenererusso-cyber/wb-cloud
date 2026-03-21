@@ -189,8 +189,10 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         close_old_connections()
 
 
-@login_required
 def home(request):
+    if not request.user.is_authenticated:
+        return render(request, "home_landing.html")
+
     seller = _get_or_create_seller_for_user(request.user)
 
     if request.method == "POST" and request.POST.get("action") == "sync_orders":

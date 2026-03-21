@@ -138,6 +138,7 @@
             font-size: 16px;
             cursor: pointer;
             height: 52px;
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
         }
 
         .controls .btn-primary {
@@ -146,6 +147,13 @@
             color: #fff;
             font-weight: 700;
             min-width: 150px;
+        }
+
+        .controls .btn:hover,
+        .controls .btn:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(19, 39, 60, 0.14);
+            filter: saturate(1.04);
         }
 
         .summary {
@@ -303,7 +311,7 @@
             <div class="summary-card"><div class="k">Рекомендовано регионов</div><div class="v" id="sumRecommended">0</div></div>
             <div class="summary-card">
                 <div class="k">
-                    Суммарный плюс, ₽
+                    Суммарная экономия, ₽
                     <span class="hint-icon" title="Суммарная экономия, если отгрузить все рекомендованные поставки" aria-label="Подсказка">?</span>
                 </div>
                 <div class="v good" id="sumPlus">0</div>
@@ -388,13 +396,28 @@
             ).join("\n");
         }
 
+        function invert(value) {
+            const num = Number(value);
+            return Number.isFinite(num) ? -num : 0;
+        }
+
+        function summarySignClass(value) {
+            const num = Number(value);
+            if (!Number.isFinite(num) || num === 0) {
+                return "v";
+            }
+            return num > 0 ? "v bad" : "v good";
+        }
+
         function render(payload) {
             const summary = payload.summary || {};
             const regions = Array.isArray(payload.regions) ? payload.regions : [];
 
             sumTotal.textContent = safe(summary.total_regions_checked || 0);
             sumRecommended.textContent = safe(summary.recommended_regions || 0);
-            sumPlus.textContent = fmtMoney(summary.total_positive_effect || 0);
+            const sumPlusValue = invert(summary.total_positive_effect || 0);
+            sumPlus.textContent = fmtMoney(sumPlusValue);
+            sumPlus.className = summarySignClass(sumPlusValue);
             sumCurrentShare.textContent = `${safe(summary.current_local_share_percent || 0)}%`;
             sumCurrentIndex.textContent = safe(summary.current_localization_index || 0);
             sumProjectedShare.textContent = `${safe(summary.projected_local_share_percent || 0)}%`;
@@ -407,13 +430,19 @@
                     <td class="align-right">${safe(r.non_local_orders)}</td>
                     <td class="align-right">${fmtMoney(r.current_total_cost)}</td>
                     <td class="align-right">${fmtMoney(r.projected_total_cost)}</td>
-                    <td class="align-right">${fmtMoney(r.projected_transit_cost)}</td>
+                    <td class="align-right">
+                        <span class="${Number(r.projected_transit_cost) > 0 ? "num-positive" : "num-neutral"}">${fmtMoney(r.projected_transit_cost)}</span>
+                    </td>
                     <td class="align-right" title="${buildWarehouseOptionsTooltip(r)}">
                         <span class="warehouse-name">${safe(r.target_warehouse_name)}</span>:
                         <span class="${signClass(r.projected_extra_warehouse_cost)}">${fmtMoney(r.projected_extra_warehouse_cost)}</span>
                     </td>
-                    <td class="align-right">${fmtMoney(r.projected_localization_savings)}</td>
-                    <td class="align-right">${fmtMoney(r.net_effect)}</td>
+                    <td class="align-right">
+                        <span class="${signClass(invert(r.projected_localization_savings))}">${fmtMoney(invert(r.projected_localization_savings))}</span>
+                    </td>
+                    <td class="align-right">
+                        <span class="${signClass(invert(r.net_effect))}">${fmtMoney(invert(r.net_effect))}</span>
+                    </td>
                     <td><span class="pill ${r.recommended ? "pill-yes" : "pill-no"}">${r.recommended ? "Да" : "Нет"}</span></td>
                     <td>${safe(r.comment)}</td>
                 </tr>

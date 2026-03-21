@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ru">
+{% load static %}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendra — аналитика локализации WB</title>
+    <style>
+        :root {
+            --ink: #132033;
+            --muted: #56657a;
+            --line: rgba(19, 32, 51, 0.14);
+            --surface: rgba(255, 255, 255, 0.88);
+            --accent: #14532d;
+            --accent-2: #065f46;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+        }
+
+        .wrap {
+            width: min(1200px, calc(100% - 32px));
+            margin: 18px auto 34px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+        }
+
+        .brand {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+        }
+
+        .btn-login {
+            text-decoration: none;
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+            border-radius: 11px;
+            padding: 11px 18px;
+            font-weight: 700;
+            box-shadow: 0 8px 20px rgba(20, 83, 45, 0.28);
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+        }
+
+        .btn-login:hover,
+        .btn-login:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(20, 83, 45, 0.34);
+            filter: saturate(1.04);
+        }
+
+        .hero {
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: var(--surface);
+            padding: 28px 24px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(30px, 4vw, 48px);
+            letter-spacing: -0.02em;
+            max-width: 860px;
+        }
+
+        .lead {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 20px;
+            line-height: 1.45;
+            max-width: 920px;
+        }
+
+        .notice {
+            margin-top: 16px;
+            display: inline-block;
+            border-radius: 999px;
+            border: 1px solid #facc15;
+            background: #fef9c3;
+            color: #713f12;
+            padding: 7px 12px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .grid {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.78);
+            padding: 14px 15px;
+        }
+
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 18px;
+        }
+
+        .card p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.45;
+            font-size: 15px;
+        }
+
+        .tools {
+            margin-top: 14px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.76);
+            padding: 16px;
+        }
+
+        .tools h2 {
+            margin: 0 0 10px;
+            font-size: 24px;
+        }
+
+        .tool-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--muted);
+            line-height: 1.6;
+            font-size: 16px;
+        }
+
+        .cta {
+            margin-top: 18px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: rgba(20, 83, 45, 0.08);
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .cta-title {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .cta-text {
+            margin: 6px 0 0;
+            color: var(--muted);
+        }
+
+        .shots {
+            margin-top: 14px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.76);
+            padding: 16px;
+        }
+
+        .shots h2 {
+            margin: 0 0 10px;
+            font-size: 24px;
+        }
+
+        .shots-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .shot {
+            margin: 0;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .shot img {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #f8fbfa;
+        }
+
+        .shot figcaption {
+            padding: 8px 10px;
+            color: #5a6778;
+            font-size: 13px;
+        }
+
+        @media (max-width: 980px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .shots-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <header class="topbar">
+            <div class="brand">Vendra</div>
+            <a class="btn-login" href="{% url 'login' %}">Войти</a>
+        </header>
+
+        <main class="hero">
+            <h1>Увеличивайте локальность заказов и снижайте логистические потери на Wildberries</h1>
+            <p class="lead">
+                Vendra объединяет в одном месте ключевые метрики локализации, динамику индекса и рекомендации к поставкам,
+                чтобы вы быстрее принимали решения по складам, регионам и транзитам.
+            </p>
+            <div class="notice">Сейчас идет закрытое тестирование сервиса</div>
+
+            <section class="grid">
+                <article class="card">
+                    <h3>Контроль локальности</h3>
+                    <p>Мгновенно видите долю локальных заказов, изменение к прошлому периоду и реальные просадки по неделям.</p>
+                </article>
+                <article class="card">
+                    <h3>Фактический индекс локализации</h3>
+                    <p>Отслеживаете тренд ИЛ на выкупленных заказах и понимаете, где логистика расходится с теорией.</p>
+                </article>
+                <article class="card">
+                    <h3>Рекомендации к поставкам</h3>
+                    <p>Получаете приоритетные регионы и оценку эффекта: транзит, складские расходы и итоговая экономия.</p>
+                </article>
+            </section>
+
+            <section class="tools">
+                <h2>Что уже доступно в Vendra</h2>
+                <ul class="tool-list">
+                    <li>Главный дашборд с % локальных заказов, недельной динамикой и фактическим индексом локализации.</li>
+                    <li>Теоретический ИЛ и аналитика топа нелокальных регионов для фокусного пополнения.</li>
+                    <li>Сценарный расчет поставок: выбор транзитного и базового склада, сравнение текущей и прогнозной стоимости.</li>
+                    <li>Синхронизация заказов, карточек, тарифов, коэффициентов приемки и отчетов реализации в одном потоке.</li>
+                    <li>Разделение данных по пользователям: каждый тестер видит только свой кабинет и свои метрики.</li>
+                </ul>
+            </section>
+
+            <section class="shots">
+                <h2>Скриншоты инструментов</h2>
+                <div class="shots-grid">
+                    <figure class="shot">
+                        <figcaption>Быстрый контроль локальности и изменения к предыдущему периоду.</figcaption>
+                        <img src="{% static 'landing/local_orders_metric.png' %}" alt="% локальных заказов (7 полных дней)">
+                    </figure>
+                    <figure class="shot">
+                        <figcaption>Понедельная динамика локальных заказов для оценки тренда.</figcaption>
+                        <img src="{% static 'landing/local_orders_trend.png' %}" alt="Динамика % локальных заказов по полным неделям">
+                    </figure>
+                    <figure class="shot">
+                        <figcaption>Фактический ИЛ на выкупленных заказах по полным неделям.</figcaption>
+                        <img src="{% static 'landing/fact_localization_index.png' %}" alt="Фактический индекс локализации (выкупленные заказы)">
+                    </figure>
+                    <figure class="shot">
+                        <figcaption>Приоритет регионов, транзит и итоговый экономический эффект.</figcaption>
+                        <img src="{% static 'landing/supply_recommendations.png' %}" alt="Рекомендации к поставкам">
+                    </figure>
+                </div>
+            </section>
+
+            <section class="cta">
+                <div>
+                    <p class="cta-title">Вход для участников тестирования</p>
+                    <p class="cta-text">Доступы выдаются вручную. Регистрация и оплата будут добавлены на следующих этапах.</p>
+                </div>
+                <a class="btn-login" href="{% url 'login' %}">Перейти ко входу</a>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

@@ -35,6 +35,7 @@
         padding: 8px 10px;
         background: #fff;
         white-space: nowrap;
+        transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background-color .16s ease;
     }
 
     .menu-item {
@@ -55,6 +56,13 @@
         border-radius: 10px;
         padding: 8px 12px;
         white-space: nowrap;
+        transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background-color .16s ease;
+    }
+
+    .home-link:hover,
+    .home-link:focus-visible {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 16px rgba(19, 39, 60, 0.12);
     }
 
     .menu-link:hover,
@@ -62,6 +70,8 @@
     .menu-item:focus-within > .menu-link {
         border-color: var(--line);
         background: #fff;
+        transform: translateY(-1px);
+        box-shadow: 0 8px 16px rgba(19, 39, 60, 0.12);
     }
 
     .mega {
@@ -152,6 +162,7 @@
         cursor: pointer;
         font-size: 13px;
         box-shadow: none;
+        transition: transform .16s ease, box-shadow .16s ease, filter .16s ease, background-color .16s ease, border-color .16s ease;
     }
 
     .nav-shell .btn-ghost {
@@ -159,6 +170,13 @@
         background: rgba(255, 255, 255, 0.85);
         color: var(--ink);
         box-shadow: none;
+    }
+
+    .nav-shell .btn:hover,
+    .nav-shell .btn:focus-visible {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px rgba(19, 39, 60, 0.16);
+        filter: saturate(1.04);
     }
 
     @media (max-width: 900px) {
