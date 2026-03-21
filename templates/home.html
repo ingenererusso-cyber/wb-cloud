@@ -194,6 +194,24 @@
             color: var(--muted);
         }
 
+        .chart-help {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            margin-left: 6px;
+            border-radius: 50%;
+            border: 1px solid var(--line);
+            color: var(--muted);
+            background: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: help;
+            vertical-align: middle;
+        }
+
         .chart-range {
             margin: 0;
             font-size: 12px;
@@ -378,7 +396,14 @@
         </section>
         <section class="chart-card">
             <div class="chart-head">
-                <p class="chart-title">Фактический индекс локализации (выкупленные заказы) по полным неделям</p>
+                <p class="chart-title">
+                    Фактический индекс локализации (выкупленные заказы) по полным неделям
+                    <span
+                        class="chart-help"
+                        title="Чем дальше в прошлое, тем выше потенциальная погрешность: неучтённые исторические изменения габаритов карточек, фиксированные ставки и другие факторы."
+                        aria-label="Подсказка"
+                    >?</span>
+                </p>
                 {% if fact_localization_index_trend.start_label and fact_localization_index_trend.end_label %}
                     <p class="chart-range">{{ fact_localization_index_trend.start_label }} - {{ fact_localization_index_trend.end_label }}</p>
                 {% endif %}
@@ -430,7 +455,10 @@
             };
 
             if (!points.length) {
-                svg.outerHTML = '<div class="chart-empty">Нет данных для графика</div>';
+                const emptyText = config.emptyText
+                    || (config.data && config.data.no_data_reason)
+                    || "Нет данных для графика";
+                svg.outerHTML = `<div class="chart-empty">${emptyText}</div>`;
                 return;
             }
 
@@ -546,6 +574,7 @@
             minRange: 0.3,
             tickFormatter: (v) => v.toFixed(2),
             titleFormatter: (p) => `${p.label}: ${Number(p.theoretical_index).toFixed(3)} (13н заказов: ${p.orders_total_13w})`,
+            emptyText: theoreticalLocalizationIndexTrendData.no_data_reason,
         });
 
         function renderTopNonLocalDistricts(data) {

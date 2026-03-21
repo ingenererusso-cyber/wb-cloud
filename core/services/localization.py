@@ -392,6 +392,25 @@ def calculate_theoretical_localization_index_for_period(
     }
 
 
+def _count_theoretical_orders_for_period(
+    seller,
+    start_date,
+    end_date,
+):
+    return (
+        Order.objects
+        .filter(
+            seller=seller,
+            is_cancel=False,
+            warehouse_type="Склад WB",
+            country_name="Россия",
+            order_date__date__gte=start_date,
+            order_date__date__lte=end_date,
+        )
+        .count()
+    )
+
+
 def get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25, lookback_weeks=13):
     """
     Тренд теоретического ИЛ:
@@ -402,6 +421,7 @@ def get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25, l
     today = timezone.localdate()
     current_week_start = today - timedelta(days=today.weekday())
     last_full_week_end = current_week_start - timedelta(days=1)
+    min_orders = 1000
 
     points = []
     for offset in range(weeks - 1, -1, -1):
@@ -413,7 +433,7 @@ def get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25, l
             seller=seller,
             start_date=window_start,
             end_date=week_end,
-            min_orders=1000,
+            min_orders=min_orders,
         )
         if result is None:
             continue
@@ -428,10 +448,25 @@ def get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25, l
             }
         )
 
+    latest_window_start = last_full_week_end - timedelta(days=lookback_weeks * 7 - 1)
+    latest_window_orders = _count_theoretical_orders_for_period(
+        seller=seller,
+        start_date=latest_window_start,
+        end_date=last_full_week_end,
+    )
+
     return {
         "start_date": points[0]["week_start"] if points else None,
         "end_date": points[-1]["week_end"] if points else None,
         "start_label": points[0]["label"].split("-")[0] if points else None,
         "end_label": points[-1]["label"].split("-")[1] if points else None,
         "points": points,
+        "min_orders_required": min_orders,
+        "latest_orders_13w": int(latest_window_orders),
+        "no_data_reason": (
+            f"Недостаточно данных: за последние {lookback_weeks} недель {int(latest_window_orders)} заказов "
+            f"(нужно минимум {min_orders})."
+            if not points and latest_window_orders < min_orders
+            else None
+        ),
     }

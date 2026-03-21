@@ -14,7 +14,6 @@ def get_sales_last_14_days(seller):
         .filter(
             seller=seller,
             order_date__gte=date_from,
-            warehouse_type="Склад WB",
             is_cancel=False,
         )
         .exclude(oblast_okrug_name__isnull=True)
