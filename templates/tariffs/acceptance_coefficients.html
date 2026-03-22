@@ -89,6 +89,7 @@
         }
 
         .field { display: grid; gap: 4px; }
+        .warehouse-field { position: relative; }
         .field label { font-size: 12px; color: var(--muted); }
         .field input, .field select {
             border: 1px solid var(--line);
@@ -96,6 +97,41 @@
             padding: 8px 10px;
             font-size: 14px;
             background: #fff;
+        }
+
+        .warehouse-suggest {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            z-index: 15;
+            max-height: 260px;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            box-shadow: 0 10px 20px rgba(19, 32, 51, 0.12);
+            display: none;
+        }
+
+        .warehouse-suggest.open {
+            display: block;
+        }
+
+        .warehouse-option {
+            padding: 8px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(19, 32, 51, 0.07);
+        }
+
+        .warehouse-option:last-child {
+            border-bottom: none;
+        }
+
+        .warehouse-option:hover,
+        .warehouse-option.active {
+            background: #eef7ff;
         }
 
         .messages { margin: 8px 0; display: grid; gap: 6px; }
@@ -245,13 +281,22 @@
                 <option value="all" {% if box_type == "all" %}selected{% endif %}>Все типы</option>
             </select>
         </div>
-        <div class="field">
+        <div class="field warehouse-field">
             <label for="warehouse">Склад</label>
-            <input id="warehouse" type="text" name="warehouse" value="{{ warehouse_query }}" placeholder="Все склады">
+            <input
+                id="warehouse"
+                type="text"
+                name="warehouse"
+                value="{{ warehouse_query }}"
+                placeholder="Все склады"
+                autocomplete="off"
+            >
+            <div id="warehouse-options" class="warehouse-suggest" aria-label="Подсказки складов"></div>
         </div>
         <div class="field">
             <label><input type="checkbox" name="only_available" value="1" {% if only_available %}checked{% endif %}> Только доступные к отгрузке</label>
             <label><input type="checkbox" name="hide_sc" value="1" {% if hide_sc %}checked{% endif %}> Скрыть СЦ</label>
+            <label><input type="checkbox" name="hide_food" value="1" {% if hide_food %}checked{% endif %}> Скрыть питание</label>
         </div>
         <button class="btn btn-ghost" type="submit">Применить</button>
     </form>
@@ -288,18 +333,18 @@
                                             <div class="block-value"><span class="pill {{ cell.acceptance_class }}">{{ cell.acceptance_label }}</span></div>
                                         </div>
                                         <div class="block">
-                                            <div class="block-title">Логистика, ₽ (1-й / доп. литр)</div>
+                                            <div class="block-title">{{ delivery_title }}</div>
                                             <div class="block-value">{{ cell.logistics_text }}</div>
                                             {% if cell.logistics_coef_text %}<span class="coef">{{ cell.logistics_coef_text }}</span>{% endif %}
                                         </div>
                                         <div class="block">
-                                            <div class="block-title">Хранение, ₽ (1-й / доп. литр)</div>
+                                            <div class="block-title">{{ storage_title }}</div>
                                             <div class="block-value">{{ cell.storage_text }}</div>
                                             {% if cell.storage_coef_text %}<span class="coef">{{ cell.storage_coef_text }}</span>{% endif %}
                                         </div>
                                     </div>
                                 {% else %}
-                                    <span class="muted">—</span>
+                                    <span class="muted">Пока недоступна</span>
                                 {% endif %}
                             </td>
                         {% endfor %}
@@ -314,5 +359,127 @@
         </table>
     </div>
 </main>
+{{ warehouse_options|json_script:"warehouse-options-data" }}
+<script>
+    (function warehouseFilterNormalizer() {
+        const form = document.querySelector('form.filters');
+        const input = document.getElementById('warehouse');
+        const list = document.getElementById('warehouse-options');
+        if (!form || !input || !list) {
+            return;
+        }
+
+        function norm(value) {
+            return (value || '').trim().toLowerCase().replaceAll('ё', 'е');
+        }
+
+        const allOptions = JSON.parse(document.getElementById('warehouse-options-data').textContent || '[]');
+        let activeIndex = -1;
+        let visibleOptions = [];
+
+        function renderSuggestions(query) {
+            const nQuery = norm(query);
+            const starts = [];
+            const includes = [];
+
+            for (const value of allOptions) {
+                const nValue = norm(value);
+                if (!nQuery) {
+                    starts.push(value);
+                    continue;
+                }
+                if (nValue.startsWith(nQuery)) {
+                    starts.push(value);
+                    continue;
+                }
+                if (nValue.includes(nQuery)) {
+                    includes.push(value);
+                }
+            }
+
+            visibleOptions = [...starts, ...includes].slice(0, 80);
+            activeIndex = -1;
+
+            if (!visibleOptions.length) {
+                list.classList.remove('open');
+                list.innerHTML = '';
+                return;
+            }
+
+            list.innerHTML = visibleOptions
+                .map((value, idx) => `<div class="warehouse-option" data-idx="${idx}">${value}</div>`)
+                .join('');
+            list.classList.add('open');
+        }
+
+        input.addEventListener('input', () => {
+            renderSuggestions(input.value);
+        });
+
+        input.addEventListener('focus', () => {
+            renderSuggestions(input.value);
+        });
+
+        input.addEventListener('keydown', (event) => {
+            if (!visibleOptions.length) {
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                activeIndex = (activeIndex + 1) % visibleOptions.length;
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeIndex = (activeIndex - 1 + visibleOptions.length) % visibleOptions.length;
+            } else if (event.key === 'Enter') {
+                if (activeIndex >= 0 && activeIndex < visibleOptions.length) {
+                    event.preventDefault();
+                    input.value = visibleOptions[activeIndex];
+                    list.classList.remove('open');
+                }
+                return;
+            } else if (event.key === 'Escape') {
+                list.classList.remove('open');
+                return;
+            } else {
+                return;
+            }
+            Array.from(list.querySelectorAll('.warehouse-option')).forEach((el, idx) => {
+                el.classList.toggle('active', idx === activeIndex);
+            });
+        });
+
+        list.addEventListener('mousedown', (event) => {
+            const row = event.target.closest('.warehouse-option');
+            if (!row) {
+                return;
+            }
+            event.preventDefault();
+            const idx = Number(row.dataset.idx);
+            if (Number.isFinite(idx) && visibleOptions[idx]) {
+                input.value = visibleOptions[idx];
+            }
+            list.classList.remove('open');
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!event.target.closest('.warehouse-field')) {
+                list.classList.remove('open');
+            }
+        });
+
+        form.addEventListener('submit', () => {
+            const raw = input.value || '';
+            const target = norm(raw);
+            if (!target) {
+                return;
+            }
+            const exact = allOptions.find((item) => norm(item) === target);
+            if (exact) {
+                input.value = exact;
+            }
+            list.classList.remove('open');
+        });
+    })();
+</script>
 </body>
 </html>

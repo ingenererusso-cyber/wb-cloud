@@ -89,6 +89,20 @@ def _get_sync_task(task_id: str) -> SyncTask | None:
     return SyncTask.objects.filter(task_id=task_id).first()
 
 
+def _normalize_name_for_match(value: str | None) -> str:
+    return (value or "").strip().lower().replace("ё", "е")
+
+
+def _resolve_name_case_insensitive(raw_value: str | None, options: list[str]) -> str | None:
+    normalized = _normalize_name_for_match(raw_value)
+    if not normalized:
+        return None
+    for option in options:
+        if _normalize_name_for_match(option) == normalized:
+            return option
+    return (raw_value or "").strip() or None
+
+
 def _get_last_sync_at_for_user(user, seller=None):
     last_sync_task = (
         SyncTask.objects
@@ -534,10 +548,20 @@ def dashboard_supply_recommendations_api(request):
         return JsonResponse({"error": "date_from must be <= date_to"}, status=400)
 
     try:
+        seller = _get_seller_for_user(request.user)
+        transit_warehouse = _resolve_name_case_insensitive(
+            transit_warehouse,
+            list_available_transit_warehouses(seller=seller),
+        ) or ""
+        main_warehouse = _resolve_name_case_insensitive(
+            main_warehouse,
+            list_regular_warehouses(seller=seller),
+        ) or ""
+
         payload = get_dashboard_supply_recommendations(
             date_from=date_from,
             date_to=date_to,
-            seller=_get_seller_for_user(request.user),
+            seller=seller,
             transit_warehouse=transit_warehouse or None,
             main_warehouse=main_warehouse or None,
             include_food=include_food,
@@ -594,8 +618,9 @@ def acceptance_coefficients_report(request):
     date_to_raw = request.GET.get("date_to")
     warehouse_query = (request.GET.get("warehouse") or "").strip()
     box_type = (request.GET.get("box_type") or "2").strip()
-    only_available = request.GET.get("only_available") == "1"
+    only_available = request.GET.get("only_available", "1") == "1"
     hide_sc = request.GET.get("hide_sc") == "1"
+    hide_food = request.GET.get("hide_food", "1") == "1"
 
     today = timezone.localdate()
     default_date_from = today
@@ -624,14 +649,48 @@ def acceptance_coefficients_report(request):
         except ValueError:
             box_type = "2"
             qs = qs.filter(box_type_id=2)
-    if warehouse_query:
-        qs = qs.filter(warehouse_name__icontains=warehouse_query)
+    normalized_warehouse_query = _normalize_name_for_match(warehouse_query)
     if only_available:
-        qs = qs.filter(allow_unload=True)
-    if hide_sc:
-        qs = qs.filter(is_sorting_center=False)
+        # "Доступные к отгрузке" = разрешена отгрузка и нет запрета по коэффициенту.
+        qs = qs.filter(allow_unload=True).exclude(coefficient__lt=0)
 
     raw_rows = list(qs.order_by("warehouse_name", "coeff_date"))
+
+    def _is_sc_name(name: str) -> bool:
+        normalized = _normalize_name_for_match(name)
+        return normalized.startswith("сц ")
+
+    def _is_food_name(name: str) -> bool:
+        normalized = _normalize_name_for_match(name)
+        return "питание" in normalized
+
+    filtered_rows = []
+    for row in raw_rows:
+        warehouse_name = (row.warehouse_name or "").strip()
+        if not warehouse_name:
+            continue
+        if hide_sc and (_is_sc_name(warehouse_name) or bool(row.is_sorting_center)):
+            continue
+        if hide_food and _is_food_name(warehouse_name):
+            continue
+        if normalized_warehouse_query and normalized_warehouse_query not in _normalize_name_for_match(warehouse_name):
+            continue
+        filtered_rows.append(row)
+
+    warehouse_options_qs = (
+        WbAcceptanceCoefficient.objects
+        .filter(seller=seller)
+        .exclude(warehouse_name__isnull=True)
+        .exclude(warehouse_name__exact="")
+    )
+    if box_type != "all":
+        try:
+            warehouse_options_qs = warehouse_options_qs.filter(box_type_id=int(box_type))
+        except ValueError:
+            pass
+    warehouse_options = sorted(
+        set(warehouse_options_qs.values_list("warehouse_name", flat=True))
+    )
 
     date_columns = []
     current = date_from
@@ -654,9 +713,26 @@ def acceptance_coefficients_report(request):
             return ""
         return f"{value:.0f}%"
 
+    if box_type == "5":
+        delivery_title = "Логистика, ₽ за паллету"
+        storage_title = "Хранение, ₽ за паллету"
+    else:
+        delivery_title = "Логистика, ₽ (1-й / доп. литр)"
+        storage_title = "Хранение, ₽ (1-й / доп. литр)"
+
+    def _format_delivery(row):
+        if box_type == "5":
+            return _fmt_value(row.delivery_base_liter)
+        return _fmt_pair(row.delivery_base_liter, row.delivery_additional_liter)
+
+    def _format_storage(row):
+        if box_type == "5":
+            return _fmt_value(row.storage_base_liter)
+        return _fmt_pair(row.storage_base_liter, row.storage_additional_liter)
+
     matrix = {}
     warehouse_names = set()
-    for row in raw_rows:
+    for row in filtered_rows:
         warehouse_name = (row.warehouse_name or "").strip()
         if not warehouse_name:
             continue
@@ -678,9 +754,9 @@ def acceptance_coefficients_report(request):
         matrix[(warehouse_name, row.coeff_date)] = {
             "acceptance_label": acceptance_label,
             "acceptance_class": acceptance_class,
-            "logistics_text": _fmt_pair(row.delivery_base_liter, row.delivery_additional_liter),
+            "logistics_text": _format_delivery(row),
             "logistics_coef_text": _fmt_coef(row.delivery_coef),
-            "storage_text": _fmt_pair(row.storage_base_liter, row.storage_additional_liter),
+            "storage_text": _format_storage(row),
             "storage_coef_text": _fmt_coef(row.storage_coef),
         }
 
@@ -700,9 +776,13 @@ def acceptance_coefficients_report(request):
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
             "warehouse_query": warehouse_query,
+            "warehouse_options": warehouse_options,
             "box_type": box_type,
+            "delivery_title": delivery_title,
+            "storage_title": storage_title,
             "only_available": only_available,
             "hide_sc": hide_sc,
+            "hide_food": hide_food,
         },
     )
 
