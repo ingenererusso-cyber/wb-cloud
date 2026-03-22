@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0016_remove_ktrtableversion_core_ktrtab_date_fr_2ee3d4_idx_and_more'),
+        ('core', '0014_synctask_and_more'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
