@@ -6,6 +6,7 @@ import uuid
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Max
 from django.db import close_old_connections
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
@@ -14,7 +15,18 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from app.services.supply_recommendations.loaders import list_available_transit_warehouses, list_regular_warehouses
 from app.services.supply_recommendations.service import get_dashboard_supply_recommendations
-from core.models import AppErrorLog, SellerAccount, SyncTask, TesterFeedback, WbAcceptanceCoefficient
+from core.models import (
+    AppErrorLog,
+    Order,
+    RealizationReportDetail,
+    SellerAccount,
+    SyncTask,
+    TesterFeedback,
+    TransitDirectionTariff,
+    WarehouseStockDetailed,
+    WbAcceptanceCoefficient,
+    WbWarehouseTariff,
+)
 from core.services.replenishment import calculate_replenishment
 from core.services_realization import (
     get_fact_localization_index_trend_last_full_weeks,
@@ -75,6 +87,44 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
 
 def _get_sync_task(task_id: str) -> SyncTask | None:
     return SyncTask.objects.filter(task_id=task_id).first()
+
+
+def _get_last_sync_at_for_user(user, seller=None):
+    last_sync_task = (
+        SyncTask.objects
+        .filter(user=user, status=SyncTask.STATUS_SUCCESS, finished_at__isnull=False)
+        .order_by("-finished_at")
+        .first()
+    )
+    if last_sync_task:
+        return last_sync_task.finished_at
+
+    if not seller:
+        return None
+
+    # Fallback: если SyncTask не заполнялся, берём самую свежую дату обновления данных продавца.
+    candidates = []
+    candidates.append(
+        Order.objects.filter(seller=seller).aggregate(max_dt=Max("created_at")).get("max_dt")
+    )
+    candidates.append(
+        WarehouseStockDetailed.objects.filter(seller=seller).aggregate(max_dt=Max("updated_at")).get("max_dt")
+    )
+    candidates.append(
+        WbWarehouseTariff.objects.filter(seller=seller).aggregate(max_dt=Max("updated_at")).get("max_dt")
+    )
+    candidates.append(
+        WbAcceptanceCoefficient.objects.filter(seller=seller).aggregate(max_dt=Max("updated_at")).get("max_dt")
+    )
+    candidates.append(
+        TransitDirectionTariff.objects.filter(seller=seller).aggregate(max_dt=Max("updated_at")).get("max_dt")
+    )
+    candidates.append(
+        RealizationReportDetail.objects.filter(seller=seller).aggregate(max_dt=Max("updated_at")).get("max_dt")
+    )
+
+    dates = [dt for dt in candidates if dt is not None]
+    return max(dates) if dates else None
 
 
 def _log_app_error(
@@ -295,13 +345,7 @@ def home(request):
         fact_localization_index_trend = get_fact_localization_index_trend_last_full_weeks(seller, weeks=25)
         theoretical_localization_index_trend = get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25)
         top_non_local_districts = get_top_non_local_districts_last_full_weeks(seller, weeks=13, limit=5)
-    last_sync_task = (
-        SyncTask.objects
-        .filter(user=request.user, status=SyncTask.STATUS_SUCCESS, finished_at__isnull=False)
-        .order_by("-finished_at")
-        .first()
-    )
-    last_sync_at = last_sync_task.finished_at if last_sync_task else None
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
 
     return render(
         request,
@@ -407,11 +451,12 @@ def sync_orders_status_api(request):
 def replenishment_report(request):
     seller = _get_seller_for_user(request.user)
     data = calculate_replenishment(seller) if seller else []
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
 
     return render(
         request,
         "replenishment/report.html",
-        {"rows": data, "seller": seller}
+        {"rows": data, "seller": seller, "last_sync_at": last_sync_at}
     )
 
 
@@ -437,6 +482,7 @@ def account_settings(request):
 @login_required
 def supply_recommendations_report(request):
     seller = _get_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     today = timezone.localdate()
     current_month_start = today.replace(day=1)
     date_to = current_month_start - timedelta(days=1)
@@ -458,6 +504,7 @@ def supply_recommendations_report(request):
             "default_transit_warehouse": default_transit_warehouse,
             "main_warehouses": main_warehouses,
             "default_main_warehouse": default_main_warehouse,
+            "last_sync_at": last_sync_at,
         },
     )
 
@@ -521,6 +568,7 @@ def dashboard_supply_recommendations_api(request):
 @login_required
 def acceptance_coefficients_report(request):
     seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
 
     if request.method == "POST" and request.POST.get("action") == "sync_acceptance":
         api_token = (seller.api_token or "").strip()
@@ -646,6 +694,7 @@ def acceptance_coefficients_report(request):
         "tariffs/acceptance_coefficients.html",
         {
             "seller": seller,
+            "last_sync_at": last_sync_at,
             "date_columns": date_columns,
             "warehouse_rows": warehouse_rows,
             "date_from": date_from.isoformat(),
