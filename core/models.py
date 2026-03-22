@@ -245,3 +245,84 @@ class SyncTask(models.Model):
             models.Index(fields=["user", "created_at"]),
             models.Index(fields=["task_id"]),
         ]
+
+
+class TesterFeedback(models.Model):
+    CATEGORY_BUG = "bug"
+    CATEGORY_CALC = "calc"
+    CATEGORY_SYNC = "sync"
+    CATEGORY_IDEA = "idea"
+    CATEGORY_CHOICES = [
+        (CATEGORY_BUG, "Баг интерфейса"),
+        (CATEGORY_CALC, "Неточность расчета"),
+        (CATEGORY_SYNC, "Проблема синхронизации"),
+        (CATEGORY_IDEA, "Идея/улучшение"),
+    ]
+
+    PRIORITY_LOW = "low"
+    PRIORITY_MEDIUM = "medium"
+    PRIORITY_HIGH = "high"
+    PRIORITY_CHOICES = [
+        (PRIORITY_LOW, "Низкий"),
+        (PRIORITY_MEDIUM, "Средний"),
+        (PRIORITY_HIGH, "Высокий"),
+    ]
+
+    STATUS_NEW = "new"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_FIXED = "fixed"
+    STATUS_WONTFIX = "wontfix"
+    STATUS_CHOICES = [
+        (STATUS_NEW, "Новая"),
+        (STATUS_IN_PROGRESS, "В работе"),
+        (STATUS_FIXED, "Исправлено"),
+        (STATUS_WONTFIX, "Не планируется"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    seller = models.ForeignKey(SellerAccount, on_delete=models.SET_NULL, null=True, blank=True)
+    page_url = models.CharField(max_length=500, blank=True, default="")
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_BUG)
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default=PRIORITY_MEDIUM)
+    message = models.TextField()
+    include_context = models.BooleanField(default=True)
+    context_json = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_NEW)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["category", "priority"]),
+            models.Index(fields=["user", "created_at"]),
+        ]
+
+
+class AppErrorLog(models.Model):
+    LEVEL_ERROR = "error"
+    LEVEL_WARNING = "warning"
+    LEVEL_INFO = "info"
+    LEVEL_CHOICES = [
+        (LEVEL_ERROR, "Error"),
+        (LEVEL_WARNING, "Warning"),
+        (LEVEL_INFO, "Info"),
+    ]
+
+    source = models.CharField(max_length=120)
+    level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default=LEVEL_ERROR)
+    message = models.TextField()
+    path = models.CharField(max_length=500, blank=True, default="")
+    traceback_text = models.TextField(blank=True, default="")
+    context_json = models.JSONField(default=dict, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    seller = models.ForeignKey(SellerAccount, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["source", "created_at"]),
+            models.Index(fields=["level", "created_at"]),
+            models.Index(fields=["user", "created_at"]),
+        ]

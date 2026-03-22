@@ -1,5 +1,7 @@
 from datetime import date, timedelta
+import json
 import threading
+import traceback
 import uuid
 
 from django.contrib import messages
@@ -12,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from app.services.supply_recommendations.loaders import list_available_transit_warehouses, list_regular_warehouses
 from app.services.supply_recommendations.service import get_dashboard_supply_recommendations
-from core.models import SellerAccount, SyncTask, WbAcceptanceCoefficient
+from core.models import AppErrorLog, SellerAccount, SyncTask, TesterFeedback, WbAcceptanceCoefficient
 from core.services.replenishment import calculate_replenishment
 from core.services_realization import (
     get_fact_localization_index_trend_last_full_weeks,
@@ -73,6 +75,30 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
 
 def _get_sync_task(task_id: str) -> SyncTask | None:
     return SyncTask.objects.filter(task_id=task_id).first()
+
+
+def _log_app_error(
+    *,
+    source: str,
+    message: str,
+    user=None,
+    seller=None,
+    path: str = "",
+    context: dict | None = None,
+    traceback_text: str = "",
+) -> None:
+    try:
+        AppErrorLog.objects.create(
+            source=source,
+            message=message,
+            user=user,
+            seller=seller,
+            path=path or "",
+            context_json=context or {},
+            traceback_text=traceback_text or "",
+        )
+    except Exception:
+        pass
 
 
 def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
@@ -173,6 +199,21 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             },
         )
     except Exception as exc:
+        log_user = None
+        log_seller = None
+        if isinstance(user_id, int):
+            from django.contrib.auth.models import User
+            log_user = User.objects.filter(id=user_id).first()
+        if isinstance(seller_id, int):
+            log_seller = SellerAccount.objects.filter(id=seller_id).first()
+        _log_app_error(
+            source="sync.worker",
+            message=f"Ошибка синхронизации: {exc}",
+            user=log_user,
+            seller=log_seller,
+            context={"task_id": task_id},
+            traceback_text=traceback.format_exc(),
+        )
         _set_sync_task(
             task_id,
             {
@@ -314,6 +355,14 @@ def sync_orders_start_api(request):
         worker.start()
         return JsonResponse({"task_id": task_id, "status": "running"}, status=202)
     except Exception as exc:
+        _log_app_error(
+            source="sync.start_api",
+            message=f"Не удалось запустить синхронизацию: {exc}",
+            user=request.user,
+            seller=_get_seller_for_user(request.user),
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
         return JsonResponse({"error": f"Не удалось запустить синхронизацию: {exc}"}, status=500)
 
 
@@ -342,6 +391,15 @@ def sync_orders_status_api(request):
         }
         return JsonResponse(payload, status=200)
     except Exception as exc:
+        _log_app_error(
+            source="sync.status_api",
+            message=f"Не удалось получить статус синхронизации: {exc}",
+            user=request.user,
+            seller=_get_seller_for_user(request.user),
+            path=request.path,
+            context={"task_id": request.GET.get("task_id")},
+            traceback_text=traceback.format_exc(),
+        )
         return JsonResponse({"error": f"Не удалось получить статус синхронизации: {exc}"}, status=500)
 
 
@@ -439,7 +497,22 @@ def dashboard_supply_recommendations_api(request):
         )
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
-    except Exception:
+    except Exception as exc:
+        _log_app_error(
+            source="recommendations.api",
+            message=f"Internal error while building recommendations: {exc}",
+            user=request.user,
+            seller=_get_seller_for_user(request.user),
+            path=request.path,
+            context={
+                "date_from": date_from_raw,
+                "date_to": date_to_raw,
+                "transit_warehouse": transit_warehouse,
+                "main_warehouse": main_warehouse,
+                "include_food": include_food,
+            },
+            traceback_text=traceback.format_exc(),
+        )
         return JsonResponse({"error": "Internal error while building recommendations"}, status=500)
 
     return JsonResponse(payload, status=200)
@@ -458,6 +531,14 @@ def acceptance_coefficients_report(request):
             synced = sync_acceptance_coefficients(seller)
             messages.success(request, f"Синхронизация коэффициентов приёмки завершена: {synced} строк.")
         except Exception as exc:
+            _log_app_error(
+                source="acceptance.sync",
+                message=f"Ошибка синхронизации коэффициентов приёмки: {exc}",
+                user=request.user,
+                seller=seller,
+                path=request.path,
+                traceback_text=traceback.format_exc(),
+            )
             messages.error(request, f"Ошибка синхронизации коэффициентов приёмки: {exc}")
         return redirect("acceptance_coefficients_report")
 
@@ -575,3 +656,65 @@ def acceptance_coefficients_report(request):
             "hide_sc": hide_sc,
         },
     )
+
+
+@login_required
+@require_POST
+def create_feedback_api(request):
+    message = (request.POST.get("message") or "").strip()
+    category = (request.POST.get("category") or TesterFeedback.CATEGORY_BUG).strip()
+    priority = (request.POST.get("priority") or TesterFeedback.PRIORITY_MEDIUM).strip()
+    page_url = (request.POST.get("page_url") or "").strip()
+    include_context = (request.POST.get("include_context") or "1").strip() in {"1", "true", "True", "on"}
+    raw_context = (request.POST.get("context_json") or "").strip()
+
+    if not message or len(message) < 5:
+        return JsonResponse({"error": "Комментарий слишком короткий (минимум 5 символов)."}, status=400)
+
+    valid_categories = {value for value, _ in TesterFeedback.CATEGORY_CHOICES}
+    valid_priorities = {value for value, _ in TesterFeedback.PRIORITY_CHOICES}
+    if category not in valid_categories:
+        category = TesterFeedback.CATEGORY_BUG
+    if priority not in valid_priorities:
+        priority = TesterFeedback.PRIORITY_MEDIUM
+
+    context_json = {}
+    if include_context:
+        context_json = {
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "referer": request.META.get("HTTP_REFERER", ""),
+            "path": request.path,
+            "posted_at": timezone.now().isoformat(),
+        }
+        if raw_context:
+            try:
+                parsed = json.loads(raw_context)
+                if isinstance(parsed, dict):
+                    context_json.update(parsed)
+            except json.JSONDecodeError:
+                context_json["raw_context"] = raw_context[:1000]
+
+    seller = _get_seller_for_user(request.user)
+
+    try:
+        item = TesterFeedback.objects.create(
+            user=request.user,
+            seller=seller,
+            page_url=page_url,
+            category=category,
+            priority=priority,
+            message=message,
+            include_context=include_context,
+            context_json=context_json,
+        )
+        return JsonResponse({"ok": True, "ticket_id": item.id}, status=201)
+    except Exception as exc:
+        _log_app_error(
+            source="feedback.create_api",
+            message=f"Не удалось сохранить фидбек: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": "Не удалось сохранить сообщение. Попробуйте ещё раз."}, status=500)

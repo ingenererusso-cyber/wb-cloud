@@ -49,6 +49,9 @@
         {% else %}
             <a class="btn" href="{% url 'home' %}">Синхронизировать данные</a>
         {% endif %}
+        <div class="feedback-inline">
+            <button class="btn btn-ghost" type="button" id="feedback-open-btn">Сообщить проблему</button>
+        </div>
         <span class="nav-user">Аккаунт: {{ request.user.username }}</span>
         <div class="nav-account-actions">
             <a class="btn btn-ghost" href="{% url 'account_settings' %}">Настройки</a>
@@ -59,3 +62,161 @@
         </div>
     </nav>
 </div>
+
+<div id="feedback-modal" class="feedback-modal" aria-hidden="true">
+    <div class="feedback-card" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+        <div class="feedback-head">
+            <h3 id="feedback-title">Обратная связь для команды</h3>
+            <button id="feedback-close-btn" class="feedback-close" type="button">Закрыть</button>
+        </div>
+        <form id="feedback-form">
+            <div class="feedback-grid">
+                <div class="feedback-field">
+                    <label for="feedback-category">Тип</label>
+                    <select id="feedback-category" name="category">
+                        <option value="bug">Баг интерфейса</option>
+                        <option value="calc">Неточность расчета</option>
+                        <option value="sync">Проблема синхронизации</option>
+                        <option value="idea">Идея/улучшение</option>
+                    </select>
+                </div>
+                <div class="feedback-field">
+                    <label for="feedback-priority">Приоритет</label>
+                    <select id="feedback-priority" name="priority">
+                        <option value="medium">Средний</option>
+                        <option value="high">Высокий</option>
+                        <option value="low">Низкий</option>
+                    </select>
+                </div>
+                <div class="feedback-field full">
+                    <label for="feedback-message">Комментарий</label>
+                    <textarea id="feedback-message" name="message" placeholder="Опишите проблему: что ожидали, что получили, шаги воспроизведения..."></textarea>
+                </div>
+                <div class="feedback-field full">
+                    <label class="feedback-toggle">
+                        <input type="checkbox" id="feedback-include-context" name="include_context" checked>
+                        Приложить технический контекст (URL, браузер, параметры страницы)
+                    </label>
+                </div>
+            </div>
+            <div class="feedback-footer">
+                <span class="feedback-note">После отправки тикет сохранится в админке.</span>
+                <button class="btn" id="feedback-submit-btn" type="submit">Отправить</button>
+            </div>
+            <div id="feedback-status" class="feedback-status" aria-live="polite"></div>
+        </form>
+    </div>
+</div>
+
+<script>
+    (function feedbackWidgetSetup() {
+        const modal = document.getElementById("feedback-modal");
+        const openBtn = document.getElementById("feedback-open-btn");
+        const closeBtn = document.getElementById("feedback-close-btn");
+        const form = document.getElementById("feedback-form");
+        const submitBtn = document.getElementById("feedback-submit-btn");
+        const statusEl = document.getElementById("feedback-status");
+        const messageEl = document.getElementById("feedback-message");
+        const includeContextEl = document.getElementById("feedback-include-context");
+
+        if (!modal || !openBtn || !form) {
+            return;
+        }
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) {
+                return parts.pop().split(";").shift();
+            }
+            return "";
+        }
+
+        function setStatus(text, mode) {
+            statusEl.classList.remove("ok", "error", "show");
+            if (!text) {
+                statusEl.textContent = "";
+                return;
+            }
+            statusEl.textContent = text;
+            statusEl.classList.add("show", mode);
+        }
+
+        function openModal() {
+            modal.classList.add("open");
+            modal.setAttribute("aria-hidden", "false");
+            messageEl.focus();
+        }
+
+        function closeModal() {
+            modal.classList.remove("open");
+            modal.setAttribute("aria-hidden", "true");
+        }
+
+        function buildContext() {
+            return {
+                path: window.location.pathname,
+                href: window.location.href,
+                referrer: document.referrer,
+                user_agent: navigator.userAgent,
+            };
+        }
+
+        openBtn.addEventListener("click", openModal);
+        closeBtn.addEventListener("click", closeModal);
+        modal.addEventListener("click", (event) => {
+            if (event.target === modal) {
+                closeModal();
+            }
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && modal.classList.contains("open")) {
+                closeModal();
+            }
+        });
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const formData = new FormData(form);
+            const message = (formData.get("message") || "").toString().trim();
+            if (message.length < 5) {
+                setStatus("Комментарий слишком короткий (минимум 5 символов).", "error");
+                return;
+            }
+
+            formData.set("page_url", window.location.href);
+            if (includeContextEl.checked) {
+                formData.set("context_json", JSON.stringify(buildContext()));
+                formData.set("include_context", "1");
+            } else {
+                formData.set("include_context", "0");
+            }
+
+            submitBtn.disabled = true;
+            setStatus("Отправляю сообщение...", "ok");
+
+            try {
+                const res = await fetch("{% url 'create_feedback_api' %}", {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCookie("csrftoken"),
+                        "Accept": "application/json",
+                    },
+                    body: formData,
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    setStatus(data.error || "Не удалось отправить сообщение.", "error");
+                    return;
+                }
+                setStatus(`Спасибо! Сообщение сохранено (тикет #${data.ticket_id}).`, "ok");
+                form.reset();
+                includeContextEl.checked = true;
+            } catch (err) {
+                setStatus("Ошибка сети при отправке сообщения.", "error");
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
+    })();
+</script>

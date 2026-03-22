@@ -1,6 +1,8 @@
 from django.contrib import admin
 from .models import (
+    AppErrorLog,
     SellerAccount,
+    TesterFeedback,
     Product,
     WarehouseStockDetailed,
     Order,
@@ -61,7 +63,66 @@ class RealizationReportDetailAdmin(admin.ModelAdmin):
     date_hierarchy = "rr_dt"
     list_select_related = ("seller",)
     list_per_page = 50
-    readonly_fields = ("updated_at",)
+
+
+@admin.register(TesterFeedback)
+class TesterFeedbackAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "created_at",
+        "user",
+        "seller",
+        "category",
+        "priority",
+        "status",
+        "short_message",
+    )
+    search_fields = (
+        "id",
+        "user__username",
+        "seller__name",
+        "message",
+        "page_url",
+    )
+    list_filter = ("status", "category", "priority", "created_at")
+    list_select_related = ("user", "seller")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at", "context_json")
+
+    @admin.display(description="Сообщение")
+    def short_message(self, obj):
+        text = (obj.message or "").strip()
+        return text[:90] + ("..." if len(text) > 90 else "")
+
+
+@admin.register(AppErrorLog)
+class AppErrorLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "created_at",
+        "source",
+        "level",
+        "user",
+        "seller",
+        "short_message",
+    )
+    search_fields = (
+        "id",
+        "source",
+        "message",
+        "path",
+        "user__username",
+        "seller__name",
+    )
+    list_filter = ("level", "source", "created_at")
+    list_select_related = ("user", "seller")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "context_json", "traceback_text")
+
+    @admin.display(description="Сообщение")
+    def short_message(self, obj):
+        text = (obj.message or "").strip()
+        return text[:90] + ("..." if len(text) > 90 else "")
 
 
 @admin.register(Order)
