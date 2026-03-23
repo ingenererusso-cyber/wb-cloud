@@ -28,6 +28,22 @@ HEADER_ALIASES = {
     "tech_size": {"размер wb", "размер"},
 }
 
+# Стандартные колонки WB-листа "Все заказы" (A=0, B=1, ...),
+# если строка заголовков повреждена/не найдена.
+FALLBACK_WB_ALL_ORDERS_MAP = {
+    "supplier_article": 0,      # A
+    "nm_id": 1,                 # B
+    "order_date": 7,            # H
+    "last_change_date": 8,      # I
+    "status": 9,                # J
+    "region_departure": 12,     # M
+    "region_arrival": 14,       # O
+    "finished_price": 16,       # Q
+    "tech_size": 18,            # S
+    "srid": 20,                 # U
+    "warehouse_type": 21,       # V
+}
+
 
 def _normalize_header(value: Any) -> str:
     text = (str(value or "")).strip().lower().replace("ё", "е")
@@ -44,6 +60,19 @@ def _build_header_map(row_values: list[Any]) -> dict[str, int]:
             if normalized in aliases and field not in mapping:
                 mapping[field] = idx
     return mapping
+
+
+def _is_header_map_usable(mapping: dict[str, int]) -> bool:
+    # supplier_article может отсутствовать, восстановим его из nm_id.
+    return {"nm_id", "order_date"}.issubset(mapping)
+
+
+def _find_header_row_and_map(rows: list[tuple[Any, ...]]) -> tuple[int | None, dict[str, int]]:
+    for idx, row in enumerate(rows[:100]):
+        candidate = _build_header_map(list(row or []))
+        if _is_header_map_usable(candidate):
+            return idx, candidate
+    return None, {}
 
 
 def _parse_dt(raw: Any):
@@ -143,24 +172,40 @@ def import_orders_from_excel(
         raise RuntimeError("openpyxl is not installed")
 
     workbook = load_workbook(filename=file_obj, read_only=True, data_only=True)
-    sheet = workbook["Все заказы"] if "Все заказы" in workbook.sheetnames else workbook[workbook.sheetnames[0]]
 
-    rows_iter = sheet.iter_rows(values_only=True)
-    rows = list(rows_iter)
-    if not rows:
-        return {"created": 0, "updated": 0, "skipped": 0}
+    # Ищем данные по всем листам, начиная с "Все заказы" (в твоём файле это 3-й лист).
+    candidate_sheet_names: list[str] = []
+    if "Все заказы" in workbook.sheetnames:
+        candidate_sheet_names.append("Все заказы")
+    candidate_sheet_names.extend([name for name in workbook.sheetnames if name not in candidate_sheet_names])
 
-    header_row_idx = None
+    rows: list[tuple[Any, ...]] = []
+    header_row_idx: int | None = None
     header_map: dict[str, int] = {}
-    for idx, row in enumerate(rows[:40]):
-        candidate = _build_header_map(list(row or []))
-        if {"nm_id", "supplier_article", "order_date"}.issubset(candidate):
-            header_row_idx = idx
-            header_map = candidate
+
+    for sheet_name in candidate_sheet_names:
+        sheet_rows = list(workbook[sheet_name].iter_rows(values_only=True))
+        if not sheet_rows:
+            continue
+        found_idx, found_map = _find_header_row_and_map(sheet_rows)
+        if found_idx is not None:
+            rows = sheet_rows
+            header_row_idx = found_idx
+            header_map = found_map
             break
 
+    # Fallback на фиксированную карту WB-колонок.
     if header_row_idx is None:
-        raise ValueError("Не удалось найти строку заголовков в Excel")
+        if "Все заказы" in workbook.sheetnames:
+            rows = list(workbook["Все заказы"].iter_rows(values_only=True))
+        elif workbook.sheetnames:
+            rows = list(workbook[workbook.sheetnames[0]].iter_rows(values_only=True))
+        if rows:
+            header_row_idx = 1 if len(rows) > 1 else 0
+            header_map = FALLBACK_WB_ALL_ORDERS_MAP.copy()
+
+    if header_row_idx is None or not rows:
+        raise ValueError("Не удалось найти данные заказов в Excel")
 
     # В выгрузке "Все заказы" склад отправки идёт следующим столбцом после "Регион отправки".
     warehouse_name_idx = None
@@ -178,9 +223,11 @@ def import_orders_from_excel(
 
         nm_id = _parse_nm_id(_get_cell(values, header_map.get("nm_id")))
         supplier_article = str(_get_cell(values, header_map.get("supplier_article")) or "").strip()
-        if not nm_id or not supplier_article:
+        if not nm_id:
             skipped += 1
             continue
+        if not supplier_article:
+            supplier_article = f"nm_{nm_id}"
 
         order_date = _parse_dt(_get_cell(values, header_map.get("order_date")))
         last_change_date = _parse_dt(_get_cell(values, header_map.get("last_change_date"))) or order_date
