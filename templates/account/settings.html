@@ -99,6 +99,27 @@
             font-size: 13px;
         }
 
+        .danger-card {
+            margin-top: 16px;
+            border: 1px solid #fecaca;
+            border-radius: 14px;
+            background: #fff5f5;
+            padding: 14px;
+        }
+
+        .danger-title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+            color: #991b1b;
+        }
+
+        .danger-subtitle {
+            margin: 6px 0 0;
+            color: #7f1d1d;
+            font-size: 13px;
+        }
+
         label {
             display: block;
             margin-bottom: 6px;
@@ -224,6 +245,13 @@
             padding: 10px 12px;
             font-size: 13px;
         }
+
+        .confirm-text {
+            margin: 8px 0 0;
+            color: #475569;
+            font-size: 14px;
+            line-height: 1.45;
+        }
     </style>
 </head>
 <body>
@@ -284,6 +312,17 @@
         <div class="actions">
             <a class="btn btn-primary" href="{% url 'home' %}">На главную</a>
         </div>
+
+        <div class="danger-card">
+            <h2 class="danger-title">Опасные действия</h2>
+            <p class="danger-subtitle">
+                Используйте только при необходимости. Действия необратимы.
+            </p>
+            <div class="actions">
+                <button id="openPurgeSellerData" class="btn btn-danger" type="button">Удалить данные селлера с этого сервера</button>
+                <button id="openDeleteAccount" class="btn btn-danger" type="button">Удалить аккаунт</button>
+            </div>
+        </div>
     </main>
 
     <div id="apiGuideModal" class="modal" aria-hidden="true">
@@ -309,10 +348,54 @@
         </div>
     </div>
 
+    <div id="purgeSellerDataModal" class="modal" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="purgeSellerDataTitle">
+            <div class="modal-head">
+                <h2 id="purgeSellerDataTitle" class="modal-title">Удалить данные селлера с этого сервера?</h2>
+                <button class="modal-close" type="button" data-close-modal="purgeSellerDataModal">Закрыть</button>
+            </div>
+            <p class="confirm-text">
+                Будут удалены все данные текущего кабинета продавца: заказы, товары, остатки, тарифы, транзитные направления,
+                коэффициенты, отчеты реализации, логи и тикеты, связанные с этим seller.
+            </p>
+            <form method="post" class="actions">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="purge_seller_data">
+                <input type="hidden" name="confirm_purge_seller_data" value="1">
+                <button class="btn btn-danger" type="submit">Подтверждаю удаление данных</button>
+                <button class="btn" type="button" data-close-modal="purgeSellerDataModal">Отмена</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="deleteAccountModal" class="modal" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="deleteAccountTitle">
+            <div class="modal-head">
+                <h2 id="deleteAccountTitle" class="modal-title">Удалить аккаунт целиком?</h2>
+                <button class="modal-close" type="button" data-close-modal="deleteAccountModal">Закрыть</button>
+            </div>
+            <p class="confirm-text">
+                Будет удален ваш пользовательский аккаунт и все связанные с ним данные, включая seller-кабинет.
+                После этого вход в систему станет невозможен.
+            </p>
+            <form method="post" class="actions">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete_account">
+                <input type="hidden" name="confirm_delete_account" value="1">
+                <button class="btn btn-danger" type="submit">Подтверждаю удаление аккаунта</button>
+                <button class="btn" type="button" data-close-modal="deleteAccountModal">Отмена</button>
+            </form>
+        </div>
+    </div>
+
     <script>
         const guideModal = document.getElementById("apiGuideModal");
         const openGuideBtn = document.getElementById("openApiGuide");
         const closeGuideBtn = document.getElementById("closeApiGuide");
+        const purgeSellerDataModal = document.getElementById("purgeSellerDataModal");
+        const deleteAccountModal = document.getElementById("deleteAccountModal");
+        const openPurgeSellerDataBtn = document.getElementById("openPurgeSellerData");
+        const openDeleteAccountBtn = document.getElementById("openDeleteAccount");
 
         function openGuide() {
             guideModal.classList.add("open");
@@ -324,16 +407,54 @@
             guideModal.setAttribute("aria-hidden", "true");
         }
 
+        function openModal(modal) {
+            if (!modal) return;
+            modal.classList.add("open");
+            modal.setAttribute("aria-hidden", "false");
+        }
+
+        function closeModal(modal) {
+            if (!modal) return;
+            modal.classList.remove("open");
+            modal.setAttribute("aria-hidden", "true");
+        }
+
         openGuideBtn.addEventListener("click", openGuide);
         closeGuideBtn.addEventListener("click", closeGuide);
+        openPurgeSellerDataBtn.addEventListener("click", () => openModal(purgeSellerDataModal));
+        openDeleteAccountBtn.addEventListener("click", () => openModal(deleteAccountModal));
         guideModal.addEventListener("click", (event) => {
             if (event.target === guideModal) {
                 closeGuide();
             }
         });
+        purgeSellerDataModal.addEventListener("click", (event) => {
+            if (event.target === purgeSellerDataModal) {
+                closeModal(purgeSellerDataModal);
+            }
+        });
+        deleteAccountModal.addEventListener("click", (event) => {
+            if (event.target === deleteAccountModal) {
+                closeModal(deleteAccountModal);
+            }
+        });
+
+        document.querySelectorAll("[data-close-modal]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const modalId = btn.getAttribute("data-close-modal");
+                const modal = document.getElementById(modalId);
+                closeModal(modal);
+            });
+        });
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && guideModal.classList.contains("open")) {
                 closeGuide();
+            }
+            if (event.key === "Escape" && purgeSellerDataModal.classList.contains("open")) {
+                closeModal(purgeSellerDataModal);
+            }
+            if (event.key === "Escape" && deleteAccountModal.classList.contains("open")) {
+                closeModal(deleteAccountModal);
             }
         });
     </script>

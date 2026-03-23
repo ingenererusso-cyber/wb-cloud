@@ -4,6 +4,7 @@ import threading
 import traceback
 import uuid
 
+from django.contrib.auth import logout
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Max
@@ -19,6 +20,7 @@ from app.services.supply_recommendations.service import get_dashboard_supply_rec
 from core.models import (
     AppErrorLog,
     Order,
+    Product,
     RealizationReportDetail,
     SellerAccount,
     SyncTask,
@@ -482,6 +484,46 @@ def account_settings(request):
 
     if request.method == "POST":
         action = (request.POST.get("action") or "").strip()
+        if action == "purge_seller_data":
+            confirmed = (request.POST.get("confirm_purge_seller_data") or "").strip() == "1"
+            if not confirmed:
+                messages.error(request, "Удаление данных отменено: не подтверждено.")
+                return redirect(reverse("account_settings"))
+
+            deleted_summary = {
+                "products": Product.objects.filter(seller=seller).delete()[0],
+                "orders": Order.objects.filter(seller=seller).delete()[0],
+                "stocks": WarehouseStockDetailed.objects.filter(seller=seller).delete()[0],
+                "tariffs": WbWarehouseTariff.objects.filter(seller=seller).delete()[0],
+                "acceptance": WbAcceptanceCoefficient.objects.filter(seller=seller).delete()[0],
+                "transit": TransitDirectionTariff.objects.filter(seller=seller).delete()[0],
+                "realization": RealizationReportDetail.objects.filter(seller=seller).delete()[0],
+                "sync_tasks": SyncTask.objects.filter(seller=seller).delete()[0],
+                "feedback": TesterFeedback.objects.filter(seller=seller).delete()[0],
+                "errors": AppErrorLog.objects.filter(seller=seller).delete()[0],
+            }
+            total_deleted = sum(deleted_summary.values())
+            messages.success(
+                request,
+                (
+                    "Данные seller очищены. "
+                    f"Удалено записей: {total_deleted} "
+                    f"(заказы: {deleted_summary['orders']}, товары: {deleted_summary['products']})."
+                ),
+            )
+            return redirect(reverse("account_settings"))
+
+        if action == "delete_account":
+            confirmed = (request.POST.get("confirm_delete_account") or "").strip() == "1"
+            if not confirmed:
+                messages.error(request, "Удаление аккаунта отменено: не подтверждено.")
+                return redirect(reverse("account_settings"))
+
+            user = request.user
+            logout(request)
+            user.delete()
+            return redirect(reverse("home"))
+
         if action == "import_orders_excel":
             excel_file = request.FILES.get("orders_excel")
             if not excel_file:
