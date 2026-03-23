@@ -33,6 +33,7 @@ from core.services_realization import (
     sync_realization_report_detail,
 )
 from core.services_offices import sync_wb_offices
+from core.services_excel_import import import_orders_from_excel
 from core.services_orders import sync_fbw_orders
 from core.services_products import sync_products_content
 from core.services_stocks import sync_supplier_stocks
@@ -479,6 +480,41 @@ def account_settings(request):
     seller = _get_or_create_seller_for_user(request.user)
 
     if request.method == "POST":
+        action = (request.POST.get("action") or "").strip()
+        if action == "import_orders_excel":
+            excel_file = request.FILES.get("orders_excel")
+            if not excel_file:
+                messages.error(request, "Выберите Excel-файл для импорта.")
+                return redirect(reverse("account_settings"))
+
+            if not excel_file.name.lower().endswith(".xlsx"):
+                messages.error(request, "Поддерживается только формат .xlsx")
+                return redirect(reverse("account_settings"))
+
+            try:
+                result = import_orders_from_excel(seller=seller, file_obj=excel_file)
+                messages.success(
+                    request,
+                    (
+                        "Импорт завершен: "
+                        f"добавлено {result.get('created', 0)}, "
+                        f"обновлено {result.get('updated', 0)}, "
+                        f"пропущено {result.get('skipped', 0)}."
+                    ),
+                )
+            except Exception as exc:
+                _log_app_error(
+                    source="account.import_orders_excel",
+                    message=f"Ошибка импорта Excel: {exc}",
+                    user=request.user,
+                    seller=seller,
+                    path=request.path,
+                    traceback_text=traceback.format_exc(),
+                )
+                messages.error(request, f"Ошибка импорта Excel: {exc}")
+
+            return redirect(reverse("account_settings"))
+
         seller.api_token = request.POST.get("api_token", "").strip()
         seller.save(update_fields=["api_token"])
         return redirect(f"{reverse('account_settings')}?saved=1")

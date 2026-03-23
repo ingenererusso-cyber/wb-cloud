@@ -219,6 +219,11 @@
         {% if saved %}
             <div class="ok">API-ключ сохранён.</div>
         {% endif %}
+        {% if messages %}
+            {% for message in messages %}
+                <div class="ok">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
 
         <div class="helper-row">
             <button id="openApiGuide" class="btn" type="button">Инструкция по созданию ключа API</button>
@@ -232,6 +237,19 @@
             </div>
             <div class="actions">
                 <button class="btn btn-primary" type="submit">Сохранить</button>
+            </div>
+        </form>
+
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="import_orders_excel">
+            <div class="field">
+                <label for="orders_excel">Импорт заказов из Excel (.xlsx)</label>
+                <input id="orders_excel" name="orders_excel" type="file" accept=".xlsx">
+            </div>
+            <p class="muted">Можно загрузить выгрузку WB «Все заказы» без API-ключа. Данные будут импортированы частично.</p>
+            <div class="actions">
+                <button class="btn" type="submit">Импортировать Excel</button>
             </div>
         </form>
         <div class="actions">
