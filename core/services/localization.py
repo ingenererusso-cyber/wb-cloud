@@ -36,12 +36,23 @@ def normalize_district(name: str | None) -> str | None:
         return None
 
     name = name.strip()
+    lowered = name.lower().replace("ё", "е")
 
-    if "Юж" in name or "Кавказ" in name:
+    if "юж" in lowered or "кавказ" in lowered:
         return "Юг"
 
-    if "Сибир" in name or "Дальневост" in name:
+    if "сибир" in lowered or "дальневост" in lowered:
         return "Восток"
+
+    # Excel-выгрузки и некоторые отчеты дают укороченные названия округов.
+    if "централь" in lowered:
+        return "Центральный федеральный округ"
+    if "северо-запад" in lowered:
+        return "Северо-Западный федеральный округ"
+    if "приволж" in lowered:
+        return "Приволжский федеральный округ"
+    if "ураль" in lowered:
+        return "Уральский федеральный округ"
 
     return name
 

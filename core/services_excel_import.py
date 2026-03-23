@@ -6,7 +6,7 @@ from typing import Any
 from django.utils import timezone
 
 from core.models import Order, SellerAccount
-from core.services.localization import determine_locality
+from core.services.localization import determine_locality, normalize_district
 
 try:
     from openpyxl import load_workbook
@@ -157,6 +157,17 @@ def _make_synthetic_srid(row_index: int, nm_id: int, order_date) -> str:
     return f"excel-{nm_id}-{date_part}-{row_index}"
 
 
+def _determine_locality_from_excel_regions(
+    region_departure: str | None,
+    region_arrival: str | None,
+) -> bool | None:
+    departure = normalize_district(region_departure)
+    arrival = normalize_district(region_arrival)
+    if not departure or not arrival:
+        return None
+    return departure == arrival
+
+
 def import_orders_from_excel(
     *,
     seller: SellerAccount,
@@ -171,7 +182,10 @@ def import_orders_from_excel(
     if load_workbook is None:
         raise RuntimeError("openpyxl is not installed")
 
-    workbook = load_workbook(filename=file_obj, read_only=True, data_only=True)
+    # Для некоторых выгрузок WB размер листа в metadata поврежден.
+    # В режиме read_only openpyxl тогда отдает только первую строку.
+    # Поэтому читаем в обычном режиме.
+    workbook = load_workbook(filename=file_obj, read_only=False, data_only=True)
 
     # Ищем данные по всем листам, начиная с "Все заказы" (в твоём файле это 3-й лист).
     candidate_sheet_names: list[str] = []
@@ -246,9 +260,19 @@ def import_orders_from_excel(
         warehouse_name = str(_get_cell(values, warehouse_name_idx) or "").strip()
         warehouse_type = _normalize_warehouse_type(_get_cell(values, header_map.get("warehouse_type")))
         oblast_okrug_name = str(_get_cell(values, header_map.get("region_arrival")) or "").strip() or None
-        is_local = determine_locality(warehouse_name, oblast_okrug_name or "") if warehouse_type == "Склад WB" else False
-
         region_name = str(_get_cell(values, header_map.get("region_departure")) or "").strip() or None
+        is_local: bool
+        if warehouse_type == "Склад WB":
+            # Для Excel-импорта сначала используем прямое сравнение "регион отгрузки vs регион доставки".
+            # Если регионы отсутствуют, откатываемся на сопоставление по складу.
+            region_based_locality = _determine_locality_from_excel_regions(region_name, oblast_okrug_name)
+            if region_based_locality is None:
+                is_local = determine_locality(warehouse_name, oblast_okrug_name or "")
+            else:
+                is_local = region_based_locality
+        else:
+            is_local = False
+
         finished_price = _parse_float(_get_cell(values, header_map.get("finished_price")))
         tech_size = str(
             _get_cell(values, header_map.get("tech_size")) or ""

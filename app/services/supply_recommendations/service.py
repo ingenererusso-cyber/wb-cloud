@@ -19,7 +19,7 @@ from app.services.supply_recommendations.loaders import (
 )
 from app.services.supply_recommendations.recommendations import build_supply_recommendations, get_ktr_for_share
 from app.services.supply_recommendations.serializers import serialize_recommendations_for_dashboard
-from core.models import SellerAccount
+from core.models import SellerAccount, TransitDirectionTariff, WbAcceptanceCoefficient, WbWarehouseTariff
 
 
 def get_dashboard_supply_recommendations(
@@ -196,6 +196,15 @@ def get_dashboard_supply_recommendations(
     payload["summary"]["available_transit_warehouses"] = list_available_transit_warehouses(seller=seller)
     payload["summary"]["available_main_warehouses"] = list_regular_warehouses(seller=seller)
     payload["summary"]["base_logistics_per_order"] = round(effective_base_logistics, 2)
+    if seller is not None:
+        has_own_tariffs = WbWarehouseTariff.objects.filter(seller=seller).exists()
+        has_own_acceptance = WbAcceptanceCoefficient.objects.filter(seller=seller).exists()
+        has_own_transit = TransitDirectionTariff.objects.filter(seller=seller).exists()
+        payload["summary"]["uses_shared_reference_data"] = not (
+            has_own_tariffs and has_own_acceptance and has_own_transit
+        )
+    else:
+        payload["summary"]["uses_shared_reference_data"] = True
     return payload
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Any
 
 from django.db.models import Count, Q
 
@@ -60,18 +60,29 @@ def _load_latest_tariffs_by_warehouse(
     if not normalized_names:
         return {}
 
-    qs = WbWarehouseTariff.objects.filter(warehouse_name__in=normalized_names)
-    if seller is not None:
-        qs = qs.filter(seller=seller)
-    if tariff_date is not None:
-        qs = qs.filter(tariff_date=tariff_date)
-    else:
-        qs = qs.order_by("-tariff_date")
-
     latest_by_warehouse: Dict[str, WbWarehouseTariff] = {}
-    for row in qs.iterator(chunk_size=1000):
-        if row.warehouse_name not in latest_by_warehouse:
-            latest_by_warehouse[row.warehouse_name] = row
+
+    def _fill_from_queryset(qs):
+        if tariff_date is not None:
+            local_qs = qs.filter(tariff_date=tariff_date)
+        else:
+            local_qs = qs.order_by("-tariff_date")
+        for row in local_qs.iterator(chunk_size=1000):
+            wh_name = _normalize_str(row.warehouse_name)
+            if not wh_name:
+                continue
+            if wh_name not in latest_by_warehouse:
+                latest_by_warehouse[wh_name] = row
+
+    base_qs = WbWarehouseTariff.objects.filter(warehouse_name__in=normalized_names)
+    if seller is not None:
+        _fill_from_queryset(base_qs.filter(seller=seller))
+        missing = [name for name in normalized_names if name not in latest_by_warehouse]
+        if missing:
+            _fill_from_queryset(base_qs.filter(warehouse_name__in=missing).exclude(seller=seller))
+    else:
+        _fill_from_queryset(base_qs)
+
     return latest_by_warehouse
 
 
@@ -114,17 +125,27 @@ def _load_acceptance_delivery_coef_by_warehouse(
     if not normalized_names:
         return {}
 
-    qs = WbAcceptanceCoefficient.objects.filter(warehouse_name__in=normalized_names)
-    if seller is not None:
-        qs = qs.filter(seller=seller)
-    qs = qs.filter(box_type_id=box_type_id).exclude(delivery_coef__isnull=True)
-
     rows_by_warehouse: Dict[str, List[WbAcceptanceCoefficient]] = {}
-    for row in qs.iterator(chunk_size=2000):
-        warehouse_name = _normalize_str(row.warehouse_name)
-        if not warehouse_name:
-            continue
-        rows_by_warehouse.setdefault(warehouse_name, []).append(row)
+
+    def _append_rows(qs):
+        for row in qs.iterator(chunk_size=2000):
+            warehouse_name = _normalize_str(row.warehouse_name)
+            if not warehouse_name:
+                continue
+            rows_by_warehouse.setdefault(warehouse_name, []).append(row)
+
+    base_qs = (
+        WbAcceptanceCoefficient.objects
+        .filter(warehouse_name__in=normalized_names, box_type_id=box_type_id)
+        .exclude(delivery_coef__isnull=True)
+    )
+    if seller is not None:
+        _append_rows(base_qs.filter(seller=seller))
+        missing = [name for name in normalized_names if name not in rows_by_warehouse]
+        if missing:
+            _append_rows(base_qs.filter(warehouse_name__in=missing).exclude(seller=seller))
+    else:
+        _append_rows(base_qs)
 
     if not rows_by_warehouse:
         return {}
@@ -410,13 +431,32 @@ def load_warehouse_coefficients_from_tariffs(
 
 
 def list_regular_warehouses(seller: SellerAccount | None = None) -> List[str]:
-    qs = WbWarehouseTariff.objects.all()
-    if seller is not None:
-        qs = qs.filter(seller=seller)
-    names = (
-        qs.exclude(warehouse_name__isnull=True)
+    base_qs = (
+        WbWarehouseTariff.objects
+        .exclude(warehouse_name__isnull=True)
         .exclude(warehouse_name="")
-        .order_by("warehouse_name")
+    )
+    if seller is not None:
+        seller_names = list(
+            base_qs.filter(seller=seller)
+            .order_by("warehouse_name")
+            .values_list("warehouse_name", flat=True)
+            .distinct()
+        )
+        regular_seller_names = [name for name in seller_names if _is_regular_warehouse_name(name)]
+        if regular_seller_names:
+            return regular_seller_names
+
+        fallback_names = list(
+            base_qs.exclude(seller=seller)
+            .order_by("warehouse_name")
+            .values_list("warehouse_name", flat=True)
+            .distinct()
+        )
+        return [name for name in fallback_names if _is_regular_warehouse_name(name)]
+
+    names = list(
+        base_qs.order_by("warehouse_name")
         .values_list("warehouse_name", flat=True)
         .distinct()
     )
@@ -556,12 +596,18 @@ def load_transit_tariffs_from_directions(
     if not needed_regions:
         return []
 
-    qs = TransitDirectionTariff.objects.all()
+    base_qs = TransitDirectionTariff.objects.all()
+    row_sources: List[Any] = []
     if seller is not None:
-        qs = qs.filter(seller=seller)
+        seller_rows = list(base_qs.filter(seller=seller).iterator(chunk_size=1000))
+        row_sources.extend(seller_rows)
+        if not seller_rows:
+            row_sources.extend(base_qs.exclude(seller=seller).iterator(chunk_size=1000))
+    else:
+        row_sources.extend(base_qs.iterator(chunk_size=1000))
 
     region_prices: Dict[str, List[float]] = {}
-    for row in qs.iterator(chunk_size=1000):
+    for row in row_sources:
         region_name = _resolve_target_region(row)
         if not region_name or region_name not in needed_regions:
             continue
@@ -582,19 +628,34 @@ def load_transit_tariffs_from_directions(
 
 
 def list_available_transit_warehouses(seller: SellerAccount | None = None) -> List[str]:
-    qs = TransitDirectionTariff.objects.all()
-    if seller is not None:
-        qs = qs.filter(seller=seller)
-    return list(
-        qs.exclude(transit_warehouse__isnull=True)
+    base_qs = (
+        TransitDirectionTariff.objects
+        .exclude(transit_warehouse__isnull=True)
         .exclude(transit_warehouse="")
-        .order_by("transit_warehouse")
+    )
+    if seller is not None:
+        seller_names = list(
+            base_qs.filter(seller=seller)
+            .order_by("transit_warehouse")
+            .values_list("transit_warehouse", flat=True)
+            .distinct()
+        )
+        if seller_names:
+            return seller_names
+        return list(
+            base_qs.exclude(seller=seller)
+            .order_by("transit_warehouse")
+            .values_list("transit_warehouse", flat=True)
+            .distinct()
+        )
+    return list(
+        base_qs.order_by("transit_warehouse")
         .values_list("transit_warehouse", flat=True)
         .distinct()
     )
 
 
-def _resolve_target_region(row: TransitDirectionTariff) -> str | None:
+def _resolve_target_region(row: Any) -> str | None:
     target_warehouse = _normalize_str(row.target_warehouse)
     if "шушар" in target_warehouse.lower().replace("ё", "е"):
         return "Северо-Западный федеральный округ"
@@ -667,14 +728,20 @@ def load_transit_tariff_options_for_transit_warehouse(
     if not needed_regions:
         return {}
 
-    qs = TransitDirectionTariff.objects.filter(transit_warehouse=transit_warehouse)
+    base_qs = TransitDirectionTariff.objects.filter(transit_warehouse=transit_warehouse)
+    row_sources: List[Any] = []
     if seller is not None:
-        qs = qs.filter(seller=seller)
+        seller_rows = list(base_qs.filter(seller=seller).iterator(chunk_size=1000))
+        row_sources.extend(seller_rows)
+        if not seller_rows:
+            row_sources.extend(base_qs.exclude(seller=seller).iterator(chunk_size=1000))
+    else:
+        row_sources.extend(base_qs.iterator(chunk_size=1000))
 
     # Выбираем минимальную ставку для каждой пары (регион, склад назначения),
     # чтобы убрать дубли по обновлениям в исходной таблице.
     best_by_region_warehouse: Dict[tuple[str, str | None], float] = {}
-    for row in qs.iterator(chunk_size=1000):
+    for row in row_sources:
         region_name = _resolve_target_region(row)
         if not region_name or region_name not in needed_regions:
             continue
