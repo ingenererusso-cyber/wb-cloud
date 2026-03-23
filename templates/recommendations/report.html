@@ -176,6 +176,17 @@
         .summary-card .sub { font-size: 14px; color: var(--text); margin-top: 2px; }
         .v.good { color: var(--good); }
         .v.bad { color: var(--bad); }
+        .demo-warning {
+            margin-bottom: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid #f59e0b;
+            background: linear-gradient(90deg, #fff7cc 0%, #ffe8b0 100%);
+            color: #7c2d12;
+            font-size: 14px;
+            font-weight: 700;
+            box-shadow: 0 8px 20px rgba(217, 119, 6, 0.16);
+        }
 
         .table-wrap {
             overflow-x: auto;
@@ -304,6 +315,11 @@
 
         {% if not seller %}
             <div class="status">Для пользователя не назначен SellerAccount: данные могут быть пустыми.</div>
+        {% endif %}
+        {% if not seller or not seller.api_token %}
+            <div class="demo-warning">
+                Демо-режим без API: расчёт приблизительный. Для товаров используется усреднённый объём (дефолт 4 л), часть тарифов может браться из общего справочника. Индекс локализации может не совпадать с реальным, так как для корректного расчёта нужны заказы минимум за 13 недель.
+            </div>
         {% endif %}
 
         <div class="summary">

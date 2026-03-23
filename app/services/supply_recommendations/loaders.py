@@ -21,7 +21,7 @@ from .models import OrderAggregate, TransitTariff, WarehouseCoefficient
 
 # Если для части артикулов объем еще не синхронизирован из WB карточек,
 # используем безопасный дефолт, чтобы расчеты работали стабильно.
-DEFAULT_ARTICLE_VOLUME_LITERS = 1.0
+DEFAULT_ARTICLE_VOLUME_LITERS = 4.0
 
 
 def _normalize_str(value: str | None, fallback: str = "") -> str:
@@ -296,14 +296,27 @@ def calculate_theoretical_logistics_sum_for_period(
 
     volume_map = _load_volume_by_supplier_article(seller=seller)
     warehouse_names = {_normalize_str(item["warehouse_name"]) for item in orders if _normalize_str(item["warehouse_name"])}
-    tariffs_qs = WbWarehouseTariff.objects.filter(warehouse_name__in=list(warehouse_names))
-    if seller is not None:
-        tariffs_qs = tariffs_qs.filter(seller=seller)
-    tariffs_qs = tariffs_qs.order_by("warehouse_name", "-tariff_date")
-
     tariffs_by_warehouse: Dict[str, List[WbWarehouseTariff]] = {}
-    for tariff in tariffs_qs.iterator(chunk_size=1000):
-        tariffs_by_warehouse.setdefault(tariff.warehouse_name, []).append(tariff)
+
+    def _append_tariffs(qs):
+        for tariff in qs.iterator(chunk_size=1000):
+            warehouse_name = _normalize_str(tariff.warehouse_name)
+            if not warehouse_name:
+                continue
+            tariffs_by_warehouse.setdefault(warehouse_name, []).append(tariff)
+
+    base_qs = (
+        WbWarehouseTariff.objects
+        .filter(warehouse_name__in=list(warehouse_names))
+        .order_by("warehouse_name", "-tariff_date")
+    )
+    if seller is not None:
+        _append_tariffs(base_qs.filter(seller=seller))
+        missing_warehouses = [name for name in warehouse_names if name not in tariffs_by_warehouse]
+        if missing_warehouses:
+            _append_tariffs(base_qs.filter(warehouse_name__in=missing_warehouses).exclude(seller=seller))
+    else:
+        _append_tariffs(base_qs)
 
     total = 0.0
     for item in orders:

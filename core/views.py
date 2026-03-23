@@ -7,6 +7,7 @@ import uuid
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Max
+from django.db.models import Min
 from django.db import close_old_connections
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
@@ -535,8 +536,23 @@ def supply_recommendations_report(request):
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     today = timezone.localdate()
     current_month_start = today.replace(day=1)
-    date_to = current_month_start - timedelta(days=1)
-    date_from = date_to.replace(day=1)
+    default_date_to = current_month_start - timedelta(days=1)
+    default_date_from = default_date_to.replace(day=1)
+
+    # Для демо-пользователей без API-ключа (обычно с Excel-импортом за месяц)
+    # дефолтный диапазон берем из фактически загруженных заказов.
+    if seller and not (seller.api_token or "").strip():
+        bounds = (
+            Order.objects
+            .filter(seller=seller)
+            .aggregate(min_dt=Min("order_date"), max_dt=Max("order_date"))
+        )
+        min_dt = bounds.get("min_dt")
+        max_dt = bounds.get("max_dt")
+        if min_dt and max_dt:
+            default_date_from = min_dt.date()
+            default_date_to = max_dt.date()
+
     transit_warehouses = list_available_transit_warehouses(seller=seller)
     main_warehouses = list_regular_warehouses(seller=seller)
     default_transit_warehouse = (
@@ -548,8 +564,8 @@ def supply_recommendations_report(request):
         "recommendations/report.html",
         {
             "seller": seller,
-            "default_date_from": date_from.isoformat(),
-            "default_date_to": date_to.isoformat(),
+            "default_date_from": default_date_from.isoformat(),
+            "default_date_to": default_date_to.isoformat(),
             "transit_warehouses": transit_warehouses,
             "default_transit_warehouse": default_transit_warehouse,
             "main_warehouses": main_warehouses,
