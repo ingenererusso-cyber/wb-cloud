@@ -78,6 +78,27 @@
             margin-top: 16px;
         }
 
+        .section-card {
+            margin-top: 16px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.78);
+            padding: 14px;
+        }
+
+        .section-title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .section-subtitle {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
         label {
             display: block;
             margin-bottom: 6px;
@@ -101,8 +122,8 @@
 
         .btn {
             text-decoration: none;
-            border: 1px solid var(--line);
-            background: #fff;
+            border: 1px solid #b8c6d8;
+            background: #eef5ff;
             color: var(--ink);
             border-radius: 10px;
             padding: 10px 14px;
@@ -229,31 +250,39 @@
             <button id="openApiGuide" class="btn" type="button">Инструкция по созданию ключа API</button>
         </div>
 
-        <form method="post">
-            {% csrf_token %}
-            <div class="field">
-                <label for="api_token">API-ключ Wildberries</label>
-                <input id="api_token" name="api_token" type="text" value="{{ seller.api_token }}" placeholder="Вставьте API-ключ">
-            </div>
-            <div class="actions">
-                <button class="btn btn-primary" type="submit">Сохранить</button>
-            </div>
-        </form>
+        <div class="section-card">
+            <h2 class="section-title">Подключение по API</h2>
+            <p class="section-subtitle">Для полного функционала и точных расчетов.</p>
+            <form method="post">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="api_token">API-ключ Wildberries</label>
+                    <input id="api_token" name="api_token" type="text" value="{{ seller.api_token }}" placeholder="Вставьте API-ключ">
+                </div>
+                <div class="actions">
+                    <button class="btn btn-primary" type="submit">Сохранить</button>
+                </div>
+            </form>
+        </div>
 
-        <form method="post" enctype="multipart/form-data">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="import_orders_excel">
-            <div class="field">
-                <label for="orders_excel">Импорт заказов из Excel (.xlsx)</label>
-                <input id="orders_excel" name="orders_excel" type="file" accept=".xlsx">
-            </div>
-            <p class="muted">Можно загрузить выгрузку WB «Все заказы» без API-ключа. Данные будут импортированы частично.</p>
-            <div class="actions">
-                <button class="btn" type="submit">Импортировать Excel</button>
-            </div>
-        </form>
+        <div class="section-card">
+            <h2 class="section-title">Демо-режим: импорт из Excel</h2>
+            <p class="section-subtitle">Без API-ключа, с частичным заполнением данных.</p>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="import_orders_excel">
+                <div class="field">
+                    <label for="orders_excel">Импорт заказов из Excel (.xlsx)</label>
+                    <input id="orders_excel" name="orders_excel" type="file" accept=".xlsx">
+                </div>
+                <p class="muted">Можно загрузить выгрузку WB «Все заказы» без API-ключа. Данные будут импортированы частично.</p>
+                <div class="actions">
+                    <button class="btn btn-primary" type="submit">Импортировать Excel</button>
+                </div>
+            </form>
+        </div>
         <div class="actions">
-            <a class="btn" href="{% url 'home' %}">На главную</a>
+            <a class="btn btn-primary" href="{% url 'home' %}">На главную</a>
         </div>
     </main>
 
