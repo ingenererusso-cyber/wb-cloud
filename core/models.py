@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import models
+from core.security import decrypt_secret, encrypt_secret, mask_secret
 
 
 class SellerAccount(models.Model):
@@ -7,14 +8,72 @@ class SellerAccount(models.Model):
     name = models.CharField(max_length=255)
     api_token = models.CharField(max_length=500)
 
+    @property
+    def api_token_plain(self) -> str:
+        return decrypt_secret(self.api_token)
+
+    @property
+    def has_api_token(self) -> bool:
+        return bool(self.api_token_plain.strip())
+
+    @property
+    def api_token_masked(self) -> str:
+        return mask_secret(self.api_token_plain)
+
+    def set_api_token(self, value: str | None) -> None:
+        self.api_token = encrypt_secret(value)
+
+
+class UnitEconomicsSettings(models.Model):
+    seller = models.OneToOneField(SellerAccount, on_delete=models.CASCADE, related_name="unit_economics_settings")
+    assumed_spp_percent = models.FloatField(default=25.0)
+    drr_percent = models.FloatField(default=10.0)
+    defect_percent = models.FloatField(default=1.0)
+    acquiring_percent = models.FloatField(default=2.5)
+    acceptance_cost_per_liter = models.FloatField(default=1.7)
+    fulfillment_cost_per_order = models.FloatField(default=0.0)
+    usn_percent = models.FloatField(default=6.0)
+    vat_percent = models.FloatField(default=0.0)
+    updated_at = models.DateTimeField(auto_now=True)
+
 
 class Product(models.Model):
     seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
     nm_id = models.BigIntegerField()
     vendor_code = models.CharField(max_length=255)
+    title = models.CharField(max_length=500, null=True, blank=True)
     brand = models.CharField(max_length=255, null=True, blank=True)
+    subject_id = models.BigIntegerField(null=True, blank=True)
+    subject_name = models.CharField(max_length=255, null=True, blank=True)
+    photo_url = models.URLField(max_length=1000, null=True, blank=True)
     weight_kg = models.FloatField(null=True, blank=True)
+    length_cm = models.FloatField(null=True, blank=True)
+    width_cm = models.FloatField(null=True, blank=True)
+    height_cm = models.FloatField(null=True, blank=True)
     volume_liters = models.FloatField(null=True, blank=True)
+    purchase_price = models.FloatField(null=True, blank=True)
+    wb_created_at = models.DateTimeField(null=True, blank=True)
+    wb_updated_at = models.DateTimeField(null=True, blank=True)
+
+
+class ProductUnitEconomicsCalculation(models.Model):
+    """
+    Последний сохраненный расчет юнит-экономики по карточке товара.
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    input_data = models.JSONField(default=dict, blank=True)
+    result_data = models.JSONField(default=dict, blank=True)
+    net_profit = models.FloatField(default=0.0)
+    calculated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "product")]
+        indexes = [
+            models.Index(fields=["seller", "product"]),
+            models.Index(fields=["seller", "calculated_at"]),
+        ]
 
 
 class Order(models.Model):
@@ -78,6 +137,108 @@ class WbOffice(models.Model):
         return self.name
 
 
+class SellerWarehouse(models.Model):
+    """
+    Склады продавца из WB Marketplace API /api/v3/warehouses.
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    seller_warehouse_id = models.BigIntegerField()
+    office_id = models.BigIntegerField(null=True, blank=True)
+    name = models.CharField(max_length=255)
+    cargo_type = models.IntegerField(null=True, blank=True)
+    delivery_type = models.IntegerField(null=True, blank=True)
+    is_deleting = models.BooleanField(default=False)
+    is_processing = models.BooleanField(default=False)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "seller_warehouse_id")]
+        indexes = [
+            models.Index(fields=["seller", "name"]),
+            models.Index(fields=["seller", "office_id"]),
+            models.Index(fields=["seller", "updated_at"]),
+        ]
+
+
+class ProductCardSize(models.Model):
+    """
+    Размер товара из карточки WB Content API.
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    chrt_id = models.BigIntegerField()
+    nm_id = models.BigIntegerField(null=True, blank=True)
+    vendor_code = models.CharField(max_length=255, null=True, blank=True)
+    title = models.CharField(max_length=500, null=True, blank=True)
+    tech_size = models.CharField(max_length=100, null=True, blank=True)
+    wb_size = models.CharField(max_length=100, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "chrt_id")]
+        indexes = [
+            models.Index(fields=["seller", "vendor_code"]),
+            models.Index(fields=["seller", "nm_id"]),
+        ]
+
+
+class ProductSizePrice(models.Model):
+    """
+    Цены и скидки по размерам товара из Discounts & Prices API.
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    nm_id = models.BigIntegerField()
+    size_id = models.BigIntegerField()
+    chrt_id = models.BigIntegerField(null=True, blank=True)
+    vendor_code = models.CharField(max_length=255, null=True, blank=True)
+    tech_size_name = models.CharField(max_length=100, null=True, blank=True)
+
+    price = models.FloatField(null=True, blank=True)
+    discounted_price = models.FloatField(null=True, blank=True)
+    club_discounted_price = models.FloatField(null=True, blank=True)
+    currency_iso_code_4217 = models.CharField(max_length=16, null=True, blank=True)
+    discount_percent = models.FloatField(null=True, blank=True)
+    club_discount_percent = models.FloatField(null=True, blank=True)
+
+    editable_size_price = models.BooleanField(default=False)
+    is_bad_turnover = models.BooleanField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "nm_id", "size_id")]
+        indexes = [
+            models.Index(fields=["seller", "nm_id"]),
+            models.Index(fields=["seller", "vendor_code"]),
+            models.Index(fields=["seller", "updated_at"]),
+        ]
+
+
+class SellerFbsStock(models.Model):
+    """
+    Остатки FBS по складам продавца и размерам (chrtId).
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    seller_warehouse = models.ForeignKey(SellerWarehouse, on_delete=models.CASCADE)
+    warehouse_name = models.CharField(max_length=255)
+    chrt_id = models.BigIntegerField()
+    amount = models.IntegerField(default=0)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "seller_warehouse", "chrt_id")]
+        indexes = [
+            models.Index(fields=["seller", "warehouse_name"]),
+            models.Index(fields=["seller", "chrt_id"]),
+            models.Index(fields=["seller", "updated_at"]),
+        ]
+
+
 class WbWarehouseTariff(models.Model):
     seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
     warehouse_name = models.CharField(max_length=255)
@@ -101,6 +262,36 @@ class WbWarehouseTariff(models.Model):
         indexes = [
             models.Index(fields=["seller", "tariff_date"]),
             models.Index(fields=["warehouse_name"]),
+        ]
+
+
+class WbCategoryCommission(models.Model):
+    """
+    Комиссия WB по категориям товаров (по предметам subjectID).
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    locale = models.CharField(max_length=10, default="ru")
+    subject_id = models.BigIntegerField()
+    subject_name = models.CharField(max_length=255, null=True, blank=True)
+    parent_id = models.BigIntegerField(null=True, blank=True)
+    parent_name = models.CharField(max_length=255, null=True, blank=True)
+
+    kgvp_booking = models.FloatField(null=True, blank=True)
+    kgvp_marketplace = models.FloatField(null=True, blank=True)
+    kgvp_pickup = models.FloatField(null=True, blank=True)
+    kgvp_supplier = models.FloatField(null=True, blank=True)
+    kgvp_supplier_express = models.FloatField(null=True, blank=True)
+    paid_storage_kgvp = models.FloatField(null=True, blank=True)  # FBW
+
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "locale", "subject_id")]
+        indexes = [
+            models.Index(fields=["seller", "subject_id"]),
+            models.Index(fields=["seller", "updated_at"]),
         ]
 
 
@@ -166,7 +357,8 @@ class WbAcceptanceCoefficient(models.Model):
 
 class RealizationReportDetail(models.Model):
     """
-    Детализация отчета реализации WB (reportDetailByPeriod).
+    Детализация отчета реализации WB.
+    Текущий источник синхронизации: finance-api /api/finance/v1/sales-reports/detailed.
     """
 
     seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
@@ -209,6 +401,61 @@ class RealizationReportDetail(models.Model):
             models.Index(fields=["seller", "rr_dt"]),
             models.Index(fields=["seller", "srid"]),
             models.Index(fields=["seller", "office_name"]),
+        ]
+
+
+class WbAdvertCampaign(models.Model):
+    """
+    Рекламная кампания WB (Promotion API).
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    advert_id = models.BigIntegerField()
+    campaign_name = models.CharField(max_length=500, null=True, blank=True)
+    advert_type = models.IntegerField(null=True, blank=True)
+    status = models.IntegerField(null=True, blank=True)
+    create_time = models.DateTimeField(null=True, blank=True)
+    change_time = models.DateTimeField(null=True, blank=True)
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    daily_budget = models.FloatField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "advert_id")]
+        indexes = [
+            models.Index(fields=["seller", "advert_id"]),
+            models.Index(fields=["seller", "status"]),
+            models.Index(fields=["seller", "updated_at"]),
+        ]
+
+
+class WbAdvertStatDaily(models.Model):
+    """
+    Дневная статистика рекламы WB (Campaigns Statistics /adv/v3/fullstats),
+    включая распределение затрат по артикулам.
+    """
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    advert_id = models.BigIntegerField()
+    stat_date = models.DateField()
+    nm_id = models.BigIntegerField(null=True, blank=True)
+
+    spend = models.FloatField(default=0.0)
+    views = models.IntegerField(null=True, blank=True)
+    clicks = models.IntegerField(null=True, blank=True)
+    orders = models.IntegerField(null=True, blank=True)
+    add_to_cart = models.IntegerField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "advert_id", "stat_date", "nm_id")]
+        indexes = [
+            models.Index(fields=["seller", "stat_date"]),
+            models.Index(fields=["seller", "nm_id", "stat_date"]),
+            models.Index(fields=["seller", "advert_id", "stat_date"]),
         ]
 
 
