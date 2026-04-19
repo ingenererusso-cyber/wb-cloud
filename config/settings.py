@@ -32,6 +32,8 @@ ALLOWED_HOSTS = ["155.212.209.227", "127.0.0.1", "localhost", "vendra.ru", "www.
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
+SESSION_COOKIE_AGE = int(os.getenv("SESSION_COOKIE_AGE", str(60 * 60 * 24 * 30)))  # 30 days
+SESSION_SAVE_EVERY_REQUEST = True
 
 
 # Application definition
@@ -52,6 +54,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.ApiAuthRedirectMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -97,6 +100,9 @@ else:
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
+            "OPTIONS": {
+                "timeout": int(os.getenv("SQLITE_TIMEOUT", "30")),
+            },
         }
     }
 
