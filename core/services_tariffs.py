@@ -108,7 +108,7 @@ def sync_warehouse_tariffs(seller: SellerAccount, on_date: date | None = None) -
     """
     Синхронизирует тарифы WB common-api /tariffs/box по складам.
     """
-    client = WBCommonClient(seller.api_token)
+    client = WBCommonClient(seller.api_token_plain)
     tariff_date = on_date or date.today()
     warehouse_list = client.get_tariffs_box(on_date=tariff_date)
 
@@ -163,7 +163,7 @@ def sync_transit_direction_tariffs(seller: SellerAccount) -> int:
     """
     Синхронизирует транзитные направления WB Supplies API /transit-tariffs.
     """
-    client = WBSuppliesClient(seller.api_token)
+    client = WBSuppliesClient(seller.api_token_plain)
     rows = client.get_transit_tariffs()
 
     synced = 0
@@ -204,7 +204,7 @@ def sync_acceptance_coefficients(
     Метод отдает коэффициенты по датам на ближайшие 14 дней, поэтому
     при регулярном вызове формируется исторический срез тарифов.
     """
-    client = WBCommonClient(seller.api_token)
+    client = WBCommonClient(seller.api_token_plain)
     rows = client.get_acceptance_coefficients(warehouse_ids=warehouse_ids)
 
     synced = 0

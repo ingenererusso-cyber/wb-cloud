@@ -1,0 +1,351 @@
+{
+  "request": {
+    "url": "https://advert-api.wildberries.ru/adv/v3/fullstats",
+    "params": [
+      [
+        "ids",
+        "35616275"
+      ],
+      [
+        "beginDate",
+        "2026-04-19"
+      ],
+      [
+        "endDate",
+        "2026-04-19"
+      ]
+    ],
+    "date": "2026-04-19",
+    "advert_id": 35616275
+  },
+  "status_code": 200,
+  "headers": {
+    "Server": "Angie",
+    "Date": "Sun, 19 Apr 2026 15:27:24 GMT",
+    "Content-Type": "application/json",
+    "Transfer-Encoding": "chunked",
+    "Connection": "keep-alive",
+    "X-Request-Id": "7f806c79694a68e787d5236ef51a3178",
+    "X-S2s-Request-Id-Mirrored": "7f806c79694a68e787d5236ef51a3178",
+    "X-S2s-Server": "s2s-api-auth-adv, group-a.portal-xs",
+    "X-S2s-ReplicaId": "s2s-api-auth-adv-20260418-002119-F4FXkssPpRSLzwydXiNKue",
+    "X-S2s-Selector-Func-Route": "a",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "100",
+    "X-S2s-Response-By": "backend/proxied",
+    "X-Ratelimit-Remaining": "0",
+    "Access-Control-Allow-Methods": "GET, HEAD",
+    "Access-Control-Allow-Origin": "*",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains, max-age=31536000; preload;",
+    "X-Content-Type-Options": "nosniff"
+  },
+  "body": [
+    {
+      "advertId": 35616275,
+      "atbs": 10,
+      "canceled": 0,
+      "clicks": 77,
+      "cpc": 3.16,
+      "cr": 0,
+      "ctr": 3.4,
+      "currency": "RUB",
+      "days": [
+        {
+          "apps": [
+            {
+              "appType": 64,
+              "atbs": 5,
+              "canceled": 0,
+              "clicks": 24,
+              "cpc": 2.37,
+              "cr": 0,
+              "ctr": 4.54,
+              "nms": [
+                {
+                  "atbs": 3,
+                  "canceled": 0,
+                  "clicks": 24,
+                  "cpc": 2.37,
+                  "cr": 0,
+                  "ctr": 4.54,
+                  "name": "Робот трансформер Мегатрон",
+                  "nmId": 180594852,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 56.85,
+                  "sum_price": 0,
+                  "views": 529
+                },
+                {
+                  "atbs": 1,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Оптимус Прайм 22 см",
+                  "nmId": 180721643,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 1,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Бамблби ржавый Жук",
+                  "nmId": 180542668,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                }
+              ],
+              "orders": 0,
+              "shks": 0,
+              "sum": 56.85,
+              "sum_price": 0,
+              "views": 529
+            },
+            {
+              "appType": 1,
+              "atbs": 0,
+              "canceled": 0,
+              "clicks": 3,
+              "cpc": 4.03,
+              "cr": 0,
+              "ctr": 2.73,
+              "nms": [
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 3,
+                  "cpc": 4.03,
+                  "cr": 0,
+                  "ctr": 2.73,
+                  "name": "Робот трансформер Мегатрон",
+                  "nmId": 180594852,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 12.1,
+                  "sum_price": 0,
+                  "views": 110
+                }
+              ],
+              "orders": 0,
+              "shks": 0,
+              "sum": 12.1,
+              "sum_price": 0,
+              "views": 110
+            },
+            {
+              "appType": 0,
+              "atbs": 0,
+              "canceled": 0,
+              "clicks": 0,
+              "cpc": 0,
+              "cr": 0,
+              "ctr": 0,
+              "nms": [
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Оптимус Прайм 22 см",
+                  "nmId": 180721643,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Бамблби ржавый Жук",
+                  "nmId": 180542668,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Шоквейв Shockwave",
+                  "nmId": 242792947,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот-трансформер Скорн 37 см",
+                  "nmId": 516862549,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот-трансформер Гримлок 23 см",
+                  "nmId": 400767346,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 0,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Мегатрон",
+                  "nmId": 180594852,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                }
+              ],
+              "orders": 0,
+              "shks": 0,
+              "sum": 0.22,
+              "sum_price": 0,
+              "views": 2
+            },
+            {
+              "appType": 32,
+              "atbs": 5,
+              "canceled": 0,
+              "clicks": 50,
+              "cpc": 3.48,
+              "cr": 0,
+              "ctr": 3.08,
+              "nms": [
+                {
+                  "atbs": 2,
+                  "canceled": 0,
+                  "clicks": 50,
+                  "cpc": 3.48,
+                  "cr": 0,
+                  "ctr": 3.08,
+                  "name": "Робот трансформер Мегатрон",
+                  "nmId": 180594852,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 174.2,
+                  "sum_price": 0,
+                  "views": 1621
+                },
+                {
+                  "atbs": 1,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот трансформер Шоквейв Shockwave",
+                  "nmId": 242792947,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 1,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот-трансформер Скорн 37 см",
+                  "nmId": 516862549,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                },
+                {
+                  "atbs": 1,
+                  "canceled": 0,
+                  "clicks": 0,
+                  "cpc": 0,
+                  "cr": 0,
+                  "ctr": 0,
+                  "name": "Робот-трансформер Гримлок 23 см",
+                  "nmId": 400767346,
+                  "orders": 0,
+                  "shks": 0,
+                  "sum": 0,
+                  "sum_price": 0,
+                  "views": 0
+                }
+              ],
+              "orders": 0,
+              "shks": 0,
+              "sum": 174.2,
+              "sum_price": 0,
+              "views": 1621
+            }
+          ],
+          "atbs": 10,
+          "canceled": 0,
+          "clicks": 77,
+          "cpc": 3.16,
+          "cr": 0,
+          "ctr": 3.4,
+          "date": "2026-04-19T00:00:00Z",
+          "orders": 0,
+          "shks": 0,
+          "sum": 243.37,
+          "sum_price": 0,
+          "views": 2262
+        }
+      ],
+      "orders": 0,
+      "shks": 0,
+      "sum": 243.37,
+      "sum_price": 0,
+      "views": 2262
+    }
+  ]
+}

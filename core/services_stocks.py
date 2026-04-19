@@ -3,7 +3,7 @@ from .models import WarehouseStockDetailed, SellerAccount
 
 
 def sync_supplier_stocks(seller: SellerAccount):
-    client = WBStocksSupplierClient(seller.api_token)  # убедись, что токен stats API
+    client = WBStocksSupplierClient(seller.api_token_plain)  # убедись, что токен stats API
 
     result = client.get_supplier_stocks()
     synced = 0

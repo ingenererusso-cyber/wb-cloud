@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление остатками FBS</title>
+    <style>
+        :root {
+            --ink: #132033;
+            --muted: #5a6778;
+            --accent: #14532d;
+            --accent-2: #065f46;
+            --line: rgba(19, 32, 51, 0.12);
+            --surface: rgba(255, 255, 255, 0.9);
+            --shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+            padding: 20px;
+        }
+        .page {
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+            padding: 18px;
+            overflow: hidden;
+        }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .top-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+        h1 { margin: 0; font-size: 30px; }
+        .btn {
+            text-decoration: none;
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+            border-radius: 12px;
+            padding: 10px 16px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+        }
+        .btn[disabled] {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .btn-blue {
+            background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+        }
+        .btn-attention {
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35), 0 8px 18px rgba(29, 78, 216, 0.28);
+            filter: saturate(1.08);
+        }
+        .filters {
+            display: flex;
+            gap: 8px;
+            align-items: end;
+            flex-wrap: wrap;
+            margin: 8px 0 12px;
+        }
+        .field { display: grid; gap: 4px; }
+        .field label { font-size: 12px; color: var(--muted); }
+        .field input, .field select {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 14px;
+            min-width: 220px;
+            background: #fff;
+        }
+        .btn-ghost {
+            color: var(--ink);
+            border: 1px solid var(--line);
+            background: #fff;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-weight: 700;
+            text-decoration: none;
+        }
+        .stats {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .stat {
+            border: 1px solid var(--line);
+            background: #fff;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+        .messages { margin: 8px 0 12px; display: grid; gap: 6px; }
+        .msg {
+            border-radius: 10px;
+            padding: 9px 11px;
+            font-size: 14px;
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+        .msg.success { border-color: #bbf7d0; background: #dcfce7; color: #166534; }
+        .msg.error { border-color: #fecaca; background: #fee2e2; color: #991b1b; }
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+        }
+        table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            min-width: 1200px;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--line);
+            padding: 10px;
+            text-align: left;
+            font-size: 13px;
+            color: var(--muted);
+        }
+        tbody td {
+            border-bottom: 1px solid var(--line);
+            padding: 10px;
+            font-size: 14px;
+            background: #fff;
+            vertical-align: top;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+        .strong { font-weight: 700; }
+        .muted { color: var(--muted); }
+        .empty { padding: 16px; color: var(--muted); }
+        .amount-input {
+            width: 100px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 6px 8px;
+            font-size: 14px;
+        }
+        .amount-input.changed {
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+{% include "partials/top_nav.html" %}
+<main class="page">
+    <div class="top">
+        <h1>Управление остатками FBS</h1>
+        <div class="top-actions">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="sync_fbs_stocks">
+                <button type="submit" class="btn">Синхронизировать остатки FBS</button>
+            </form>
+            <form method="post" id="update-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_fbs_stocks">
+                <input type="hidden" name="changes_json" id="changes-json">
+                <button type="submit" class="btn btn-blue" id="submit-changes-btn" disabled>Отправить изменения</button>
+            </form>
+        </div>
+    </div>
+
+    {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="msg {% if message.tags == 'success' %}success{% elif message.tags == 'error' %}error{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form class="filters" method="get">
+        <div class="field">
+            <label>Склад</label>
+            <select name="warehouse">
+                <option value="">Все FBS-склады</option>
+                {% for wh in warehouses %}
+                    <option value="{{ wh }}" {% if wh == warehouse_filter %}selected{% endif %}>{{ wh }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label>Поиск</label>
+            <input type="text" name="q" value="{{ query }}" placeholder="Артикул, название, chrtId, размер...">
+        </div>
+        <button type="submit" class="btn-ghost">Применить</button>
+    </form>
+
+    <div class="stats">
+        <div class="stat">Позиций: <span class="strong">{{ positions_count }}</span></div>
+        <div class="stat">Суммарный остаток: <span class="strong">{{ total_amount }}</span></div>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Склад продавца</th>
+                    <th>Артикул продавца</th>
+                    <th>Название</th>
+                    <th>Артикул WB</th>
+                    <th>Размер</th>
+                    <th>chrtId</th>
+                    <th>Остаток</th>
+                    <th>Обновлено</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{{ row.warehouse_name }}</td>
+                        <td>{{ row.vendor_code|default:"-" }}</td>
+                        <td>{{ row.title|default:"-" }}</td>
+                        <td>{{ row.nm_id|default:"-" }}</td>
+                        <td>{{ row.tech_size|default:row.wb_size|default:"-" }}</td>
+                        <td>{{ row.chrt_id }}</td>
+                        <td class="strong">
+                            <input
+                                class="amount-input"
+                                type="number"
+                                min="0"
+                                max="100000"
+                                value="{{ row.amount }}"
+                                data-chrt-id="{{ row.chrt_id }}"
+                                data-warehouse-id="{{ row.seller_warehouse_id }}"
+                                data-original="{{ row.amount }}"
+                            >
+                        </td>
+                        <td class="muted">{{ row.updated_at|date:"d.m.Y H:i" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="8" class="empty">Данных нет. Запустите синхронизацию FBS-остатков.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</main>
+<script>
+    (function () {
+        const submitBtn = document.getElementById("submit-changes-btn");
+        const changesInput = document.getElementById("changes-json");
+        const form = document.getElementById("update-form");
+        const amountInputs = Array.from(document.querySelectorAll(".amount-input"));
+        if (!submitBtn || !changesInput || !form || !amountInputs.length) {
+            return;
+        }
+
+        function buildChanges() {
+            const changes = [];
+            amountInputs.forEach((input) => {
+                const original = Number(input.dataset.original || 0);
+                const current = Number(input.value || 0);
+                const normalized = Number.isFinite(current) ? Math.max(0, Math.min(100000, Math.floor(current))) : original;
+                const changed = normalized !== original;
+                input.classList.toggle("changed", changed);
+                if (!changed) {
+                    return;
+                }
+                changes.push({
+                    seller_warehouse_id: Number(input.dataset.warehouseId),
+                    chrt_id: Number(input.dataset.chrtId),
+                    amount: normalized,
+                });
+            });
+            return changes;
+        }
+
+        function refreshSubmitState() {
+            const changes = buildChanges();
+            const hasChanges = changes.length > 0;
+            submitBtn.disabled = !hasChanges;
+            submitBtn.classList.toggle("btn-attention", hasChanges);
+            changesInput.value = hasChanges ? JSON.stringify(changes) : "";
+        }
+
+        amountInputs.forEach((input) => {
+            input.addEventListener("input", refreshSubmitState);
+            input.addEventListener("change", refreshSubmitState);
+        });
+
+        form.addEventListener("submit", (event) => {
+            refreshSubmitState();
+            if (!changesInput.value) {
+                event.preventDefault();
+            }
+        });
+    })();
+</script>
+</body>
+</html>

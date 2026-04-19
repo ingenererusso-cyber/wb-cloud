@@ -3,6 +3,33 @@
         <a class="home-link" href="{% url 'home' %}">⌂ На главную</a>
 
         <div class="menu-item">
+            <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>Поставки</h4>
+                        <a href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
+                        <a href="{% url 'replenishment_report' %}">Пополнение по регионам</a>
+                        <a href="{% url 'seller_warehouses_report' %}">Свой склад</a>
+                        <a href="{% url 'fbs_stocks_report' %}">Управление остатками FBS</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="menu-item">
+            <a class="menu-link" href="{% url 'product_cards_report' %}">Товары и цены</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>Товары</h4>
+                        <a href="{% url 'product_cards_report' %}">Карточка товара</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="menu-item">
             <a class="menu-link" href="{% url 'home' %}">Аналитика</a>
             <div class="mega">
                 <div class="mega-grid">
@@ -16,19 +43,6 @@
                     <div class="mega-col">
                         <h4>Справочники</h4>
                         <a href="{% url 'acceptance_coefficients_report' %}">Коэффициенты приёмки</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="menu-item">
-            <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
-            <div class="mega">
-                <div class="mega-grid">
-                    <div class="mega-col">
-                        <h4>Поставки</h4>
-                        <a href="{% url 'supply_recommendations_report' %}">Рекомендации к поставкам</a>
-                        <a href="{% url 'replenishment_report' %}">Пополнение по регионам</a>
                     </div>
                 </div>
             </div>
@@ -107,6 +121,79 @@
         </form>
     </div>
 </div>
+
+<script>
+    (function installAuthAwareFetch() {
+        if (window.__authAwareFetchInstalled) {
+            return;
+        }
+        window.__authAwareFetchInstalled = true;
+
+        const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+        if (!nativeFetch) {
+            return;
+        }
+
+        function buildLoginUrl(baseLoginUrl) {
+            const base = baseLoginUrl || "/login/";
+            let loginHref = base;
+            try {
+                const url = new URL(base, window.location.origin);
+                const next = `${window.location.pathname}${window.location.search}${window.location.hash || ""}`;
+                if (!url.searchParams.get("next")) {
+                    url.searchParams.set("next", next);
+                }
+                loginHref = url.toString();
+            } catch (_err) {
+                const next = encodeURIComponent(`${window.location.pathname}${window.location.search}${window.location.hash || ""}`);
+                loginHref = `/login/?next=${next}`;
+            }
+            return loginHref;
+        }
+
+        function redirectToLogin(loginUrl) {
+            window.location.assign(buildLoginUrl(loginUrl));
+        }
+
+        function redirectAndStop(loginUrl) {
+            redirectToLogin(loginUrl);
+            // Не даем локальным catch-блокам показывать модалки ошибок
+            // в момент, когда уже начался переход на страницу логина.
+            return new Promise(() => {});
+        }
+
+        window.fetch = async function authAwareFetch(...args) {
+            const response = await nativeFetch(...args);
+            const contentType = (response.headers.get("content-type") || "").toLowerCase();
+
+            if (response.status === 401) {
+                let payload = null;
+                try {
+                    if (contentType.includes("application/json")) {
+                        payload = await response.clone().json();
+                    }
+                } catch (_err) {}
+
+                if (payload && (payload.redirect_url || payload.login_url || payload.code === "auth_required")) {
+                    return redirectAndStop(payload.redirect_url || payload.login_url || "/login/");
+                } else {
+                    return redirectAndStop("/login/");
+                }
+            }
+
+            if (response.redirected) {
+                try {
+                    const redirectedUrl = new URL(response.url, window.location.origin);
+                    if (redirectedUrl.pathname.startsWith("/login")) {
+                        return redirectAndStop(redirectedUrl.toString());
+                    }
+                } catch (_err) {}
+            }
+
+            return response;
+        };
+    })();
+</script>
 
 <script>
     (function feedbackWidgetSetup() {

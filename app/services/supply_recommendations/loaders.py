@@ -13,15 +13,18 @@ from core.models import (
     WbAcceptanceCoefficient,
     WbWarehouseTariff,
 )
+from core.logistics import (
+    DEFAULT_LOGISTICS_VOLUME_LITERS,
+    calculate_theoretical_order_logistics,
+)
 from core.services.localization import find_office, normalize_district
-from core.services_realization import _calculate_box_logistics_per_unit
 
 from .constants import UNKNOWN_REGION
 from .models import OrderAggregate, TransitTariff, WarehouseCoefficient
 
 # Если для части артикулов объем еще не синхронизирован из WB карточек,
 # используем безопасный дефолт, чтобы расчеты работали стабильно.
-DEFAULT_ARTICLE_VOLUME_LITERS = 4.0
+DEFAULT_ARTICLE_VOLUME_LITERS = DEFAULT_LOGISTICS_VOLUME_LITERS
 
 
 def _normalize_str(value: str | None, fallback: str = "") -> str:
@@ -271,11 +274,12 @@ def calculate_theoretical_logistics_sum_for_period(
     Суммирует теоретическую логистику по каждому FBW заказу за период.
 
     Включает отмененные заказы (по требованию бизнес-логики).
-    Формула для заказа:
-        theoretical_order_cost = base_by_volume * delivery_coef
-    где:
-        base_by_volume определяется по модели МГТ (_calculate_box_logistics_per_unit),
-        delivery_coef = boxDeliveryCoefExpr / 100 (или 1.0, если не найден).
+    Формула для заказа (единый метод):
+        theoretical_order_cost = calculate_theoretical_order_logistics(
+            volume_liters=...,
+            api_coef_expr=...,
+            use_dlv_prc=False,
+        )
     """
     if date_from > date_to:
         raise ValueError("date_from must be <= date_to")
@@ -329,11 +333,13 @@ def calculate_theoretical_logistics_sum_for_period(
         order_date_only = order_dt.date()
         tariff = _pick_tariff_for_date(tariffs_by_warehouse, warehouse_name, order_date_only)
         coef_expr = float(tariff.box_delivery_coef_expr or 0.0) if tariff else 0.0
-        delivery_coef = (coef_expr / 100.0) if coef_expr > 0 else 1.0
-
         volume_liters = float(volume_map.get(supplier_article, DEFAULT_ARTICLE_VOLUME_LITERS))
-        base_by_volume = _calculate_box_logistics_per_unit(0.0, 0.0, volume_liters)
-        total += base_by_volume * delivery_coef
+        total += calculate_theoretical_order_logistics(
+            volume_liters=volume_liters,
+            api_coef_expr=coef_expr,
+            use_dlv_prc=False,
+            default_volume_liters=DEFAULT_ARTICLE_VOLUME_LITERS,
+        )
 
     return round(total, 2)
 

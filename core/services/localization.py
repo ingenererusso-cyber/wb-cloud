@@ -3,6 +3,7 @@ import re
 from types import SimpleNamespace
 from django.db.models import Count, Q
 from django.utils import timezone
+from core.logistics import get_ktr_for_share, LOCALIZATION_COEFFICIENTS_TABLE
 from core.models import Order, WbOffice
 
 
@@ -307,43 +308,6 @@ def get_top_non_local_districts_last_full_weeks(seller, weeks=25, limit=5):
     }
 
 
-KTR_SWITCH_DATE = date(2026, 3, 23)
-
-# (min_share, max_share, ktr_before_23_march, ktr_from_23_march)
-KTR_TABLE = (
-    (0.00, 4.99, 2.00, 2.00),
-    (5.00, 9.99, 1.95, 1.80),
-    (10.00, 14.99, 1.90, 1.75),
-    (15.00, 19.99, 1.85, 1.70),
-    (20.00, 24.99, 1.75, 1.60),
-    (25.00, 29.99, 1.65, 1.55),
-    (30.00, 34.99, 1.55, 1.50),
-    (35.00, 39.99, 1.45, 1.40),
-    (40.00, 44.99, 1.35, 1.30),
-    (45.00, 49.99, 1.25, 1.20),
-    (50.00, 54.99, 1.15, 1.10),
-    (55.00, 59.99, 1.05, 1.05),
-    (60.00, 64.99, 1.00, 1.00),
-    (65.00, 69.99, 1.00, 1.00),
-    (70.00, 74.99, 1.00, 1.00),
-    (75.00, 79.99, 0.95, 0.90),
-    (80.00, 84.99, 0.85, 0.80),
-    (85.00, 89.99, 0.75, 0.70),
-    (90.00, 94.99, 0.65, 0.60),
-    (95.00, 100.00, 0.50, 0.50),
-)
-
-
-def _get_ktr_for_share(local_share_percent: float, as_of_date) -> float:
-    share = max(0.0, min(100.0, float(local_share_percent)))
-    use_before_column = as_of_date < KTR_SWITCH_DATE
-    column_idx = 2 if use_before_column else 3
-    for min_share, max_share, ktr_before, ktr_after in KTR_TABLE:
-        if min_share <= share <= max_share:
-            return float((ktr_before, ktr_after)[column_idx - 2])
-    return 0.50
-
-
 def calculate_theoretical_localization_index_for_period(
     seller,
     start_date,
@@ -390,7 +354,7 @@ def calculate_theoretical_localization_index_for_period(
             continue
         orders_local = int(row["orders_local"] or 0)
         local_share = (orders_local / orders_total) * 100.0
-        ktr = _get_ktr_for_share(local_share, as_of_date=end_date)
+        ktr = get_ktr_for_share(local_share, as_of_date=end_date)
         weighted_sum += orders_total * ktr
 
     theoretical_index = (weighted_sum / total_orders) if total_orders else None
@@ -480,4 +444,121 @@ def get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25, l
             if not points and latest_window_orders < min_orders
             else None
         ),
+    }
+
+
+def _get_krp_for_share_modeled(local_share_percent: float) -> float:
+    """
+    KRP из таблицы без учета даты switch.
+    Используется для теоретического графика ИРП, где нужно моделирование с 02.03.2026.
+    """
+    share = max(0.0, min(100.0, float(local_share_percent)))
+    for min_share, max_share, _ktr_before, _ktr_after, krp_after in LOCALIZATION_COEFFICIENTS_TABLE:
+        if min_share <= share <= max_share:
+            return float(krp_after)
+    return 0.0
+
+
+def calculate_theoretical_irp_percent_for_period(
+    seller,
+    start_date,
+    end_date,
+):
+    """
+    Теоретический ИРП (в %) по окну заказов:
+    ИРП = sum(orders_article * KRP_article) / sum(orders_article)
+    """
+    article_rows = (
+        Order.objects
+        .filter(
+            seller=seller,
+            is_cancel=False,
+            warehouse_type="Склад WB",
+            country_name="Россия",
+            order_date__date__gte=start_date,
+            order_date__date__lte=end_date,
+        )
+        .values("supplier_article")
+        .annotate(
+            orders_total=Count("id"),
+            orders_local=Count("id", filter=Q(is_local=True)),
+        )
+    )
+
+    rows = list(article_rows)
+    total_orders = sum(int(r["orders_total"] or 0) for r in rows)
+    if total_orders <= 0:
+        return {
+            "theoretical_irp_percent": 0.0,
+            "orders_total": 0,
+        }
+
+    weighted_sum = 0.0
+    for row in rows:
+        orders_total = int(row["orders_total"] or 0)
+        if orders_total <= 0:
+            continue
+        orders_local = int(row["orders_local"] or 0)
+        local_share = (orders_local / orders_total) * 100.0
+        krp = _get_krp_for_share_modeled(local_share)
+        weighted_sum += orders_total * krp
+
+    irp_index = (weighted_sum / total_orders) if total_orders else 0.0
+    return {
+        "theoretical_irp_percent": round(irp_index * 100.0, 4),
+        "orders_total": total_orders,
+    }
+
+
+def get_theoretical_irp_trend_last_full_weeks(seller, weeks=25, lookback_weeks=13):
+    """
+    Тренд теоретического ИРП:
+    - 25 полных недель;
+    - расчет по окну последних 13 недель к каждой точке;
+    - до 02.03.2026 включительно предыдущие недели = 0.
+    """
+    today = timezone.localdate()
+    current_week_start = today - timedelta(days=today.weekday())
+    last_full_week_end = current_week_start - timedelta(days=1)
+    irp_start_date = date(2026, 3, 2)
+
+    points = []
+    for offset in range(weeks - 1, -1, -1):
+        week_end = last_full_week_end - timedelta(days=offset * 7)
+        week_start = week_end - timedelta(days=6)
+
+        if week_end < irp_start_date:
+            points.append(
+                {
+                    "week_start": week_start.isoformat(),
+                    "week_end": week_end.isoformat(),
+                    "label": f"{week_start.strftime('%d.%m')}-{week_end.strftime('%d.%m')}",
+                    "theoretical_irp_percent": 0.0,
+                    "orders_total_13w": 0,
+                }
+            )
+            continue
+
+        window_start = week_end - timedelta(days=lookback_weeks * 7 - 1)
+        result = calculate_theoretical_irp_percent_for_period(
+            seller=seller,
+            start_date=window_start,
+            end_date=week_end,
+        )
+        points.append(
+            {
+                "week_start": week_start.isoformat(),
+                "week_end": week_end.isoformat(),
+                "label": f"{week_start.strftime('%d.%m')}-{week_end.strftime('%d.%m')}",
+                "theoretical_irp_percent": float(result["theoretical_irp_percent"]),
+                "orders_total_13w": int(result["orders_total"]),
+            }
+        )
+
+    return {
+        "start_date": points[0]["week_start"] if points else None,
+        "end_date": points[-1]["week_end"] if points else None,
+        "start_label": points[0]["label"].split("-")[0] if points else None,
+        "end_label": points[-1]["label"].split("-")[1] if points else None,
+        "points": points,
     }

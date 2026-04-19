@@ -1,0 +1,1836 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ product.title|default:product.vendor_code }}</title>
+    <style>
+        :root {
+            --bg: #edf3f7;
+            --card: #ffffff;
+            --text: #1f2a37;
+            --muted: #6b7280;
+            --line: #dbe3ec;
+            --accent: #147a59;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Inter", "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top left, #d8efe6 0%, #dfe9f5 45%, var(--bg) 100%);
+            color: var(--text);
+        }
+        .page { max-width: 1480px; margin: 0 auto; padding: 12px 20px 28px; }
+        .hero {
+            margin-top: 10px;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 120px minmax(0, 1fr);
+            gap: 16px;
+        }
+        .hero-photo {
+            width: 120px; height: 160px;
+            border-radius: 12px;
+            object-fit: cover;
+            border: 1px solid var(--line);
+            background: #f4f7fb;
+        }
+        .hero-fallback {
+            width: 120px; height: 160px;
+            border-radius: 12px;
+            border: 1px dashed var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #8b96a8;
+            font-size: 13px;
+            background: #f8fafc;
+        }
+        .title {
+            margin: 0 0 8px;
+            font-size: 34px;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+        }
+        .meta {
+            color: var(--muted);
+            line-height: 1.55;
+        }
+        .cards {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 14px;
+        }
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 14px;
+            color: var(--muted);
+            font-weight: 700;
+        }
+        .value {
+            font-size: 34px;
+            font-weight: 800;
+            color: #0f5132;
+            line-height: 1;
+        }
+        .value.neg {
+            color: #b91c1c;
+        }
+        .muted { color: var(--muted); font-size: 13px; margin-top: 6px; }
+        .logistics-details {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .logistics-summary {
+            margin: 4px 0 0;
+            font-size: 12px;
+        }
+        .logistics-details summary {
+            list-style: none;
+            cursor: pointer;
+            color: #334155;
+            font-size: 12px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+        }
+        .logistics-details summary::-webkit-details-marker {
+            display: none;
+        }
+        .logistics-details summary::after {
+            content: "▾";
+            font-size: 13px;
+            line-height: 1;
+            color: #64748b;
+            transform: rotate(0deg);
+            transition: transform 0.18s ease;
+        }
+        .logistics-details[open] summary::after {
+            transform: rotate(180deg);
+        }
+        .logistics-details-body {
+            margin-top: 6px;
+            padding-left: 10px;
+            border-left: 2px solid #e2e8f0;
+        }
+        .logistics-details-body .muted {
+            margin: 2px 0 0;
+            font-size: 12px;
+        }
+        .logistics-details + .muted {
+            margin-top: 10px;
+        }
+        .section {
+            margin-top: 12px;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 14px;
+        }
+        .section h2 {
+            margin: 0 0 10px;
+            font-size: 20px;
+        }
+        .chart-wrap {
+            height: 280px;
+            overflow-x: auto;
+            border-radius: 10px;
+            border: 1px solid rgba(6, 95, 70, 0.12);
+            background: linear-gradient(180deg, rgba(6, 95, 70, 0.08) 0%, rgba(6, 95, 70, 0.02) 100%);
+            padding: 8px;
+        }
+        .chart-wrap svg {
+            width: 100%;
+            min-width: 900px;
+            height: 100%;
+            display: block;
+        }
+        .chart-empty {
+            display: grid;
+            place-items: center;
+            width: 100%;
+            height: 100%;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .grid2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-variant-numeric: tabular-nums;
+        }
+        th, td {
+            padding: 9px 8px;
+            border-bottom: 1px solid #eef2f7;
+            text-align: left;
+        }
+        th {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+        td:last-child { text-align: right; font-weight: 700; }
+        .empty-box {
+            padding: 18px;
+            border: 1px dashed var(--line);
+            border-radius: 12px;
+            color: var(--muted);
+            background: #f8fafc;
+        }
+        .unit-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .btn {
+            border: 1px solid #cdd9e6;
+            background: #fff;
+            color: #1f2a37;
+            border-radius: 10px;
+            padding: 9px 13px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-primary {
+            border-color: #166534;
+            background: #166534;
+            color: #fff;
+        }
+        .btn-secondary {
+            border-color: #94a3b8;
+            background: #f8fafc;
+            color: #334155;
+        }
+        .unit-step {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px;
+            background: #fbfdff;
+            margin-bottom: 10px;
+        }
+        .unit-step h4 {
+            margin: 0 0 10px;
+            font-size: 16px;
+        }
+        .unit-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 10px;
+        }
+        .unit-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .unit-field label {
+            font-size: 13px;
+            color: #64748b;
+            font-weight: 600;
+        }
+        .unit-field input,
+        .unit-field select {
+            border: 1px solid #d7e0ea;
+            border-radius: 10px;
+            padding: 9px 10px;
+            font-size: 14px;
+            width: 100%;
+            background: #fff;
+        }
+        .unit-field input[readonly] {
+            background: #f8fafc;
+            color: #475569;
+        }
+        .unit-field select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #64748b 50%),
+                linear-gradient(135deg, #64748b 50%, transparent 50%);
+            background-position:
+                calc(100% - 16px) calc(50% - 2px),
+                calc(100% - 10px) calc(50% - 2px);
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+            padding-right: 34px;
+        }
+        .searchable-select {
+            position: relative;
+        }
+        .searchable-select input {
+            width: 100%;
+            border: 1px solid #d7e0ea;
+            border-radius: 10px;
+            padding: 9px 10px;
+            font-size: 14px;
+            background: #fff;
+        }
+        .searchable-options {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            max-height: 220px;
+            overflow: auto;
+            border: 1px solid #d7e0ea;
+            border-radius: 10px;
+            background: #fff;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+            z-index: 30;
+            display: none;
+        }
+        .searchable-options.open {
+            display: block;
+        }
+        .searchable-option {
+            padding: 8px 10px;
+            font-size: 14px;
+            color: #1f2a37;
+            cursor: pointer;
+            border-bottom: 1px solid #eff3f8;
+        }
+        .searchable-option:last-child {
+            border-bottom: 0;
+        }
+        .searchable-option:hover {
+            background: #ecfdf5;
+        }
+        .searchable-empty {
+            padding: 8px 10px;
+            font-size: 13px;
+            color: #64748b;
+        }
+        .unit-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+        .unit-actions-left {
+            justify-content: flex-start;
+        }
+        .unit-hidden {
+            display: none;
+        }
+        .unit-note {
+            margin: 8px 0 0;
+            color: #64748b;
+            font-size: 12px;
+        }
+        .unit-note-error {
+            color: #b91c1c;
+            font-weight: 700;
+        }
+        .unit-result {
+            border: 1px solid #dbe7f3;
+            border-radius: 12px;
+            background: #f8fbff;
+            padding: 12px;
+            margin-top: 10px;
+        }
+        .unit-profit {
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+        .unit-profit.positive { color: #166534; }
+        .unit-profit.negative { color: #b91c1c; }
+        .stacked-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 3px 220px;
+            gap: 10px;
+            align-items: center;
+        }
+        .stacked-bar-shell {
+            width: 100%;
+            min-height: 30px;
+            overflow: hidden;
+        }
+        .stacked-bar {
+            display: flex;
+            width: 100%;
+            height: 26px;
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid #d6e3f1;
+            background: #fff;
+        }
+        .stacked-overflow {
+            height: 26px;
+            border-radius: 999px;
+            border: 1px solid #ef4444;
+            background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+            min-width: 2px;
+        }
+        .stacked-divider {
+            width: 3px;
+            height: 30px;
+            border-radius: 2px;
+            background: #64748b;
+            box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+        }
+        .stacked-divider.hidden {
+            visibility: hidden;
+        }
+        .stacked-overflow-area {
+            height: 26px;
+            border: 0;
+            background: transparent;
+            overflow: visible;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 0;
+            width: auto;
+        }
+        .stacked-overflow-empty {
+            display: none;
+        }
+        @media (max-width: 1024px) {
+            .stacked-layout {
+                grid-template-columns: 1fr;
+            }
+            .stacked-divider {
+                display: none;
+            }
+        }
+        .stacked-segment {
+            height: 100%;
+            min-width: 2px;
+            position: relative;
+        }
+        .stacked-segment:hover::after {
+            content: attr(data-label);
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #0f172a;
+            color: #fff;
+            font-size: 11px;
+            border-radius: 6px;
+            padding: 3px 6px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 20;
+        }
+        .segment-legend {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 6px 10px;
+            font-size: 12px;
+        }
+        .unit-hover-tooltip {
+            position: fixed;
+            display: none;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: #0f172a;
+            color: #fff;
+            font-size: 11px;
+            line-height: 1.2;
+            pointer-events: none;
+            z-index: 9999;
+            white-space: nowrap;
+            box-shadow: 0 8px 16px rgba(15, 23, 42, 0.25);
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .breakdown-grid {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 6px 12px;
+            font-size: 13px;
+            color: #334155;
+        }
+        .unit-compare {
+            margin-top: 12px;
+            border: 1px solid #dbe7f3;
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 10px;
+        }
+        .unit-compare h4 {
+            margin: 0 0 8px;
+            font-size: 15px;
+        }
+        .unit-compare-note {
+            margin: 0 0 8px;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .delta-pos {
+            color: #0f766e;
+            font-weight: 700;
+        }
+        .delta-neg {
+            color: #b91c1c;
+            font-weight: 700;
+        }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1200;
+            padding: 16px;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-card {
+            width: min(760px, 100%);
+            background: #fff;
+            border: 1px solid #dbe3ec;
+            border-radius: 16px;
+            padding: 14px;
+            box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
+        }
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .modal-title {
+            margin: 0;
+            font-size: 18px;
+        }
+        .status-line {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #0f5132;
+        }
+        .playground-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+            margin-top: 8px;
+        }
+        .playground-result {
+            margin-top: 10px;
+            border: 1px solid #dbe7f3;
+            border-radius: 12px;
+            background: #f8fbff;
+            padding: 10px;
+        }
+        .playground-status {
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 12px;
+        }
+        @media (max-width: 900px) {
+            .hero { grid-template-columns: 1fr; }
+        }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+<div class="page">
+    {% include "partials/top_nav.html" %}
+
+    <section class="hero">
+        {% if product.photo_url %}
+            <img class="hero-photo" src="{{ product.photo_url }}" alt="{{ product.title|default:product.vendor_code }}">
+        {% else %}
+            <div class="hero-fallback">Нет фото</div>
+        {% endif %}
+        <div>
+            <h1 class="title">{{ product.title|default:"Без названия" }}</h1>
+            <div class="meta">
+                Артикул WB: {{ product.nm_id }}<br>
+                Артикул продавца: {{ product.vendor_code }}<br>
+                Бренд: {{ product.brand|default:"-" }}<br>
+                Объём: {{ product.volume_liters|default:"-" }} л, вес: {{ product.weight_kg|default:"-" }} кг
+            </div>
+        </div>
+    </section>
+
+    <section class="cards">
+        <div class="card">
+            <h3>Заказы за месяц</h3>
+            <div class="value">{{ monthly_total_orders }}</div>
+            <p class="muted">{{ month_start|date:"d.m.Y" }} — {{ chart_end|date:"d.m.Y" }}</p>
+        </div>
+        <div class="card">
+            <h3>Процент выкупа</h3>
+            <div class="value">{{ monthly_buyout_percent }}%</div>
+            <p class="muted">По заказам за месяц</p>
+        </div>
+        <div class="card">
+            <h3>Среднее заказов в день</h3>
+            <div class="value">{{ monthly_avg_orders_per_day }}</div>
+            <p class="muted">За последние 30 дней</p>
+        </div>
+        <div class="card">
+            <h3>Остатки FBO</h3>
+            <div class="value">{{ fbo_total }}</div>
+            <p class="muted">Сумма по складам WB</p>
+        </div>
+        <div class="card">
+            <h3>Остатки FBS</h3>
+            <div class="value">{{ fbs_total }}</div>
+            <p class="muted">Сумма по складам продавца</p>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2>Продажи за 2 недели (по дням)</h2>
+        <p class="muted">Период: {{ chart_start|date:"d.m.Y" }} — {{ chart_end|date:"d.m.Y" }}</p>
+        <div class="chart-wrap chart-wrap--line">
+            <svg id="sales-chart"></svg>
+            <div id="sales-chart-empty" class="chart-empty" style="display:none;">Нет данных</div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2>Распределение остатков по складам</h2>
+        <div class="grid2">
+            <div>
+                <h3>FBO</h3>
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Склад</th>
+                        <th>Остаток</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in fbo_distribution %}
+                        <tr>
+                            <td>{{ row.warehouse_name }}</td>
+                            <td>{{ row.quantity }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="2">Нет данных</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                <h3>FBS</h3>
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Склад</th>
+                        <th>Остаток</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in fbs_distribution %}
+                        <tr>
+                            <td>{{ row.warehouse_name }}</td>
+                            <td>{{ row.quantity }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="2">Нет данных</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="unit-head">
+            <h2>Юнит-экономика</h2>
+            <button class="btn btn-secondary" type="button" id="ue-open-settings">Настройки</button>
+        </div>
+
+        <div id="ue-step-0" class="unit-step">
+            <h4>Расчет по шагам</h4>
+            <p class="unit-note">
+                {% if unit_has_saved_calc %}
+                    Последний расчет сохранен. Нажмите “Пересчитать”, чтобы пройти все шаги заново.
+                {% else %}
+                    Нажмите “Начать расчет”, затем заполните данные по шагам.
+                {% endif %}
+            </p>
+            <div class="unit-actions unit-actions-left">
+                <button type="button" class="btn btn-primary" id="ue-recalc-btn">
+                    {% if unit_has_saved_calc %}Пересчитать{% else %}Начать расчет{% endif %}
+                </button>
+            </div>
+        </div>
+
+        <div id="ue-step-1" class="unit-step unit-hidden">
+            <h4>Шаг 1/4. Базовые данные товара</h4>
+            <div class="unit-grid">
+                <div class="unit-field">
+                    <label>Цена продажи, ₽</label>
+                    <input type="number" step="0.01" id="ue-sale-price" value="{{ unit_default_sale_price|default:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Цена закупки, ₽</label>
+                    <input type="number" step="0.01" id="ue-purchase-price" value="{{ unit_default_purchase_price|default:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Предполагаемый СПП, %</label>
+                    <input type="number" step="0.01" id="ue-spp" value="{{ unit_settings.assumed_spp_percent|default_if_none:25 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Длина, см</label>
+                    <input type="number" step="0.01" id="ue-length" value="{{ product.length_cm|default:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Ширина, см</label>
+                    <input type="number" step="0.01" id="ue-width" value="{{ product.width_cm|default:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Высота, см</label>
+                    <input type="number" step="0.01" id="ue-height" value="{{ product.height_cm|default:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Объем товара, л</label>
+                    <input type="number" step="0.0001" id="ue-volume" value="{{ product.volume_liters|default:4 }}" readonly>
+                </div>
+                <div class="unit-field">
+                    <label>Процент выкупа, % (за все время)</label>
+                    <input type="number" step="0.01" id="ue-buyout" value="{{ unit_buyout_percent_all_time|default:0 }}">
+                </div>
+            </div>
+            <div class="unit-actions">
+                <button type="button" class="btn btn-primary" id="ue-next-1">Далее</button>
+            </div>
+        </div>
+
+        <div id="ue-step-2" class="unit-step unit-hidden">
+            <h4>Шаг 2/4. Расходы и налоги</h4>
+            <div class="unit-grid">
+                <div class="unit-field">
+                    <label>ДРР, %</label>
+                    <input type="number" step="0.01" id="ue-drr" value="{{ unit_settings.drr_percent|default_if_none:10 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Процент брака, %</label>
+                    <input type="number" step="0.01" id="ue-defect-2" value="{{ unit_settings.defect_percent|default_if_none:1 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Фулфилмент на 1 заказ, ₽</label>
+                    <input type="number" step="0.01" id="ue-fulfillment" value="{{ unit_settings.fulfillment_cost_per_order|default_if_none:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Налог УСН, %</label>
+                    <input type="number" step="0.01" id="ue-usn" value="{{ unit_settings.usn_percent|default_if_none:6 }}">
+                </div>
+                <div class="unit-field">
+                    <label>НДС, %</label>
+                    <input type="number" step="0.01" id="ue-vat" value="{{ unit_settings.vat_percent|default_if_none:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Эквайринг, %</label>
+                    <input type="number" step="0.01" id="ue-acquiring" value="{{ unit_settings.acquiring_percent|default_if_none:2.5 }}">
+                </div>
+            </div>
+            <div class="unit-actions">
+                <button type="button" class="btn btn-secondary" id="ue-back-2">Назад</button>
+                <button type="button" class="btn btn-primary" id="ue-next-2">Далее</button>
+            </div>
+        </div>
+
+        <div id="ue-step-3" class="unit-step unit-hidden">
+            <h4>Шаг 3/4. Поставка и склад</h4>
+            <div class="unit-grid">
+                <div class="unit-field">
+                    <label>Кол-во штук в поставке</label>
+                    <input type="number" step="1" id="ue-batch-qty" value="100">
+                </div>
+                <div class="unit-field">
+                    <label>Комиссия WB, %</label>
+                    <input type="number" step="0.01" id="ue-commission" value="{{ unit_default_commission_percent|default:0 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Склад отгрузки</label>
+                    <div class="searchable-select">
+                        <input type="text" id="ue-warehouse-search" placeholder="Начните вводить название склада">
+                        <input type="hidden" id="ue-warehouse" value="">
+                        <div id="ue-warehouse-options" class="searchable-options"></div>
+                    </div>
+                </div>
+                <div class="unit-field">
+                    <label>Тип отгрузки</label>
+                    <select id="ue-box-type">
+                        <option value="box">Короб</option>
+                        <option value="mono">Монопаллета</option>
+                    </select>
+                </div>
+                <div class="unit-field">
+                    <label>Коэффициент приемки</label>
+                    <input type="number" step="0.01" id="ue-acceptance-coef" value="0">
+                </div>
+                <div class="unit-field">
+                    <label>Доп. затраты на заказ, ₽</label>
+                    <input type="number" step="0.01" id="ue-extra" value="0">
+                </div>
+            </div>
+            <p class="unit-note" id="ue-warehouse-note"></p>
+            <div class="unit-actions">
+                <button type="button" class="btn btn-secondary" id="ue-back-3">Назад</button>
+                <button type="button" class="btn btn-primary" id="ue-next-3">Далее</button>
+            </div>
+        </div>
+
+        <div id="ue-step-4" class="unit-step unit-hidden">
+            <h4>Шаг 4/4. Индексы и срок продажи партии</h4>
+            <div class="unit-grid">
+                <div class="unit-field">
+                    <label>Дней на продажу партии</label>
+                    <input type="number" step="1" id="ue-days" value="{{ unit_default_days_to_sell_batch|default:30 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Индекс локализации</label>
+                    <input type="number" step="0.0001" id="ue-il" value="{{ unit_latest_theoretical_il|default:1 }}">
+                </div>
+                <div class="unit-field">
+                    <label>Индекс распределения продаж (ИРП), %</label>
+                    <input type="number" step="0.0001" id="ue-irp" value="{{ unit_latest_theoretical_irp_percent|default:0 }}">
+                </div>
+            </div>
+            <div class="unit-actions">
+                <button type="button" class="btn btn-secondary" id="ue-back-4">Назад</button>
+                <button type="button" class="btn btn-primary" id="ue-calc-btn">Рассчитать</button>
+            </div>
+        </div>
+
+        <div id="ue-result" class="unit-result unit-hidden"></div>
+        <div id="ue-compare" class="unit-compare unit-hidden"></div>
+    </section>
+
+    <section class="section">
+        <h2>Фактическая чистая прибыль по артикулу</h2>
+        <div class="grid2">
+            <div class="card">
+                <h3>Средняя прибыль на выкуп за всю историю</h3>
+                <div class="value {% if fact_profit_all.avg_profit_per_buyout < 0 %}neg{% endif %}">
+                    {{ fact_profit_all.avg_profit_per_buyout|floatformat:2 }} ₽
+                </div>
+                <p class="muted">Период: {{ fact_profit_all.date_from }} — {{ fact_profit_all.date_to }}</p>
+                <p class="muted">Выкупов: {{ fact_profit_all.buyouts_count }}</p>
+                <p class="muted">Средняя цена до СПП: {{ fact_profit_all.avg_retail_price_withdisc|floatformat:2 }} ₽</p>
+                <p class="muted">Сумма к переводу от ВБ (без вычета логистики): {{ fact_profit_all.wb_transfer_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Эквайринг: {{ fact_profit_all.acquiring_sum|floatformat:2 }} ₽ ({{ fact_profit_all.acquiring_percent_of_sale_base|floatformat:2 }}% от общей стоимости выкупов)</p>
+                <p class="muted logistics-summary">Суммарная логистика за период: {{ fact_profit_all.logistics_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_total_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <details class="logistics-details">
+                    <summary>Показать детализацию логистики</summary>
+                    <div class="logistics-details-body">
+                        <p class="muted">Логистика выкупов: {{ fact_profit_all.logistics_buyout_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_buyout_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                        <p class="muted">Логистика отмен/возвратов (сумма прямой и обратной): {{ fact_profit_all.logistics_cancel_return_sum|floatformat:2 }} ₽ (среднее среди отмен/возвратов: {{ fact_profit_all.avg_logistics_cancel_return_per_return|floatformat:2 }} ₽)</p>
+                        <p class="muted">Логистические корректировки/возмещения: {{ fact_profit_all.logistics_adjustments_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_adjustments_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                        <p class="muted">Отрицательные логистические значения (сторно): {{ fact_profit_all.logistics_negative_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_negative_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                    </div>
+                </details>
+                <p class="muted">Хранение{% if fact_profit_all.storage_is_approx %} (приближенно){% endif %}: {{ fact_profit_all.storage_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_storage_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Удержания WB (реклама/услуги): {{ fact_profit_all.deduction_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_deduction_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Подписка Джем{% if fact_profit_all.jam_is_approx %} (распределено по сумме продаж, приближенно){% endif %}: {{ fact_profit_all.jam_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_jam_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Штрафы WB{% if fact_profit_all.penalty_is_approx %} (распределено по сумме продаж, приближенно){% endif %}: {{ fact_profit_all.penalty_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_penalty_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Реклама WB{% if fact_profit_all.ad_spend_is_approx %} (частично распределено по сумме продаж, приближенно){% endif %}: {{ fact_profit_all.ad_spend_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_ad_spend_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Платная приемка FBS в ПВЗ: {{ fact_profit_all.acceptance_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_acceptance_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Закупка: {{ fact_profit_all.purchase_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Брак: {{ fact_profit_all.defect_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Фулфилмент: {{ fact_profit_all.fulfillment_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Налог: {{ fact_profit_all.tax_sum|floatformat:2 }} ₽</p>
+                <p class="muted">НДС: {{ fact_profit_all.vat_sum|floatformat:2 }} ₽</p>
+                <p class="muted"><strong>Чистая прибыль суммарно: {{ fact_profit_all.net_profit_sum|floatformat:2 }} ₽</strong></p>
+            </div>
+            <div class="card">
+                <h3>Средняя прибыль на выкуп за последний месяц</h3>
+                <div class="value {% if fact_profit_month.avg_profit_per_buyout < 0 %}neg{% endif %}">
+                    {{ fact_profit_month.avg_profit_per_buyout|floatformat:2 }} ₽
+                </div>
+                <p class="muted">Период: {{ fact_profit_month.date_from }} — {{ fact_profit_month.date_to }}</p>
+                <p class="muted">Выкупов: {{ fact_profit_month.buyouts_count }}</p>
+                <p class="muted">Средняя цена до СПП: {{ fact_profit_month.avg_retail_price_withdisc|floatformat:2 }} ₽</p>
+                <p class="muted">Сумма к переводу от ВБ (без вычета логистики): {{ fact_profit_month.wb_transfer_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Эквайринг: {{ fact_profit_month.acquiring_sum|floatformat:2 }} ₽ ({{ fact_profit_month.acquiring_percent_of_sale_base|floatformat:2 }}% от общей стоимости выкупов)</p>
+                <p class="muted logistics-summary">Суммарная логистика за период: {{ fact_profit_month.logistics_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_total_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <details class="logistics-details">
+                    <summary>Показать детализацию логистики</summary>
+                    <div class="logistics-details-body">
+                        <p class="muted">Логистика выкупов: {{ fact_profit_month.logistics_buyout_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_buyout_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                        <p class="muted">Логистика отмен/возвратов (сумма прямой и обратной): {{ fact_profit_month.logistics_cancel_return_sum|floatformat:2 }} ₽ (среднее среди отмен/возвратов: {{ fact_profit_month.avg_logistics_cancel_return_per_return|floatformat:2 }} ₽)</p>
+                        <p class="muted">Логистические корректировки/возмещения: {{ fact_profit_month.logistics_adjustments_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_adjustments_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                        <p class="muted">Отрицательные логистические значения (сторно): {{ fact_profit_month.logistics_negative_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_negative_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                    </div>
+                </details>
+                <p class="muted">Хранение{% if fact_profit_month.storage_is_approx %} (приближенно){% endif %}: {{ fact_profit_month.storage_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_storage_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Удержания WB (реклама/услуги): {{ fact_profit_month.deduction_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_deduction_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Подписка Джем{% if fact_profit_month.jam_is_approx %} (распределено по сумме продаж, приближенно){% endif %}: {{ fact_profit_month.jam_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_jam_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Штрафы WB{% if fact_profit_month.penalty_is_approx %} (распределено по сумме продаж, приближенно){% endif %}: {{ fact_profit_month.penalty_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_penalty_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Реклама WB{% if fact_profit_month.ad_spend_is_approx %} (частично распределено по сумме продаж, приближенно){% endif %}: {{ fact_profit_month.ad_spend_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_ad_spend_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Платная приемка FBS в ПВЗ: {{ fact_profit_month.acceptance_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_acceptance_per_buyout|floatformat:2 }} ₽/выкуп)</p>
+                <p class="muted">Закупка: {{ fact_profit_month.purchase_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Брак: {{ fact_profit_month.defect_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Фулфилмент: {{ fact_profit_month.fulfillment_sum|floatformat:2 }} ₽</p>
+                <p class="muted">Налог: {{ fact_profit_month.tax_sum|floatformat:2 }} ₽</p>
+                <p class="muted">НДС: {{ fact_profit_month.vat_sum|floatformat:2 }} ₽</p>
+                <p class="muted"><strong>Чистая прибыль суммарно: {{ fact_profit_month.net_profit_sum|floatformat:2 }} ₽</strong></p>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2>Реклама по артикулу</h2>
+        <p class="muted">
+            Связанных РК: {{ ad_related_campaigns_count }}.
+            Расход: {{ ad_total_spend_related|floatformat:2 }} ₽,
+            показы: {{ ad_total_views_related }},
+            клики: {{ ad_total_clicks_related }},
+            заказы: {{ ad_total_orders_related }}.
+        </p>
+        <table>
+            <thead>
+            <tr>
+                <th>ID РК</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Статус</th>
+                <th>Артикулов в РК</th>
+                <th>Период статистики</th>
+                <th>Дней</th>
+                <th>Расход РК, ₽</th>
+                <th>На артикул, ₽</th>
+                <th>Показы</th>
+                <th>Клики</th>
+                <th>CTR, %</th>
+                <th>CPC, ₽</th>
+                <th>Заказы</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for row in ad_campaign_rows %}
+                <tr>
+                    <td>{{ row.advert_id }}</td>
+                    <td>{{ row.campaign_name }}</td>
+                    <td>{{ row.advert_type|default:"-" }}</td>
+                    <td>{{ row.status|default:"-" }}</td>
+                    <td>{{ row.participants_count|default:0 }}</td>
+                    <td>
+                        {% if row.first_stat_date or row.last_stat_date %}
+                            {{ row.first_stat_date|default:"-" }} — {{ row.last_stat_date|default:"-" }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ row.days_count }}</td>
+                    <td>{{ row.campaign_total_spend|floatformat:2 }}</td>
+                    <td>
+                        {{ row.spend_sum|floatformat:2 }}
+                        {% if row.spend_allocated %}<span class="muted">(распределено)</span>{% endif %}
+                    </td>
+                    <td>{{ row.views_sum }}</td>
+                    <td>{{ row.clicks_sum }}</td>
+                    <td>{{ row.ctr_percent|floatformat:2 }}</td>
+                    <td>{{ row.cpc|floatformat:2 }}</td>
+                    <td>{{ row.orders_sum }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="14">Нет связанных рекламных кампаний по этому артикулу.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+
+<div class="modal-overlay" id="ue-settings-modal" aria-hidden="true">
+    <div class="modal-card">
+        <div class="modal-head">
+            <h3 class="modal-title">Настройки юнит-экономики (по умолчанию)</h3>
+            <button type="button" class="btn btn-secondary" id="ue-settings-close">Закрыть</button>
+        </div>
+        <div class="unit-grid">
+            <div class="unit-field">
+                <label>Предполагаемый СПП, %</label>
+                <input type="number" step="0.01" id="ue-settings-spp" value="{{ unit_settings.assumed_spp_percent|default_if_none:25 }}">
+            </div>
+            <div class="unit-field">
+                <label>ДРР, %</label>
+                <input type="number" step="0.01" id="ue-settings-drr" value="{{ unit_settings.drr_percent|default_if_none:10 }}">
+            </div>
+            <div class="unit-field">
+                <label>Процент брака, %</label>
+                <input type="number" step="0.01" id="ue-settings-defect" value="{{ unit_settings.defect_percent|default_if_none:1 }}">
+            </div>
+            <div class="unit-field">
+                <label>Эквайринг, %</label>
+                <input type="number" step="0.01" id="ue-settings-acquiring" value="{{ unit_settings.acquiring_percent|default_if_none:2.5 }}">
+            </div>
+            <div class="unit-field">
+                <label>Стоимость приемки за 1 литр, ₽</label>
+                <input type="number" step="0.01" id="ue-settings-acceptance-cost-per-liter" value="{{ unit_settings.acceptance_cost_per_liter|default_if_none:1.7 }}">
+            </div>
+            <div class="unit-field">
+                <label>Фулфилмент на 1 заказ, ₽</label>
+                <input type="number" step="0.01" id="ue-settings-fulfillment" value="{{ unit_settings.fulfillment_cost_per_order|default_if_none:0 }}">
+            </div>
+            <div class="unit-field">
+                <label>Налог УСН, %</label>
+                <input type="number" step="0.01" id="ue-settings-usn" value="{{ unit_settings.usn_percent|default_if_none:6 }}">
+            </div>
+            <div class="unit-field">
+                <label>НДС, %</label>
+                <input type="number" step="0.01" id="ue-settings-vat" value="{{ unit_settings.vat_percent|default_if_none:0 }}">
+            </div>
+        </div>
+        <div class="unit-actions">
+            <button type="button" class="btn btn-primary" id="ue-settings-save">Сохранить</button>
+        </div>
+        <div class="status-line" id="ue-settings-status"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="ue-playground-modal" aria-hidden="true">
+    <div class="modal-card">
+        <div class="modal-head">
+            <h3 class="modal-title">Поиграться с юнит-экономикой</h3>
+            <button type="button" class="btn btn-secondary" id="ue-playground-close">Закрыть</button>
+        </div>
+        <p class="unit-note">Меняйте переменные — результат пересчитывается в реальном времени.</p>
+        <div class="playground-grid">
+            <div class="unit-field"><label>Цена продажи, ₽</label><input type="number" step="0.01" id="pg-sale-price"></div>
+            <div class="unit-field"><label>Цена закупки, ₽</label><input type="number" step="0.01" id="pg-purchase-price"></div>
+            <div class="unit-field"><label>СПП, %</label><input type="number" step="0.01" id="pg-spp"></div>
+            <div class="unit-field"><label>Объем, л</label><input type="number" step="0.001" id="pg-volume"></div>
+            <div class="unit-field"><label>Выкупаемость, %</label><input type="number" step="0.01" id="pg-buyout"></div>
+            <div class="unit-field"><label>ДРР, %</label><input type="number" step="0.01" id="pg-drr"></div>
+            <div class="unit-field"><label>Брак, %</label><input type="number" step="0.01" id="pg-defect"></div>
+            <div class="unit-field"><label>Эквайринг, %</label><input type="number" step="0.01" id="pg-acquiring"></div>
+            <div class="unit-field"><label>Фулфилмент, ₽</label><input type="number" step="0.01" id="pg-fulfillment"></div>
+            <div class="unit-field"><label>Налог УСН, %</label><input type="number" step="0.01" id="pg-usn"></div>
+            <div class="unit-field"><label>НДС, %</label><input type="number" step="0.01" id="pg-vat"></div>
+            <div class="unit-field"><label>Партия, шт</label><input type="number" step="1" id="pg-batch"></div>
+            <div class="unit-field"><label>Комиссия WB, %</label><input type="number" step="0.01" id="pg-commission"></div>
+            <div class="unit-field"><label>Коэф. логистики, %</label><input type="number" step="0.01" id="pg-delivery-coef"></div>
+            <div class="unit-field"><label>Доп. расходы, ₽</label><input type="number" step="0.01" id="pg-extra"></div>
+            <div class="unit-field"><label>Дней продажи партии</label><input type="number" step="1" id="pg-days"></div>
+            <div class="unit-field"><label>Индекс локализации</label><input type="number" step="0.0001" id="pg-il"></div>
+            <div class="unit-field"><label>ИРП, %</label><input type="number" step="0.0001" id="pg-irp"></div>
+            <div class="unit-field"><label>Коэф. приемки</label><input type="number" step="0.01" id="pg-acceptance-coef"></div>
+            <div class="unit-field"><label>Приемка за 1 л, ₽</label><input type="number" step="0.01" id="pg-acceptance-cost-per-liter"></div>
+            <div class="unit-field"><label>Тип отгрузки</label><select id="pg-box-type"><option value="box">Короб</option><option value="mono">Монопаллета</option></select></div>
+            <div class="unit-field"><label>Хранение база, ₽/л/день</label><input type="number" step="0.0001" id="pg-storage-base"></div>
+            <div class="unit-field"><label>Хранение доп, ₽/л/день</label><input type="number" step="0.0001" id="pg-storage-additional"></div>
+            <div class="unit-field"><label>Склад (подпись)</label><input type="text" id="pg-warehouse-name"></div>
+        </div>
+        <div id="ue-playground-result" class="playground-result"></div>
+        <div id="ue-playground-status" class="playground-status"></div>
+    </div>
+</div>
+
+{{ fact_profit_month|json_script:"fact-profit-month-json" }}
+
+<script>
+    (function () {
+        const points = {{ sales_points_json|safe }};
+        const svg = document.getElementById("sales-chart");
+        const empty = document.getElementById("sales-chart-empty");
+        if (!svg) return;
+
+        function renderLineChart() {
+            const getNumeric = (value) => {
+                if (value === null || value === undefined || value === "") {
+                    return null;
+                }
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            };
+
+            const values = points
+                .map((p) => getNumeric(p.total_orders))
+                .filter((v) => v !== null);
+
+            if (!points.length || !values.length || Math.max(...values) <= 0) {
+                svg.style.display = "none";
+                empty.style.display = "grid";
+                return;
+            }
+
+            svg.style.display = "block";
+            empty.style.display = "none";
+
+            const width = Math.max(320, Math.floor(svg.clientWidth || 1000));
+            const height = Math.max(180, Math.floor(svg.clientHeight || 260));
+            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+
+            const padX = 52;
+            const padY = 22;
+            const innerW = width - padX * 2;
+            const innerH = height - padY * 2;
+            const xStep = points.length > 1 ? innerW / (points.length - 1) : 0;
+
+            const rawMin = Math.min(...values);
+            const rawMax = Math.max(...values);
+            const baseRange = Math.max(rawMax - rawMin, 2);
+            const pad = baseRange * 0.12;
+            let minVal = Math.max(0, rawMin - pad);
+            let maxVal = rawMax + pad;
+            let valueRange = maxVal - minVal;
+            if (valueRange < 2) {
+                maxVal = minVal + 2;
+                valueRange = 2;
+            }
+
+            const coords = points.map((p, idx) => {
+                const x = padX + idx * xStep;
+                const rawValue = getNumeric(p.total_orders);
+                const clamped = rawValue === null ? null : Math.min(maxVal, Math.max(minVal, rawValue));
+                const y = rawValue === null
+                    ? (height - padY)
+                    : padY + (1 - ((clamped - minVal) / valueRange)) * innerH;
+                return { x, y, ...p };
+            });
+
+            const line = coords.map((p) => `${p.x},${p.y}`).join(" ");
+            const area = `${padX},${height - padY} ${line} ${padX + innerW},${height - padY}`;
+
+            const tickCount = 5;
+            const yTicks = Array.from({ length: tickCount }, (_, idx) => {
+                const k = idx / (tickCount - 1);
+                return minVal + (maxVal - minVal) * k;
+            }).map((tick) => {
+                const y = padY + (1 - ((tick - minVal) / valueRange)) * innerH;
+                return `
+                    <line x1="${padX}" y1="${y}" x2="${padX + innerW}" y2="${y}" stroke="rgba(19,32,51,0.14)" stroke-width="1"/>
+                    <text x="${padX - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5a6778">${Math.round(tick)}</text>
+                `;
+            }).join("");
+
+            const xLabels = coords
+                .filter((_, idx) => idx === 0 || idx === coords.length - 1 || idx % 2 === 0)
+                .map((p) => `
+                    <text x="${p.x}" y="${height - 6}" text-anchor="middle" font-size="11" fill="#5a6778">${p.label}</text>
+                `)
+                .join("");
+
+            const dots = coords.map((p) => `
+                <circle cx="${p.x}" cy="${p.y}" r="5.2" fill="#0f5132" stroke="#ffffff" stroke-width="1.3">
+                    <title>${p.label}: заказов ${p.total_orders}, выкупы ${p.sold_orders}, отмены ${p.canceled_orders}</title>
+                </circle>
+            `).join("");
+
+            svg.innerHTML = `
+                ${yTicks}
+                <polygon points="${area}" fill="rgba(15,81,50,0.14)"></polygon>
+                <polyline points="${line}" fill="none" stroke="#0f5132" stroke-width="3"></polyline>
+                ${dots}
+                ${xLabels}
+            `;
+        }
+
+        renderLineChart();
+
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+            if (resizeTimer) {
+                window.clearTimeout(resizeTimer);
+            }
+            resizeTimer = window.setTimeout(() => renderLineChart(), 120);
+        });
+    })();
+
+    (function () {
+        const warehouseOptions = {{ unit_warehouse_coeff_options_json|safe }};
+        const savedUnitCalc = {{ unit_saved_calc_json|safe }};
+        const factProfitMonth = JSON.parse(document.getElementById("fact-profit-month-json")?.textContent || "{}");
+        const resultEl = document.getElementById("ue-result");
+        const compareEl = document.getElementById("ue-compare");
+        const step0 = document.getElementById("ue-step-0");
+        const step1 = document.getElementById("ue-step-1");
+        const step2 = document.getElementById("ue-step-2");
+        const step3 = document.getElementById("ue-step-3");
+        const step4 = document.getElementById("ue-step-4");
+        const steps = [step0, step1, step2, step3, step4];
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(";").shift();
+            return "";
+        }
+
+        function showStep(index) {
+            steps.forEach((el, idx) => {
+                if (!el) return;
+                if (idx === index) {
+                    el.classList.remove("unit-hidden");
+                } else {
+                    el.classList.add("unit-hidden");
+                }
+            });
+        }
+
+        function num(id, fallback = 0) {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            const n = Number(el.value);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function recalcVolumeFromDimensions() {
+            const length = Math.max(0, num("ue-length", 0));
+            const width = Math.max(0, num("ue-width", 0));
+            const height = Math.max(0, num("ue-height", 0));
+            const volume = (length * width * height) / 1000.0;
+            const volumeEl = document.getElementById("ue-volume");
+            if (volumeEl) {
+                volumeEl.value = volume > 0 ? volume.toFixed(3) : "0.000";
+            }
+        }
+
+        function setVal(id, value) {
+            const el = document.getElementById(id);
+            if (el) el.value = value;
+        }
+
+        function populateWarehouseSelect() {
+            const hiddenInput = document.getElementById("ue-warehouse");
+            const searchInput = document.getElementById("ue-warehouse-search");
+            if (!hiddenInput || !searchInput) return;
+            const savedWarehouse = String(savedUnitCalc?.input_data?.warehouse_name || "").trim();
+            const hasSavedWarehouse = !!savedWarehouse && warehouseOptions.some((x) => (x.warehouse_name || "") === savedWarehouse);
+            // Если есть сохраненный расчет и склад присутствует в актуальном списке,
+            // подставляем его по умолчанию. Иначе оставляем пусто.
+            hiddenInput.value = hasSavedWarehouse ? savedWarehouse : "";
+            searchInput.value = hasSavedWarehouse ? savedWarehouse : "";
+            renderWarehouseOptions(searchInput.value);
+            updateWarehouseInfo();
+        }
+
+        function renderWarehouseOptions(filterText = "") {
+            const optionsEl = document.getElementById("ue-warehouse-options");
+            const hiddenInput = document.getElementById("ue-warehouse");
+            const searchInput = document.getElementById("ue-warehouse-search");
+            if (!optionsEl || !hiddenInput || !searchInput) return;
+
+            const normalized = (filterText || "").toLowerCase().trim();
+            const filtered = warehouseOptions.filter((item) => {
+                const name = (item.warehouse_name || "").toLowerCase();
+                return !normalized || name.includes(normalized);
+            });
+
+            if (!filtered.length) {
+                optionsEl.innerHTML = `<div class="searchable-empty">Ничего не найдено</div>`;
+                return;
+            }
+
+            optionsEl.innerHTML = filtered
+                .map((item) => `<div class="searchable-option" data-value="${item.warehouse_name}">${item.warehouse_name}</div>`)
+                .join("");
+
+            optionsEl.querySelectorAll(".searchable-option").forEach((el) => {
+                el.addEventListener("click", () => {
+                    const value = el.getAttribute("data-value") || "";
+                    hiddenInput.value = value;
+                    searchInput.value = value;
+                    optionsEl.classList.remove("open");
+                    updateWarehouseInfo();
+                });
+            });
+        }
+
+        function currentWarehousePayload() {
+            const hiddenInput = document.getElementById("ue-warehouse");
+            const boxType = (document.getElementById("ue-box-type")?.value || "box");
+            const wh = warehouseOptions.find((x) => x.warehouse_name === (hiddenInput?.value || ""));
+            if (!wh) {
+                return {
+                    delivery_coef: 0,
+                    storage_base_liter: 0,
+                    storage_additional_liter: 0,
+                    acceptance_coef: 0,
+                    coeff_date: null,
+                };
+            }
+            return boxType === "mono" ? (wh.mono || {}) : (wh.box || {});
+        }
+
+        function updateWarehouseInfo() {
+            const info = currentWarehousePayload();
+            const note = document.getElementById("ue-warehouse-note");
+            const nextBtn = document.getElementById("ue-next-3");
+            const coefDate = info.coeff_date || "-";
+            const nextAvailableDate = info.next_available_date || null;
+            const warehouseSelected = Boolean((document.getElementById("ue-warehouse")?.value || "").trim());
+            const acceptanceCoef = Number(info.acceptance_coef || 0);
+            const isAvailable = Boolean(info.is_available);
+            if (note) {
+                note.classList.remove("unit-note-error");
+                if (!warehouseSelected) {
+                    note.textContent = "Выберите склад отгрузки, чтобы продолжить.";
+                    note.classList.add("unit-note-error");
+                    if (nextBtn) nextBtn.disabled = true;
+                } else if (!isAvailable) {
+                    const dateHint = nextAvailableDate
+                        ? ` Ближайшая доступная дата: ${nextAvailableDate}.`
+                        : "";
+                    note.textContent = `Поставка сейчас недоступна для выбранного склада/типа отгрузки.${dateHint} Выберите другой склад или тип отгрузки.`;
+                    note.classList.add("unit-note-error");
+                    if (nextBtn) nextBtn.disabled = true;
+                } else {
+                    note.textContent = `Коэф. логистики: ${Number(info.delivery_coef || 0).toFixed(2)}%, хранение: ${Number(info.storage_base_liter || 0).toFixed(2)} / ${Number(info.storage_additional_liter || 0).toFixed(2)}, дата: ${coefDate}`;
+                    if (nextBtn) nextBtn.disabled = false;
+                }
+            }
+            if (document.getElementById("ue-acceptance-coef")) {
+                setVal("ue-acceptance-coef", Number(info.acceptance_coef || 0));
+            }
+        }
+
+        function syncDefaultsFromSettings() {
+            setVal("ue-spp", num("ue-settings-spp", 25));
+            setVal("ue-drr", num("ue-settings-drr", 10));
+            setVal("ue-defect-2", num("ue-settings-defect", 1));
+            setVal("ue-acquiring", num("ue-settings-acquiring", 2.5));
+            setVal("ue-fulfillment", num("ue-settings-fulfillment", 0));
+            setVal("ue-usn", num("ue-settings-usn", 6));
+            setVal("ue-vat", num("ue-settings-vat", 0));
+        }
+
+        function ensureUnitTooltip() {
+            let tooltip = document.getElementById("ue-hover-tooltip");
+            if (!tooltip) {
+                tooltip = document.createElement("div");
+                tooltip.id = "ue-hover-tooltip";
+                tooltip.className = "unit-hover-tooltip";
+                document.body.appendChild(tooltip);
+            }
+            return tooltip;
+        }
+
+        function money(value) {
+            const n = Number(value || 0);
+            return `${n.toFixed(2)} ₽`;
+        }
+
+        function moneyOrNA(value) {
+            if (value === null || value === undefined || value === "") return "н/д";
+            const n = Number(value);
+            if (!Number.isFinite(n)) return "н/д";
+            return `${n.toFixed(2)} ₽`;
+        }
+
+        function perBuyout(total, count) {
+            const c = Number(count || 0);
+            if (!c) return 0;
+            return Number(total || 0) / c;
+        }
+
+        function renderUnitVsFactComparison(result) {
+            if (!compareEl) return;
+            const breakdown = result?.breakdown || {};
+            const buyouts = Number(factProfitMonth.buyouts_count || 0);
+            if (!buyouts) {
+                compareEl.classList.remove("unit-hidden");
+                compareEl.innerHTML = `
+                    <h4>Сравнение юнитки и факта за месяц</h4>
+                    <p class="unit-compare-note">За месяц нет выкупов, сравнение недоступно.</p>
+                `;
+                return;
+            }
+
+            const unitNet = Number(result?.net_profit || 0);
+            const unitPurchase = Number(breakdown.purchase_price || 0);
+            const unitDefect = Number(breakdown.defect_cost || 0);
+            const unitFulfillment = Number(breakdown.fulfillment_cost || 0);
+            const unitTaxVat = Number(breakdown.usn_cost || 0) + Number(breakdown.vat_cost || 0);
+            const unitLogistics = Number(breakdown.delivery_cost || 0) + Number(breakdown.non_buyout_logistics_cost || 0);
+
+            const factNet = Number(factProfitMonth.avg_profit_per_buyout || 0);
+            const factSalePrice = Number(factProfitMonth.avg_retail_price_withdisc || 0);
+            const factTransfer = perBuyout(factProfitMonth.wb_transfer_sum, buyouts);
+            const factPurchase = perBuyout(factProfitMonth.purchase_sum, buyouts);
+            const factDefect = perBuyout(factProfitMonth.defect_sum, buyouts);
+            const factAcquiring = perBuyout(factProfitMonth.acquiring_sum, buyouts);
+            const factFulfillment = perBuyout(factProfitMonth.fulfillment_sum, buyouts);
+            const factTaxVat = perBuyout(factProfitMonth.taxes_vat_sum, buyouts);
+            const factTax = perBuyout(factProfitMonth.tax_sum, buyouts);
+            const factVat = perBuyout(factProfitMonth.vat_sum, buyouts);
+            const factLogisticsBuyout = perBuyout(factProfitMonth.logistics_buyout_sum, buyouts);
+            const factLogisticsCancelReturn = Number(factProfitMonth.avg_logistics_cancel_return_per_return || 0);
+            const factLogisticsAdjustments = perBuyout(factProfitMonth.logistics_adjustments_sum, buyouts);
+            const factLogisticsNegative = perBuyout(factProfitMonth.logistics_negative_sum, buyouts);
+            const factStorage = perBuyout(factProfitMonth.storage_sum, buyouts);
+            const factDeduction = perBuyout(factProfitMonth.deduction_sum, buyouts);
+            const factJam = perBuyout(factProfitMonth.jam_sum, buyouts);
+            const factPenalty = perBuyout(factProfitMonth.penalty_sum, buyouts);
+            const factAdSpend = perBuyout(factProfitMonth.ad_spend_sum, buyouts);
+            const factAcceptance = perBuyout(factProfitMonth.acceptance_sum, buyouts);
+
+            const rows = [
+                { label: "Цена продажи на 1 заказ", unit: Number(breakdown.sale_price || 0), fact: factSalePrice },
+                { label: "Сумма к переводу от ВБ (без вычета логистики) на 1 выкуп", unit: null, fact: factTransfer },
+                { label: "Закупочная цена на 1 выкуп", unit: unitPurchase, fact: factPurchase },
+                { label: "ДРР на 1 заказ", unit: Number(breakdown.drr_cost || 0), fact: null },
+                { label: "Брак на 1 выкуп", unit: unitDefect, fact: factDefect },
+                { label: "Эквайринг на 1 заказ", unit: Number(breakdown.acquiring_cost || 0), fact: factAcquiring },
+                { label: "Фулфилмент на 1 выкуп", unit: unitFulfillment, fact: factFulfillment },
+                { label: "Доп. расходы на 1 заказ", unit: Number(breakdown.extra_cost || 0), fact: null },
+                { label: "Логистика выкупов на 1 выкуп", unit: unitLogistics, fact: factLogisticsBuyout },
+                { label: "Логистика отмен/возвратов (среднее среди отмен/возвратов)", unit: null, fact: factLogisticsCancelReturn },
+                { label: "Логистические корректировки/возмещения на 1 выкуп", unit: null, fact: factLogisticsAdjustments },
+                { label: "Отрицательные логистические значения (сторно) на 1 выкуп", unit: null, fact: factLogisticsNegative },
+                { label: "Комиссия WB на 1 заказ", unit: Number(breakdown.commission_cost || 0), fact: null },
+                { label: "Налог УСН на 1 заказ", unit: Number(breakdown.usn_cost || 0), fact: factTax },
+                { label: "НДС на 1 заказ", unit: Number(breakdown.vat_cost || 0), fact: factVat },
+                { label: "Налоги + НДС на 1 выкуп", unit: unitTaxVat, fact: factTaxVat },
+                { label: "Хранение на 1 заказ (факт: приближенно)", unit: Number(breakdown.storage_cost || 0), fact: factStorage },
+                { label: "Удержания WB (реклама/услуги) на 1 выкуп", unit: null, fact: factDeduction },
+                { label: "Подписка Джем на 1 выкуп (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factJam },
+                { label: "Штрафы WB на 1 выкуп (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factPenalty },
+                { label: "Реклама WB на 1 выкуп (факт: прямые + распределение неатрибутированных)", unit: null, fact: factAdSpend },
+                { label: "Платная приемка FBS в ПВЗ на 1 заказ", unit: Number(breakdown.acceptance_cost || 0), fact: factAcceptance },
+                { label: "Чистая прибыль на 1 выкуп", unit: unitNet, fact: factNet },
+            ];
+
+            const bodyHtml = rows.map((row) => {
+                const hasDelta =
+                    row.unit !== null &&
+                    row.unit !== undefined &&
+                    row.fact !== null &&
+                    row.fact !== undefined &&
+                    Number.isFinite(Number(row.unit)) &&
+                    Number.isFinite(Number(row.fact));
+                const delta = hasDelta ? (Number(row.fact) - Number(row.unit)) : null;
+                const deltaCls = (delta !== null && delta >= 0) ? "delta-pos" : "delta-neg";
+                return `
+                    <tr>
+                        <td>${row.label}</td>
+                        <td>${moneyOrNA(row.unit)}</td>
+                        <td>${moneyOrNA(row.fact)}</td>
+                        <td class="${delta !== null ? deltaCls : ""}">${delta !== null ? `${delta >= 0 ? "+" : ""}${money(delta)}` : "н/д"}</td>
+                    </tr>
+                `;
+            }).join("");
+
+            compareEl.classList.remove("unit-hidden");
+            compareEl.innerHTML = `
+                <h4>Сравнение юнитки и факта за месяц</h4>
+                <p class="unit-compare-note">
+                    Период факта: ${factProfitMonth.date_from || "-"} — ${factProfitMonth.date_to || "-"},
+                    выкупов: ${buyouts}.
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Статья</th>
+                            <th>Юнитка</th>
+                            <th>Факт за месяц</th>
+                            <th>Дельта (факт - юнитка)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${bodyHtml}</tbody>
+                </table>
+            `;
+        }
+
+        function renderUnitEconomicsResult(payload) {
+            if (!resultEl) return;
+            renderUnitResultToTarget(resultEl, payload, { withCompare: true, withPlayButton: true });
+        }
+
+        function renderUnitResultToTarget(targetEl, payload, options = {}) {
+            if (!targetEl) return;
+            const withCompare = Boolean(options.withCompare);
+            const withPlayButton = Boolean(options.withPlayButton);
+            const result = payload?.result || {};
+            const net = Number(result.net_profit || 0);
+            const breakdown = result.breakdown || {};
+            const salePrice = Math.max(1, Number(breakdown.sale_price || 0));
+
+            const segments = [
+                { key: "purchase", label: "Закупочная цена", value: Number(breakdown.purchase_price || 0), color: "#334155" },
+                { key: "drr", label: "ДРР", value: Number(breakdown.drr_cost || 0), color: "#dc2626" },
+                { key: "defect", label: "Брак", value: Number(breakdown.defect_cost || 0), color: "#ea580c" },
+                { key: "acquiring", label: "Эквайринг", value: Number(breakdown.acquiring_cost || 0), color: "#a855f7" },
+                { key: "fulfillment", label: "Фулфилмент", value: Number(breakdown.fulfillment_cost || 0), color: "#2563eb" },
+                { key: "extra", label: "Доп. расходы", value: Number(breakdown.extra_cost || 0), color: "#14b8a6" },
+                { key: "delivery", label: "Логистика", value: Number(breakdown.delivery_cost || 0), color: "#f59e0b" },
+                { key: "non_buyout", label: "Логистика невыкупов", value: Number(breakdown.non_buyout_logistics_cost || 0), color: "#ef4444" },
+                { key: "commission", label: "Комиссия WB", value: Number(breakdown.commission_cost || 0), color: "#0284c7" },
+                { key: "usn", label: "Налог УСН", value: Number(breakdown.usn_cost || 0), color: "#7c3aed" },
+                { key: "vat", label: "НДС", value: Number(breakdown.vat_cost || 0), color: "#059669" },
+                { key: "storage", label: "Хранение", value: Number(breakdown.storage_cost || 0), color: "#b91c1c" },
+                { key: "acceptance", label: "Приемка", value: Number(breakdown.acceptance_cost || 0), color: "#64748b" },
+            ];
+            if (net >= 0) {
+                segments.push({ key: "net_profit", label: "Чистая прибыль", value: net, color: "#16a34a" });
+            } else {
+                segments.push({ key: "net_profit_negative", label: "Чистая прибыль (убыток)", value: Math.abs(net), color: "#dc2626" });
+            }
+
+            const insideSegments = segments.filter((seg) => Number(seg.value || 0) > 0);
+            const totalInsidePct = insideSegments.reduce((acc, seg) => acc + (Number(seg.value || 0) / salePrice) * 100, 0);
+            const insideScale = totalInsidePct > 100 ? (100 / totalInsidePct) : 1;
+
+            const segmentsHtml = insideSegments.map((seg) => {
+                const value = Number(seg.value || 0);
+                const width = Math.max(((value / salePrice) * 100) * insideScale, 1.6);
+                const label = `${seg.label}: ${value.toFixed(2)} ₽`;
+                return `<div class="stacked-segment" data-label="${label}" style="width:${width}%; background:${seg.color};"></div>`;
+            }).join("");
+
+            const legendHtml = segments
+                .filter((seg) => Number(seg.value || 0) > 0)
+                .map((seg) => {
+                    const value = Number(seg.value || 0);
+                    const signedValue = seg.key === "net_profit_negative" ? `-${value.toFixed(2)}` : value.toFixed(2);
+                    return `<div class="legend-item"><span class="legend-dot" style="background:${seg.color};"></span><span>${seg.label}: ${signedValue} ₽</span></div>`;
+                }).join("");
+
+            const warehouseName = (breakdown.warehouse_name || "").trim();
+            const deliveryCoef = Number(breakdown.delivery_coef_expr || 0);
+            const storageBase = Number(breakdown.storage_base_liter || 0);
+            const storageAdditional = Number(breakdown.storage_additional_liter || 0);
+            const warehouseNote = warehouseName
+                ? `Рассчитано для склада: ${warehouseName}. Коэф. логистики: ${deliveryCoef.toFixed(2)}%, хранение: ${storageBase.toFixed(2)} / ${storageAdditional.toFixed(2)} ₽/л в день.`
+                : "";
+
+            targetEl.classList.remove("unit-hidden");
+            targetEl.innerHTML = `
+                <div class="unit-profit ${net >= 0 ? "positive" : "negative"}">Чистая прибыль: ${net.toFixed(2)} ₽</div>
+                <div class="stacked-bar-shell">
+                    <div class="stacked-bar">${segmentsHtml}</div>
+                </div>
+                <div class="segment-legend">${legendHtml}</div>
+                <p class="unit-note">${breakdown.acceptance_note || ""}</p>
+                <p class="unit-note">Цена продажи: ${money(breakdown.sale_price || 0)}</p>
+                ${warehouseNote ? `<p class="unit-note">${warehouseNote}</p>` : ""}
+                ${withPlayButton ? `<div class="unit-actions"><button type="button" class="btn btn-secondary" id="ue-open-playground">Поиграться</button></div>` : ""}
+            `;
+
+            if (withCompare) {
+                renderUnitVsFactComparison(result);
+            }
+
+            const tooltip = ensureUnitTooltip();
+            targetEl.querySelectorAll(".stacked-segment[data-label]").forEach((segment) => {
+                segment.addEventListener("mouseenter", () => {
+                    tooltip.textContent = segment.getAttribute("data-label") || "";
+                    tooltip.style.display = "block";
+                });
+                segment.addEventListener("mousemove", (event) => {
+                    const offsetX = 12;
+                    const offsetY = 18;
+                    tooltip.style.left = `${event.clientX + offsetX}px`;
+                    tooltip.style.top = `${event.clientY - offsetY}px`;
+                });
+                segment.addEventListener("mouseleave", () => {
+                    tooltip.style.display = "none";
+                });
+            });
+        }
+
+        function buildFormDataFromFields(prefix = "ue") {
+            const get = (name, fallback = 0) => num(`${prefix}-${name}`, fallback);
+            const fd = new FormData();
+            fd.set("sale_price", get("sale-price", 0));
+            fd.set("purchase_price", get("purchase-price", 0));
+            fd.set("spp_percent", get("spp", 25));
+            fd.set("volume_liters", get("volume", {{ product.volume_liters|default:4 }}));
+            fd.set("buyout_percent", get("buyout", 100));
+            fd.set("defect_percent", get("defect", 1));
+            fd.set("drr_percent", get("drr", 10));
+            fd.set("fulfillment_cost", get("fulfillment", 0));
+            fd.set("usn_percent", get("usn", 6));
+            fd.set("vat_percent", get("vat", 0));
+            fd.set("acquiring_percent", get("acquiring", 0));
+            fd.set("batch_qty", get("batch", 1));
+            fd.set("commission_percent", get("commission", 0));
+            fd.set("delivery_coef_expr", get("delivery-coef", 0));
+            fd.set("warehouse_name", (document.getElementById(`${prefix}-warehouse-name`)?.value || "").trim());
+            fd.set("extra_cost", get("extra", 0));
+            fd.set("days_to_sell", get("days", 30));
+            fd.set("localization_index", get("il", 1));
+            fd.set("irp_percent", get("irp", 0));
+            fd.set("acceptance_coef", get("acceptance-coef", 0));
+            fd.set("acceptance_cost_per_liter", get("acceptance-cost-per-liter", 1.7));
+            fd.set("box_type", document.getElementById(`${prefix}-box-type`)?.value || "box");
+            fd.set("storage_base_liter", get("storage-base", 0));
+            fd.set("storage_additional_liter", get("storage-additional", 0));
+            return fd;
+        }
+
+        async function saveSettings() {
+            const statusEl = document.getElementById("ue-settings-status");
+            const fd = new FormData();
+            fd.set("assumed_spp_percent", num("ue-settings-spp", 25));
+            fd.set("drr_percent", num("ue-settings-drr", 10));
+            fd.set("defect_percent", num("ue-settings-defect", 1));
+            fd.set("acquiring_percent", num("ue-settings-acquiring", 2.5));
+            fd.set("acceptance_cost_per_liter", num("ue-settings-acceptance-cost-per-liter", 1.7));
+            fd.set("fulfillment_cost_per_order", num("ue-settings-fulfillment", 0));
+            fd.set("usn_percent", num("ue-settings-usn", 6));
+            fd.set("vat_percent", num("ue-settings-vat", 0));
+
+            try {
+                const res = await fetch("{% url 'product_unit_economics_settings_api' product.id %}", {
+                    method: "POST",
+                    headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка сохранения");
+                if (statusEl) statusEl.textContent = "Настройки сохранены.";
+                syncDefaultsFromSettings();
+            } catch (e) {
+                if (statusEl) statusEl.textContent = `Ошибка: ${e}`;
+            }
+        }
+
+        async function calculateUnitEconomics() {
+            const whPayload = currentWarehousePayload();
+            const fd = new FormData();
+            fd.set("sale_price", num("ue-sale-price", 0));
+            fd.set("purchase_price", num("ue-purchase-price", 0));
+            fd.set("spp_percent", num("ue-spp", 25));
+            fd.set("volume_liters", num("ue-volume", {{ product.volume_liters|default:4 }}));
+            fd.set("buyout_percent", num("ue-buyout", 100));
+            fd.set("defect_percent", num("ue-defect-2", 1));
+            fd.set("drr_percent", num("ue-drr", 10));
+            fd.set("fulfillment_cost", num("ue-fulfillment", 0));
+            fd.set("usn_percent", num("ue-usn", 6));
+            fd.set("vat_percent", num("ue-vat", 0));
+            fd.set("acquiring_percent", num("ue-acquiring", 0));
+            fd.set("batch_qty", num("ue-batch-qty", 1));
+            fd.set("commission_percent", num("ue-commission", 0));
+            fd.set("delivery_coef_expr", Number(whPayload.delivery_coef || 0));
+            fd.set("warehouse_name", document.getElementById("ue-warehouse")?.value || "");
+            fd.set("extra_cost", num("ue-extra", 0));
+            fd.set("days_to_sell", num("ue-days", 30));
+            fd.set("localization_index", num("ue-il", 1));
+            fd.set("irp_percent", num("ue-irp", 0));
+            fd.set("acceptance_coef", num("ue-acceptance-coef", 0));
+            fd.set("box_type", document.getElementById("ue-box-type")?.value || "box");
+            fd.set("storage_base_liter", Number(whPayload.storage_base_liter || 0));
+            fd.set("storage_additional_liter", Number(whPayload.storage_additional_liter || 0));
+
+            const res = await fetch("{% url 'product_unit_economics_calculate_api' product.id %}", {
+                method: "POST",
+                headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                body: fd,
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "Ошибка расчета");
+            }
+            renderUnitEconomicsResult(data);
+        }
+
+        async function calculatePlaygroundUnitEconomics() {
+            const statusEl = document.getElementById("ue-playground-status");
+            const targetEl = document.getElementById("ue-playground-result");
+            const fd = buildFormDataFromFields("pg");
+            fd.set("preview", "1");
+            try {
+                if (statusEl) statusEl.textContent = "Пересчет...";
+                const res = await fetch("{% url 'product_unit_economics_calculate_api' product.id %}", {
+                    method: "POST",
+                    headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка расчета");
+                renderUnitResultToTarget(targetEl, data, { withCompare: false, withPlayButton: false });
+                if (statusEl) statusEl.textContent = "Готово";
+            } catch (e) {
+                if (statusEl) statusEl.textContent = `Ошибка: ${e}`;
+            }
+        }
+
+        document.getElementById("ue-recalc-btn")?.addEventListener("click", () => showStep(1));
+        document.getElementById("ue-next-1")?.addEventListener("click", () => showStep(2));
+        document.getElementById("ue-back-2")?.addEventListener("click", () => showStep(1));
+        document.getElementById("ue-next-2")?.addEventListener("click", () => showStep(3));
+        document.getElementById("ue-back-3")?.addEventListener("click", () => showStep(2));
+        document.getElementById("ue-next-3")?.addEventListener("click", () => {
+            const selectedWarehouse = (document.getElementById("ue-warehouse")?.value || "").trim();
+            const info = currentWarehousePayload();
+            if (!selectedWarehouse) {
+                alert("Выберите склад отгрузки.");
+                updateWarehouseInfo();
+                return;
+            }
+            if (!Boolean(info.is_available)) {
+                alert("Для выбранного склада и типа отгрузки поставка сейчас недоступна. Выберите другой вариант.");
+                updateWarehouseInfo();
+                return;
+            }
+            const batch = Math.max(1, num("ue-batch-qty", 100));
+            const avgPerDay = Number({{ unit_avg_sales_per_day_14d|default:0 }});
+            if (avgPerDay > 0) {
+                setVal("ue-days", Math.max(1, Math.round(batch / avgPerDay)));
+            }
+            showStep(4);
+        });
+        document.getElementById("ue-back-4")?.addEventListener("click", () => showStep(3));
+        document.getElementById("ue-calc-btn")?.addEventListener("click", async () => {
+            try {
+                await calculateUnitEconomics();
+                showStep(0);
+            } catch (e) {
+                alert(`Ошибка расчета: ${e}`);
+            }
+        });
+
+        const playgroundModal = document.getElementById("ue-playground-modal");
+        const playgroundStatus = document.getElementById("ue-playground-status");
+        const attachPlaygroundListeners = () => {
+            const ids = [
+                "sale-price", "purchase-price", "spp", "volume", "buyout", "drr", "defect", "acquiring",
+                "fulfillment", "usn", "vat", "batch", "commission", "delivery-coef", "extra", "days",
+                "il", "irp", "acceptance-coef", "acceptance-cost-per-liter", "box-type", "storage-base", "storage-additional", "warehouse-name"
+            ];
+            ids.forEach((suffix) => {
+                const el = document.getElementById(`pg-${suffix}`);
+                if (!el || el.dataset.liveBound === "1") return;
+                el.dataset.liveBound = "1";
+                el.addEventListener("input", schedulePlaygroundRecalc);
+                el.addEventListener("change", schedulePlaygroundRecalc);
+            });
+        };
+
+        let playgroundTimer = null;
+        const schedulePlaygroundRecalc = () => {
+            if (playgroundTimer) {
+                window.clearTimeout(playgroundTimer);
+            }
+            playgroundTimer = window.setTimeout(() => {
+                calculatePlaygroundUnitEconomics();
+            }, 250);
+        };
+
+        const setPg = (id, value) => {
+            const el = document.getElementById(`pg-${id}`);
+            if (!el) return;
+            el.value = value ?? "";
+        };
+        const fillPlaygroundFromCurrent = () => {
+            const whPayload = currentWarehousePayload();
+            setPg("sale-price", num("ue-sale-price", 0));
+            setPg("purchase-price", num("ue-purchase-price", 0));
+            setPg("spp", num("ue-spp", 25));
+            setPg("volume", num("ue-volume", {{ product.volume_liters|default:4 }}));
+            setPg("buyout", num("ue-buyout", 100));
+            setPg("drr", num("ue-drr", 10));
+            setPg("defect", num("ue-defect-2", 1));
+            setPg("acquiring", num("ue-acquiring", 0));
+            setPg("fulfillment", num("ue-fulfillment", 0));
+            setPg("usn", num("ue-usn", 6));
+            setPg("vat", num("ue-vat", 0));
+            setPg("batch", num("ue-batch-qty", 1));
+            setPg("commission", num("ue-commission", 0));
+            setPg("delivery-coef", Number(whPayload.delivery_coef || 0));
+            setPg("extra", num("ue-extra", 0));
+            setPg("days", num("ue-days", 30));
+            setPg("il", num("ue-il", 1));
+            setPg("irp", num("ue-irp", 0));
+            setPg("acceptance-coef", num("ue-acceptance-coef", 0));
+            setPg("acceptance-cost-per-liter", num("ue-settings-acceptance-cost-per-liter", 1.7));
+            setPg("box-type", document.getElementById("ue-box-type")?.value || "box");
+            setPg("storage-base", Number(whPayload.storage_base_liter || 0));
+            setPg("storage-additional", Number(whPayload.storage_additional_liter || 0));
+            setPg("warehouse-name", document.getElementById("ue-warehouse")?.value || "");
+        };
+
+        resultEl?.addEventListener("click", (event) => {
+            const trigger = event.target?.closest?.("#ue-open-playground");
+            if (!trigger) return;
+            fillPlaygroundFromCurrent();
+            attachPlaygroundListeners();
+            if (playgroundStatus) playgroundStatus.textContent = "";
+            playgroundModal?.classList.add("open");
+            calculatePlaygroundUnitEconomics();
+        });
+        document.getElementById("ue-playground-close")?.addEventListener("click", () => playgroundModal?.classList.remove("open"));
+        playgroundModal?.addEventListener("click", (e) => {
+            if (e.target === playgroundModal) playgroundModal.classList.remove("open");
+        });
+
+        document.getElementById("ue-box-type")?.addEventListener("change", updateWarehouseInfo);
+        document.getElementById("ue-warehouse-search")?.addEventListener("focus", () => {
+            const optionsEl = document.getElementById("ue-warehouse-options");
+            renderWarehouseOptions(document.getElementById("ue-warehouse-search")?.value || "");
+            optionsEl?.classList.add("open");
+        });
+        document.getElementById("ue-warehouse-search")?.addEventListener("input", (event) => {
+            const value = event.target?.value || "";
+            renderWarehouseOptions(value);
+            document.getElementById("ue-warehouse-options")?.classList.add("open");
+        });
+        document.getElementById("ue-warehouse-search")?.addEventListener("blur", () => {
+            const hiddenInput = document.getElementById("ue-warehouse");
+            const searchInput = document.getElementById("ue-warehouse-search");
+            if (!hiddenInput || !searchInput) return;
+            const typed = (searchInput.value || "").trim().toLowerCase();
+            const exact = warehouseOptions.find((item) => (item.warehouse_name || "").toLowerCase() === typed);
+            if (exact) {
+                hiddenInput.value = exact.warehouse_name;
+                searchInput.value = exact.warehouse_name;
+                updateWarehouseInfo();
+                return;
+            }
+            // Если точного совпадения нет — возвращаем отображение к текущему выбранному складу.
+            searchInput.value = hiddenInput.value || "";
+        });
+        document.addEventListener("click", (event) => {
+            const wrap = document.querySelector(".searchable-select");
+            const optionsEl = document.getElementById("ue-warehouse-options");
+            if (!wrap || !optionsEl) return;
+            if (!wrap.contains(event.target)) {
+                optionsEl.classList.remove("open");
+            }
+        });
+        document.getElementById("ue-length")?.addEventListener("input", recalcVolumeFromDimensions);
+        document.getElementById("ue-width")?.addEventListener("input", recalcVolumeFromDimensions);
+        document.getElementById("ue-height")?.addEventListener("input", recalcVolumeFromDimensions);
+
+        const modal = document.getElementById("ue-settings-modal");
+        document.getElementById("ue-open-settings")?.addEventListener("click", () => modal?.classList.add("open"));
+        document.getElementById("ue-settings-close")?.addEventListener("click", () => modal?.classList.remove("open"));
+        modal?.addEventListener("click", (e) => {
+            if (e.target === modal) modal.classList.remove("open");
+        });
+        document.getElementById("ue-settings-save")?.addEventListener("click", saveSettings);
+
+        populateWarehouseSelect();
+        syncDefaultsFromSettings();
+        recalcVolumeFromDimensions();
+        if (savedUnitCalc && savedUnitCalc.result) {
+            renderUnitEconomicsResult(savedUnitCalc);
+        }
+        showStep(0);
+    })();
+</script>
+</body>
+</html>

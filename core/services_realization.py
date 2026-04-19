@@ -9,16 +9,24 @@ from typing import Dict
 from typing import Iterable
 from typing import List
 
+from django.db.models import Count
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.dateparse import parse_datetime
 
+from core.logistics import (
+    DEFAULT_LOGISTICS_VOLUME_LITERS,
+    calculate_theoretical_order_logistics,
+    get_krp_for_share,
+    LOGISTICS_IRP_SWITCH_DATE,
+)
 from core.models import Order
 from core.models import Product
 from core.models import RealizationReportDetail
 from core.models import SellerAccount
 from core.models import WbWarehouseTariff
-from wb_api.client import WBStatisticsReportsClient
+from wb_api.client import WBFinanceReportsClient
 
 
 def _to_float(value):
@@ -72,6 +80,13 @@ def _normalize_key(value) -> str:
     return _normalize(value).lower()
 
 
+def _row_get(row: dict, *keys):
+    for key in keys:
+        if key in row:
+            return row.get(key)
+    return None
+
+
 def sync_realization_report_detail(
     seller: SellerAccount,
     date_from: date,
@@ -88,7 +103,7 @@ def sync_realization_report_detail(
     if period not in {"weekly", "daily"}:
         raise ValueError("period must be weekly or daily")
 
-    client = WBStatisticsReportsClient(seller.api_token)
+    client = WBFinanceReportsClient(seller.api_token_plain)
     date_from_str = date_from.isoformat()
     date_to_str = date_to.isoformat()
 
@@ -109,7 +124,7 @@ def sync_realization_report_detail(
 
         pages += 1
         for row in rows:
-            rrd_id = _to_int(row.get("rrd_id"))
+            rrd_id = _to_int(_row_get(row, "rrd_id", "rrdId"))
             if rrd_id is None:
                 continue
 
@@ -117,36 +132,36 @@ def sync_realization_report_detail(
                 seller=seller,
                 rrd_id=rrd_id,
                 defaults={
-                    "realizationreport_id": _to_int(row.get("realizationreport_id")),
-                    "date_from": _to_date(row.get("date_from")),
-                    "date_to": _to_date(row.get("date_to")),
-                    "create_dt": _to_date(row.get("create_dt")),
-                    "srid": _normalize(row.get("srid")) or None,
-                    "nm_id": _to_int(row.get("nm_id")),
-                    "sa_name": _normalize(row.get("sa_name")) or None,
-                    "office_name": _normalize(row.get("office_name")) or None,
-                    "site_country": _normalize(row.get("site_country")) or None,
-                    "bonus_type_name": _normalize(row.get("bonus_type_name")) or None,
-                    "supplier_oper_name": _normalize(row.get("supplier_oper_name")) or None,
-                    "doc_type_name": _normalize(row.get("doc_type_name")) or None,
-                    "order_dt": _to_datetime(row.get("order_dt")),
-                    "sale_dt": _to_datetime(row.get("sale_dt")),
-                    "rr_dt": _to_date(row.get("rr_dt")),
-                    "fix_tariff_date_from": _to_date(row.get("fix_tariff_date_from")),
-                    "fix_tariff_date_to": _to_date(row.get("fix_tariff_date_to")),
-                    "quantity": _to_int(row.get("quantity")),
-                    "delivery_rub": _to_float(row.get("delivery_rub")),
-                    "dlv_prc": _to_float(row.get("dlv_prc")),
-                    "storage_fee": _to_float(row.get("storage_fee")),
-                    "deduction": _to_float(row.get("deduction")),
-                    "acceptance": _to_float(row.get("acceptance")),
-                    "rebill_logistic_cost": _to_float(row.get("rebill_logistic_cost")),
+                    "realizationreport_id": _to_int(_row_get(row, "realizationreport_id", "realizationReportId")),
+                    "date_from": _to_date(_row_get(row, "date_from", "dateFrom")),
+                    "date_to": _to_date(_row_get(row, "date_to", "dateTo")),
+                    "create_dt": _to_date(_row_get(row, "create_dt", "createDt", "createDate")),
+                    "srid": _normalize(_row_get(row, "srid")) or None,
+                    "nm_id": _to_int(_row_get(row, "nm_id", "nmId")),
+                    "sa_name": _normalize(_row_get(row, "sa_name", "vendorCode")) or None,
+                    "office_name": _normalize(_row_get(row, "office_name", "warehouseName", "officeName")) or None,
+                    "site_country": _normalize(_row_get(row, "site_country", "countryName", "country")) or None,
+                    "bonus_type_name": _normalize(_row_get(row, "bonus_type_name", "bonusTypeName")) or None,
+                    "supplier_oper_name": _normalize(_row_get(row, "supplier_oper_name", "supplierOperName", "sellerOperName")) or None,
+                    "doc_type_name": _normalize(_row_get(row, "doc_type_name", "docTypeName")) or None,
+                    "order_dt": _to_datetime(_row_get(row, "order_dt", "orderDt")),
+                    "sale_dt": _to_datetime(_row_get(row, "sale_dt", "saleDt")),
+                    "rr_dt": _to_date(_row_get(row, "rr_dt", "rrDt", "rrDate")),
+                    "fix_tariff_date_from": _to_date(_row_get(row, "fix_tariff_date_from", "fixTariffDateFrom")),
+                    "fix_tariff_date_to": _to_date(_row_get(row, "fix_tariff_date_to", "fixTariffDateTo")),
+                    "quantity": _to_int(_row_get(row, "quantity")),
+                    "delivery_rub": _to_float(_row_get(row, "delivery_rub", "deliveryRub", "deliveryService")),
+                    "dlv_prc": _to_float(_row_get(row, "dlv_prc", "deliveryCoef")),
+                    "storage_fee": _to_float(_row_get(row, "storage_fee", "storageFee", "paidStorage")),
+                    "deduction": _to_float(_row_get(row, "deduction")),
+                    "acceptance": _to_float(_row_get(row, "acceptance", "paidAcceptance")),
+                    "rebill_logistic_cost": _to_float(_row_get(row, "rebill_logistic_cost", "rebillLogisticCost")),
                     "raw_payload": row,
                 },
             )
             total_upserted += 1
 
-        last_rrd_id = _to_int(rows[-1].get("rrd_id"))
+        last_rrd_id = _to_int(_row_get(rows[-1], "rrd_id", "rrdId"))
         if last_rrd_id is None or len(rows) < limit:
             break
         rrdid = last_rrd_id
@@ -186,88 +201,6 @@ def _is_mp_office(office_name: str | None) -> bool:
     return " мп " in f" {office_key} " or office_key.endswith(" мп") or office_key.startswith("мп ")
 
 
-def _calculate_box_logistics_per_unit(base: float, liter: float, volume_liters: float) -> float:
-    """
-    Базовая стоимость логистики для 1 единицы товара по объему (без коэффициента):
-    - 0.001-0.200 л: 23 ₽
-    - 0.201-0.400 л: 26 ₽
-    - 0.401-0.600 л: 29 ₽
-    - 0.601-0.800 л: 30 ₽
-    - 0.801-1.000 л: 32 ₽
-    - >1.000 л: 46 + 14 * (объем - 1)
-
-    Параметры base/liter оставлены в сигнатуре для совместимости вызовов и
-    в текущей модели не используются.
-    """
-    volume = max(float(volume_liters or 0.0), 0.0)
-    if volume <= 0:
-        return 0.0
-    if volume <= 0.2:
-        return 23.0
-    if volume <= 0.4:
-        return 26.0
-    if volume <= 0.6:
-        return 29.0
-    if volume <= 0.8:
-        return 30.0
-    if volume <= 1.0:
-        return 32.0
-    return 46.0 + 14.0 * (volume - 1.0)
-
-
-def _resolve_delivery_multiplier(
-    api_coef_expr: float | None,
-    fixed_delivery_coef: float | None,
-) -> float:
-    """
-    Возвращает множитель доставки:
-    - приоритет fixed_delivery_coef (dlv_prc), если > 0
-    - иначе api_coef_expr / 100, если > 0
-    - иначе 1.0
-    """
-    dlv_prc = _to_float(fixed_delivery_coef)
-    if dlv_prc is not None and dlv_prc > 0:
-        return float(dlv_prc)
-
-    coef_expr = _to_float(api_coef_expr)
-    if coef_expr is not None and coef_expr > 0:
-        return float(coef_expr) / 100.0
-
-    return 1.0
-
-
-def _apply_fixed_delivery_coef(
-    base: float,
-    liter: float,
-    api_coef_expr: float | None,
-    fixed_delivery_coef: float | None,
-) -> tuple[float, float]:
-    """
-    Применяет фиксированный коэффициент поставки (dlv_prc), если он есть.
-
-    Логика:
-    - тарифы в БД сохранены уже с коэффициентом из API (coef_expr, %)
-    - если для строки есть dlv_prc, заменяем коэффициент API на dlv_prc
-      через пересчет:
-      base'  = base  * (dlv_prc / (coef_expr / 100))
-      liter' = liter * (dlv_prc / (coef_expr / 100))
-    """
-    dlv_prc = _to_float(fixed_delivery_coef)
-    if dlv_prc is None or dlv_prc <= 0:
-        return (base, liter)
-
-    coef_expr = _to_float(api_coef_expr)
-    if coef_expr is None or coef_expr <= 0:
-        return (base * dlv_prc, liter * dlv_prc)
-
-    api_multiplier = coef_expr / 100.0
-    if api_multiplier <= 0:
-        return (base * dlv_prc, liter * dlv_prc)
-
-    factor = dlv_prc / api_multiplier
-    return (base * factor, liter * factor)
-
-
 def _resolve_tariff_for_realization_row(
     row: RealizationReportDetail,
     tariffs_by_warehouse: Dict[str, List[WbWarehouseTariff]],
@@ -300,6 +233,58 @@ def _resolve_tariff_for_realization_row(
     return marketplace_tariff or direct
 
 
+def _calculate_irp_index_for_effective_date(
+    seller: SellerAccount,
+    effective_date: date,
+) -> float:
+    """
+    ИРП рассчитывается по окну последних 13 недель, предшествующих дате применения:
+    - обновление в ночь с воскресенья на понедельник,
+    - для заказов текущей недели действует значение, рассчитанное по предыдущим 13 неделям.
+    """
+    if effective_date < LOGISTICS_IRP_SWITCH_DATE:
+        return 0.0
+
+    week_start = effective_date - timedelta(days=effective_date.weekday())  # понедельник
+    window_end = week_start - timedelta(days=1)  # предыдущее воскресенье
+    window_start = window_end - timedelta(days=13 * 7 - 1)
+
+    article_rows = (
+        Order.objects
+        .filter(
+            seller=seller,
+            is_cancel=False,
+            warehouse_type="Склад WB",
+            country_name="Россия",
+            order_date__date__gte=window_start,
+            order_date__date__lte=window_end,
+        )
+        .values("supplier_article")
+        .annotate(
+            orders_total=Count("id"),
+            orders_local=Count("id", filter=Q(is_local=True)),
+        )
+    )
+
+    rows = list(article_rows)
+    total_orders = sum(int(r["orders_total"] or 0) for r in rows)
+    if total_orders <= 0:
+        return 0.0
+
+    weighted_sum = 0.0
+    for row in rows:
+        orders_total = int(row["orders_total"] or 0)
+        if orders_total <= 0:
+            continue
+        orders_local = int(row["orders_local"] or 0)
+        local_share = (orders_local / orders_total) * 100.0
+        krp = get_krp_for_share(local_share, as_of_date=effective_date)
+        weighted_sum += orders_total * krp
+
+    irp_index = weighted_sum / total_orders
+    return round(float(irp_index), 6)
+
+
 def calculate_fact_vs_theory_localization_index(
     seller: SellerAccount,
     date_from: date,
@@ -326,6 +311,9 @@ def calculate_fact_vs_theory_localization_index(
         return {
             "rows_considered": 0,
             "actual_logistics_sum": 0.0,
+            "actual_raw_logistics_sum": 0.0,
+            "actual_adjusted_logistics_sum": 0.0,
+            "irp_component_sum": 0.0,
             "theoretical_logistics_sum": 0.0,
             "fact_index": None,
             "rows_without_tariff": 0,
@@ -339,6 +327,24 @@ def calculate_fact_vs_theory_localization_index(
         Order.objects.filter(seller=seller, srid__in=srids).values_list("srid", "supplier_article")
     )
     article_by_srid_norm: Dict[str, str] = {_normalize_key(k): v for k, v in article_by_srid.items()}
+    finished_price_by_srid_norm: Dict[str, float] = {}
+    for srid_value, finished_price in (
+        Order.objects
+        .filter(seller=seller, srid__in=srids)
+        .exclude(finished_price__isnull=True)
+        .values_list("srid", "finished_price")
+    ):
+        key = _normalize_key(srid_value)
+        if not key:
+            continue
+        parsed_price = _to_float(finished_price)
+        if parsed_price is None:
+            continue
+        # На случай дублей по srid берем максимальную цену как более консервативную.
+        finished_price_by_srid_norm[key] = max(
+            float(parsed_price),
+            finished_price_by_srid_norm.get(key, 0.0),
+        )
     volume_map: Dict[str, float] = {}
     for item in Product.objects.filter(seller=seller).exclude(vendor_code__isnull=True).exclude(vendor_code="").values(
         "vendor_code",
@@ -359,11 +365,15 @@ def calculate_fact_vs_theory_localization_index(
         tariffs_by_warehouse.setdefault(t.warehouse_name, []).append(t)
 
     actual_sum = 0.0
+    actual_raw_sum = 0.0
+    actual_adjusted_sum = 0.0
+    irp_component_sum = 0.0
     theoretical_sum = 0.0
     rows_without_tariff = 0
     rows_without_cost_parts = 0
     rows_without_volume = 0
     rows_excluded_mp = 0
+    irp_cache: Dict[date, float] = {}
 
     for row in rows:
         if _is_mp_office(row.office_name):
@@ -381,54 +391,67 @@ def calculate_fact_vs_theory_localization_index(
         base = tariff.box_delivery_base
         liter = tariff.box_delivery_liter
         if base is None and liter is None:
-            base = tariff.box_delivery_marketplace_base
-            liter = tariff.box_delivery_marketplace_liter
             coef_expr = tariff.box_delivery_marketplace_coef_expr
         else:
             coef_expr = tariff.box_delivery_coef_expr
-        base = float(base or 0.0)
-        liter = float(liter or 0.0)
-        delivery_multiplier = _resolve_delivery_multiplier(
-            api_coef_expr=coef_expr,
-            fixed_delivery_coef=row.dlv_prc,
-        )
-        if delivery_multiplier <= 0:
-            rows_without_cost_parts += 1
-            continue
 
         srid = _normalize(row.srid)
         article = _normalize(row.sa_name) or article_by_srid_norm.get(_normalize_key(srid), "")
         article_key = _normalize_key(article)
-        if not article_key or article_key not in volume_map:
+        volume = volume_map.get(article_key)
+        if volume is None or float(volume) <= 0:
             rows_without_volume += 1
-            continue
-        volume = max(float(volume_map[article_key]), 0.0)
-        if volume <= 0:
-            rows_without_volume += 1
-            continue
-        baseline_per_unit = _calculate_box_logistics_per_unit(
-            base=base,
-            liter=liter,
-            volume_liters=volume,
+            volume = DEFAULT_LOGISTICS_VOLUME_LITERS
+
+        effective_date = row.rr_dt or row.fix_tariff_date_from or date_to
+        irp_index = irp_cache.get(effective_date)
+        if irp_index is None:
+            irp_index = _calculate_irp_index_for_effective_date(
+                seller=seller,
+                effective_date=effective_date,
+            )
+            irp_cache[effective_date] = irp_index
+        retail_price = (
+            finished_price_by_srid_norm.get(_normalize_key(srid))
+            or _to_float((row.raw_payload or {}).get("retail_price"))
+            or 0.0
         )
-        if baseline_per_unit <= 0:
+
+        theoretical_per_unit = calculate_theoretical_order_logistics(
+            volume_liters=float(volume),
+            api_coef_expr=coef_expr,
+            fixed_delivery_coef=row.dlv_prc,
+            use_dlv_prc=True,
+            default_volume_liters=DEFAULT_LOGISTICS_VOLUME_LITERS,
+        )
+        if theoretical_per_unit <= 0:
             rows_without_cost_parts += 1
             continue
 
-        theoretical_per_unit = baseline_per_unit * delivery_multiplier
         # Для расчета ИЛ считаем по единице строки отчета:
         # quantity в детализации WB для логистики часто 0/служебное и не
         # отражает фактический множитель услуги доставки.
         theoretical = theoretical_per_unit
-        actual = float(row.delivery_rub or 0.0)
+        actual_raw = float(row.delivery_rub or 0.0)
+        irp_component = 0.0
+        if effective_date >= LOGISTICS_IRP_SWITCH_DATE:
+            irp_component = max(float(retail_price or 0.0), 0.0) * max(float(irp_index or 0.0), 0.0)
+        actual_adjusted = actual_raw - irp_component if effective_date >= LOGISTICS_IRP_SWITCH_DATE else actual_raw
+        actual = actual_adjusted
 
         theoretical_sum += theoretical
         actual_sum += actual
+        actual_raw_sum += actual_raw
+        actual_adjusted_sum += actual_adjusted
+        irp_component_sum += irp_component
 
     fact_index = (actual_sum / theoretical_sum) if theoretical_sum > 0 else None
     return {
         "rows_considered": len(rows),
         "actual_logistics_sum": round(actual_sum, 2),
+        "actual_raw_logistics_sum": round(actual_raw_sum, 2),
+        "actual_adjusted_logistics_sum": round(actual_adjusted_sum, 2),
+        "irp_component_sum": round(irp_component_sum, 2),
         "theoretical_logistics_sum": round(theoretical_sum, 2),
         "fact_index": round(fact_index, 6) if fact_index is not None else None,
         "rows_without_tariff": rows_without_tariff,
@@ -476,6 +499,9 @@ def get_fact_localization_index_trend_last_full_weeks(
                 "fact_index": float(result["fact_index"]),
                 "rows_considered": int(result["rows_considered"]),
                 "actual_logistics_sum": float(result["actual_logistics_sum"]),
+                "actual_raw_logistics_sum": float(result.get("actual_raw_logistics_sum", result["actual_logistics_sum"])),
+                "actual_adjusted_logistics_sum": float(result.get("actual_adjusted_logistics_sum", result["actual_logistics_sum"])),
+                "irp_component_sum": float(result.get("irp_component_sum", 0.0)),
                 "theoretical_logistics_sum": float(result["theoretical_logistics_sum"]),
             }
         )

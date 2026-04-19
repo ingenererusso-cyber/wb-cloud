@@ -1,0 +1,23 @@
+{
+  "order": {
+    "id": 15389,
+    "seller_id": 2,
+    "srid": "5839389081329144811.0.0",
+    "nm_id": 180594852,
+    "supplier_article": "YS-02",
+    "tech_size": "0",
+    "warehouse_name": "Волгоград",
+    "warehouse_type": "Склад WB",
+    "country_name": "Россия",
+    "oblast_okrug_name": "Южный федеральный округ",
+    "region_name": "Республика Крым",
+    "is_cancel": false,
+    "finished_price": 1359.0,
+    "order_date": "2026-04-17 06:34:16+00:00",
+    "last_change_date": "2026-04-17 10:07:37+00:00",
+    "created_at": "2026-04-17 08:19:39.657152+00:00",
+    "is_local": true
+  },
+  "realization_rows_count": 0,
+  "realization_rows": []
+}

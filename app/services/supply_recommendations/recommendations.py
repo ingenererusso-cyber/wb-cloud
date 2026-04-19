@@ -14,6 +14,7 @@ from app.services.supply_recommendations.calculators import (
     calculate_transit_cost,
     calculate_warehouse_logistics_cost,
 )
+from core.logistics import get_ktr_for_share
 from app.services.supply_recommendations.models import (
     OrderAggregate,
     RegionScenarioInput,
@@ -25,41 +26,6 @@ from app.services.supply_recommendations.models import (
 from app.services.supply_recommendations.scenarios import evaluate_region_scenario
 
 logger = logging.getLogger(__name__)
-
-
-KTR_SWITCH_DATE = date(2026, 3, 23)
-KTR_TABLE = (
-    (0.00, 4.99, 2.00, 2.00),
-    (5.00, 9.99, 1.95, 1.80),
-    (10.00, 14.99, 1.90, 1.75),
-    (15.00, 19.99, 1.85, 1.70),
-    (20.00, 24.99, 1.75, 1.60),
-    (25.00, 29.99, 1.65, 1.55),
-    (30.00, 34.99, 1.55, 1.50),
-    (35.00, 39.99, 1.45, 1.40),
-    (40.00, 44.99, 1.35, 1.30),
-    (45.00, 49.99, 1.25, 1.20),
-    (50.00, 54.99, 1.15, 1.10),
-    (55.00, 59.99, 1.05, 1.05),
-    (60.00, 64.99, 1.00, 1.00),
-    (65.00, 69.99, 1.00, 1.00),
-    (70.00, 74.99, 1.00, 1.00),
-    (75.00, 79.99, 0.95, 0.90),
-    (80.00, 84.99, 0.85, 0.80),
-    (85.00, 89.99, 0.75, 0.70),
-    (90.00, 94.99, 0.65, 0.60),
-    (95.00, 100.00, 0.50, 0.50),
-)
-
-
-def get_ktr_for_share(local_share_percent: float, as_of_date: date) -> float:
-    share = max(0.0, min(100.0, float(local_share_percent)))
-    use_before_column = as_of_date < KTR_SWITCH_DATE
-    idx = 2 if use_before_column else 3
-    for min_share, max_share, ktr_before, ktr_after in KTR_TABLE:
-        if min_share <= share <= max_share:
-            return float((ktr_before, ktr_after)[idx - 2])
-    return 0.50
 
 
 def _normalize(value: str) -> str:
@@ -158,6 +124,27 @@ def _calc_region_avg_volume(region_items: List[OrderAggregate]) -> float:
         return 0.0
     weighted_sum = sum(max(item.orders_count, 0) * max(item.avg_volume_liters, 0.0) for item in region_items)
     return round(weighted_sum / total_orders, 6)
+
+
+def _calc_region_avg_volume_non_local(region_items: List[OrderAggregate]) -> float:
+    """
+    Средний объем по нелокальным заказам региона (взвешенный).
+
+    Используем только ту часть заказов, которая потенциально будет локализована.
+    Если нелокальных заказов нет, возвращаем общий средний объем региона как fallback.
+    """
+    weighted_sum = 0.0
+    non_local_orders_total = 0
+    for item in region_items:
+        non_local_orders = max(int(item.orders_count) - int(item.local_orders_count or 0), 0)
+        if non_local_orders <= 0:
+            continue
+        weighted_sum += non_local_orders * max(item.avg_volume_liters, 0.0)
+        non_local_orders_total += non_local_orders
+
+    if non_local_orders_total <= 0:
+        return _calc_region_avg_volume(region_items)
+    return round(weighted_sum / non_local_orders_total, 6)
 
 
 def _is_region_currently_local(region_items: List[OrderAggregate], warehouse_region_map: Dict[str, str]) -> bool:
@@ -349,10 +336,12 @@ def build_supply_recommendations(
                 storage_coef=None,
             )
 
+        avg_non_local_volume_liters = _calc_region_avg_volume_non_local(region_items)
+
         scenario_input = RegionScenarioInput(
             region_name=region_name,
             orders_count=orders_count,
-            avg_volume_liters=_calc_region_avg_volume(region_items),
+            avg_volume_liters=avg_non_local_volume_liters,
             current_local=_is_region_currently_local(region_items, warehouse_region_map),
             target_warehouse_name=warehouse_coef_item.warehouse_name,
             warehouse_coef=warehouse_coef_item.logistics_coef,
@@ -412,7 +401,7 @@ def build_supply_recommendations(
             warehouse_coefficients=warehouse_coefficients,
             non_local_orders_count=non_local_orders_count,
             orders_count=orders_count,
-            avg_volume_liters=_calc_region_avg_volume(region_items),
+            avg_volume_liters=avg_non_local_volume_liters,
             base_logistics_per_order=base_logistics_per_order,
             baseline_warehouse_coef=baseline_warehouse_coef,
         )

@@ -28,13 +28,11 @@
                 radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
                 radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
                 linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
-            display: grid;
-            place-items: center;
             padding: 20px;
         }
 
         .hero {
-            width: min(920px, 100%);
+            width: 100%;
             border: 1px solid var(--line);
             border-radius: 24px;
             background: var(--surface);
@@ -226,9 +224,17 @@
             padding: 8px;
         }
 
-        #local-orders-chart {
+        .chart-wrap--line {
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .chart-wrap--line svg {
             width: 100%;
+            min-width: 900px;
             height: 100%;
+            overflow: hidden;
+            display: block;
         }
 
         .chart-empty {
@@ -390,8 +396,8 @@
                     <p class="chart-range">{{ local_orders_trend.start_label }} - {{ local_orders_trend.end_label }}</p>
                 {% endif %}
             </div>
-            <div class="chart-wrap">
-                <svg id="local-orders-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
+            <div class="chart-wrap chart-wrap--line">
+                <svg id="local-orders-chart"></svg>
             </div>
         </section>
         <section class="chart-card">
@@ -408,8 +414,8 @@
                     <p class="chart-range">{{ fact_localization_index_trend.start_label }} - {{ fact_localization_index_trend.end_label }}</p>
                 {% endif %}
             </div>
-            <div class="chart-wrap">
-                <svg id="fact-localization-index-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
+            <div class="chart-wrap chart-wrap--line">
+                <svg id="fact-localization-index-chart"></svg>
             </div>
         </section>
         <section class="chart-card">
@@ -419,8 +425,19 @@
                     <p class="chart-range">{{ theoretical_localization_index_trend.start_label }} - {{ theoretical_localization_index_trend.end_label }}</p>
                 {% endif %}
             </div>
-            <div class="chart-wrap">
-                <svg id="theoretical-localization-index-chart" viewBox="0 0 1000 260" preserveAspectRatio="none"></svg>
+            <div class="chart-wrap chart-wrap--line">
+                <svg id="theoretical-localization-index-chart"></svg>
+            </div>
+        </section>
+        <section class="chart-card">
+            <div class="chart-head">
+                <p class="chart-title">Теоретический индекс распределения продаж (ИРП, 13 недель)</p>
+                {% if theoretical_irp_trend.start_label and theoretical_irp_trend.end_label %}
+                    <p class="chart-range">{{ theoretical_irp_trend.start_label }} - {{ theoretical_irp_trend.end_label }}</p>
+                {% endif %}
+            </div>
+            <div class="chart-wrap chart-wrap--line">
+                <svg id="theoretical-irp-chart"></svg>
             </div>
         </section>
         <section class="chart-card">
@@ -441,7 +458,9 @@
     {{ local_orders_trend|json_script:"local-orders-trend-data" }}
     {{ fact_localization_index_trend|json_script:"fact-localization-index-trend-data" }}
     {{ theoretical_localization_index_trend|json_script:"theoretical-localization-index-trend-data" }}
+    {{ theoretical_irp_trend|json_script:"theoretical-irp-trend-data" }}
     {{ top_non_local_districts|json_script:"top-non-local-districts-data" }}
+    {{ running_sync_task|json_script:"running-sync-task-data" }}
     <script>
         function renderLineChart(config) {
             const svg = document.getElementById(config.svgId);
@@ -462,8 +481,10 @@
                 return;
             }
 
-            const width = 1000;
-            const height = 260;
+            const width = Math.max(320, Math.floor(svg.clientWidth || 1000));
+            const height = Math.max(180, Math.floor(svg.clientHeight || 260));
+            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
             const padX = 52;
             const padY = 22;
             const innerW = width - padX * 2;
@@ -479,16 +500,48 @@
                 return;
             }
 
-            const minVal = Math.min(...values, config.minValue);
-            const maxVal = Math.max(...values, config.maxValue);
-            const valueRange = Math.max(maxVal - minVal, config.minRange || 1);
+            const rawMin = Math.min(...values);
+            const rawMax = Math.max(...values);
+            const baseRange = Math.max(rawMax - rawMin, Number(config.minRange || 1));
+            const padRatio = Number(config.padRatio ?? 0.12);
+            const pad = baseRange * padRatio;
+
+            let minVal = rawMin - pad;
+            let maxVal = rawMax + pad;
+
+            if (config.lowerBound !== undefined && config.lowerBound !== null) {
+                minVal = Math.max(minVal, Number(config.lowerBound));
+            }
+            if (config.upperBound !== undefined && config.upperBound !== null) {
+                maxVal = Math.min(maxVal, Number(config.upperBound));
+            }
+
+            let valueRange = maxVal - minVal;
+            const minRange = Number(config.minRange || 1);
+            if (valueRange < minRange) {
+                const mid = (maxVal + minVal) / 2;
+                minVal = mid - minRange / 2;
+                maxVal = mid + minRange / 2;
+                if (config.lowerBound !== undefined && config.lowerBound !== null && minVal < Number(config.lowerBound)) {
+                    minVal = Number(config.lowerBound);
+                    maxVal = minVal + minRange;
+                }
+                if (config.upperBound !== undefined && config.upperBound !== null && maxVal > Number(config.upperBound)) {
+                    maxVal = Number(config.upperBound);
+                    minVal = maxVal - minRange;
+                }
+                valueRange = maxVal - minVal;
+            }
 
             const coords = points.map((p, idx) => {
                 const x = padX + idx * xStep;
                 const rawValue = getNumeric(p[config.valueKey]);
+                const clampedValue = rawValue === null
+                    ? null
+                    : Math.min(maxVal, Math.max(minVal, rawValue));
                 const y = rawValue === null
                     ? (height - padY)
-                    : padY + (1 - ((rawValue - minVal) / valueRange)) * innerH;
+                    : padY + (1 - ((clampedValue - minVal) / valueRange)) * innerH;
                 return { x, y, ...p };
             });
 
@@ -537,44 +590,87 @@
         const localOrdersTrendData = JSON.parse(
             document.getElementById("local-orders-trend-data").textContent || '{"points": []}'
         );
-        renderLineChart({
-            svgId: "local-orders-chart",
-            data: localOrdersTrendData,
-            valueKey: "percent",
-            minValue: 0,
-            maxValue: 100,
-            minRange: 100,
-            tickFormatter: (v) => `${Math.round(v)}%`,
-            titleFormatter: (p) => `${p.label}: ${p.percent}% (${p.local_orders}/${p.total_orders})`,
-        });
 
         const factLocalizationIndexTrendData = JSON.parse(
             document.getElementById("fact-localization-index-trend-data").textContent || '{"points": []}'
         );
-        renderLineChart({
-            svgId: "fact-localization-index-chart",
-            data: factLocalizationIndexTrendData,
-            valueKey: "fact_index",
-            minValue: 0.8,
-            maxValue: 1.8,
-            minRange: 0.3,
-            tickFormatter: (v) => v.toFixed(2),
-            titleFormatter: (p) => `${p.label}: ${Number(p.fact_index).toFixed(3)} (строк: ${p.rows_considered})`,
-        });
 
         const theoreticalLocalizationIndexTrendData = JSON.parse(
             document.getElementById("theoretical-localization-index-trend-data").textContent || '{"points": []}'
         );
-        renderLineChart({
-            svgId: "theoretical-localization-index-chart",
-            data: theoreticalLocalizationIndexTrendData,
-            valueKey: "theoretical_index",
-            minValue: 0.8,
-            maxValue: 1.8,
-            minRange: 0.3,
-            tickFormatter: (v) => v.toFixed(2),
-            titleFormatter: (p) => `${p.label}: ${Number(p.theoretical_index).toFixed(3)} (13н заказов: ${p.orders_total_13w})`,
-            emptyText: theoreticalLocalizationIndexTrendData.no_data_reason,
+
+        const theoreticalIrpTrendData = JSON.parse(
+            document.getElementById("theoretical-irp-trend-data").textContent || '{"points": []}'
+        );
+        function renderAllLineCharts() {
+            renderLineChart({
+                svgId: "local-orders-chart",
+                data: localOrdersTrendData,
+                valueKey: "percent",
+                lowerBound: 0,
+                upperBound: 100,
+                minRange: 18,
+                padRatio: 0.1,
+                tickFormatter: (v) => `${Math.round(v)}%`,
+                titleFormatter: (p) => `${p.label}: ${p.percent}% (${p.local_orders}/${p.total_orders})`,
+            });
+
+            renderLineChart({
+                svgId: "fact-localization-index-chart",
+                data: factLocalizationIndexTrendData,
+                valueKey: "fact_index",
+                lowerBound: 0.75,
+                upperBound: 2.0,
+                minRange: 0.22,
+                padRatio: 0.14,
+                tickFormatter: (v) => v.toFixed(2),
+                titleFormatter: (p) =>
+                    [
+                        `${p.label}: ${Number(p.fact_index).toFixed(3)} (строк: ${p.rows_considered})`,
+                        `Факт (raw): ${Number(p.actual_raw_logistics_sum || 0).toFixed(2)}`,
+                        `ИРП-компонент: ${Number(p.irp_component_sum || 0).toFixed(2)}`,
+                        `Факт (после вычета ИРП): ${Number(p.actual_adjusted_logistics_sum || p.actual_logistics_sum || 0).toFixed(2)}`,
+                        `Теория: ${Number(p.theoretical_logistics_sum || 0).toFixed(2)}`,
+                    ].join("\n"),
+            });
+
+            renderLineChart({
+                svgId: "theoretical-localization-index-chart",
+                data: theoreticalLocalizationIndexTrendData,
+                valueKey: "theoretical_index",
+                lowerBound: 0.75,
+                upperBound: 2.0,
+                minRange: 0.22,
+                padRatio: 0.14,
+                tickFormatter: (v) => v.toFixed(2),
+                titleFormatter: (p) => `${p.label}: ${Number(p.theoretical_index).toFixed(3)} (13н заказов: ${p.orders_total_13w})`,
+                emptyText: theoreticalLocalizationIndexTrendData.no_data_reason,
+            });
+
+            renderLineChart({
+                svgId: "theoretical-irp-chart",
+                data: theoreticalIrpTrendData,
+                valueKey: "theoretical_irp_percent",
+                lowerBound: 0,
+                upperBound: 5,
+                minRange: 0.6,
+                padRatio: 0.12,
+                tickFormatter: (v) => `${Number(v).toFixed(2)}%`,
+                titleFormatter: (p) =>
+                    `${p.label}: ${Number(p.theoretical_irp_percent || 0).toFixed(3)}% (13н заказов: ${p.orders_total_13w || 0})`,
+            });
+        }
+
+        renderAllLineCharts();
+
+        let chartResizeTimer = null;
+        window.addEventListener("resize", () => {
+            if (chartResizeTimer) {
+                window.clearTimeout(chartResizeTimer);
+            }
+            chartResizeTimer = window.setTimeout(() => {
+                renderAllLineCharts();
+            }, 120);
         });
 
         function renderTopNonLocalDistricts(data) {
@@ -647,6 +743,9 @@
         const syncBtn = document.getElementById("sync-orders-btn");
         const syncBanner = document.getElementById("sync-status-banner");
         const syncLastAt = document.getElementById("sync-last-at");
+        const runningSyncTaskData = JSON.parse(
+            document.getElementById("running-sync-task-data").textContent || "null"
+        );
 
         function getCookie(name) {
             const value = `; ${document.cookie}`;
@@ -742,6 +841,14 @@
         }
 
         syncBtn.addEventListener("click", startSyncOrders);
+
+        if (runningSyncTaskData && runningSyncTaskData.task_id) {
+            const progress = Number(runningSyncTaskData.progress || 0);
+            const step = runningSyncTaskData.step ? `${runningSyncTaskData.step}. ` : "";
+            setSyncBanner(`${step}${runningSyncTaskData.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
+            syncBtn.disabled = true;
+            pollSyncStatus(runningSyncTaskData.task_id);
+        }
     </script>
 </body>
 </html>

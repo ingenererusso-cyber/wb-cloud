@@ -37,6 +37,7 @@
             border-radius: 20px;
             background: var(--surface);
             padding: 22px 20px;
+            overflow-x: hidden;
         }
 
         .head {
@@ -127,11 +128,15 @@
         }
 
         input {
+            display: block;
             width: 100%;
+            min-width: 0;
             border: 1px solid var(--line);
             border-radius: 10px;
             padding: 10px 12px;
             font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .actions {
@@ -285,8 +290,18 @@
                 {% csrf_token %}
                 <div class="field">
                     <label for="api_token">API-ключ Wildberries</label>
-                    <input id="api_token" name="api_token" type="text" value="{{ seller.api_token }}" placeholder="Вставьте API-ключ">
+                    <input
+                        id="api_token"
+                        name="api_token"
+                        type="password"
+                        value=""
+                        autocomplete="new-password"
+                        placeholder="{% if seller.has_api_token %}Ключ сохранён (скрыт){% else %}Вставьте API-ключ{% endif %}"
+                    >
                 </div>
+                {% if seller.has_api_token %}
+                    <p class="muted">Текущий ключ: {{ seller.api_token_masked }}</p>
+                {% endif %}
                 <div class="actions">
                     <button class="btn btn-primary" type="submit">Сохранить</button>
                 </div>

@@ -4,7 +4,7 @@ from core.services.localization import clear_offices_cache
 
 
 def sync_wb_offices(seller):
-    client = WBMarketplaceClient(seller.api_token)
+    client = WBMarketplaceClient(seller.api_token_plain)
 
     offices = client.get_offices()
 

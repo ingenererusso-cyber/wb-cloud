@@ -24,7 +24,7 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 175):
     Загружает заказы за последние days_back дней.
     """
 
-    client = WBOrdersSupplierClient(seller.api_token)
+    client = WBOrdersSupplierClient(seller.api_token_plain)
     default_tz = timezone.get_default_timezone()
 
     date_from = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")

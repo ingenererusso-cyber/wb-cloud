@@ -4,12 +4,15 @@ from .models import (
     SellerAccount,
     TesterFeedback,
     Product,
+    ProductSizePrice,
+    ProductUnitEconomicsCalculation,
     WarehouseStockDetailed,
     Order,
     WbOffice,
     WbWarehouseTariff,
     TransitDirectionTariff,
     WbAcceptanceCoefficient,
+    WbCategoryCommission,
     RealizationReportDetail,
 )
 
@@ -21,11 +24,14 @@ class SellerAccountAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Product)
+admin.site.register(ProductSizePrice)
+admin.site.register(ProductUnitEconomicsCalculation)
 admin.site.register(WarehouseStockDetailed)
 admin.site.register(WbOffice)
 admin.site.register(WbWarehouseTariff)
 admin.site.register(TransitDirectionTariff)
 admin.site.register(WbAcceptanceCoefficient)
+admin.site.register(WbCategoryCommission)
 
 
 @admin.register(RealizationReportDetail)

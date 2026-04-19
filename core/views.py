@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 import json
+import sqlite3
 import threading
 import traceback
 import uuid
@@ -701,9 +702,8 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
         try:
             SyncTask.objects.update_or_create(task_id=task_id, defaults=defaults)
             return
-        except OperationalError as exc:
-            text = str(exc).lower()
-            if "database is locked" not in text and "database table is locked" not in text:
+        except Exception as exc:
+            if not _is_db_locked_error(exc):
                 raise
             last_exc = exc
             close_old_connections()
@@ -861,14 +861,27 @@ def _ui_error_message(prefix: str, exc: Exception | str) -> str:
     return f"{prefix}: {_friendly_api_error_text(exc)}"
 
 
+def _is_db_locked_error(exc: Exception) -> bool:
+    """
+    Универсальная проверка для SQLite lock ошибок:
+    - django.db.OperationalError
+    - sqlite3.OperationalError
+    - обернутые исключения с той же строкой.
+    """
+    if isinstance(exc, (OperationalError, sqlite3.OperationalError)):
+        text = str(exc).lower()
+        return "database is locked" in text or "database table is locked" in text
+    text = str(exc).lower()
+    return "database is locked" in text or "database table is locked" in text
+
+
 def _run_with_db_lock_retry(fn, *, attempts: int = 18):
     last_exc = None
     for attempt in range(1, attempts + 1):
         try:
             return fn()
-        except OperationalError as exc:
-            text = str(exc).lower()
-            if "database is locked" not in text and "database table is locked" not in text:
+        except Exception as exc:
+            if not _is_db_locked_error(exc):
                 raise
             last_exc = exc
             close_old_connections()
