@@ -240,7 +240,6 @@ def sync_ad_campaigns_and_stats(
                 "campaign_name": (row.get("name") or row.get("advertName") or "").strip() or None,
                 "advert_type": _to_int(row.get("type"), default=0) or None,
                 "status": _to_int(row.get("status"), default=0) or None,
-                "nm_id": _extract_nm_id(row) or None,
                 "create_time": _to_datetime(
                     (row.get("timestamps") or {}).get("created")
                     if isinstance(row.get("timestamps"), dict)
