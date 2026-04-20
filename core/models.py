@@ -7,6 +7,7 @@ class SellerAccount(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, related_name="seller_account")
     name = models.CharField(max_length=255)
     api_token = models.TextField(blank=True, default="")
+    sync_meta = models.JSONField(default=dict, blank=True)
 
     @property
     def api_token_plain(self) -> str:

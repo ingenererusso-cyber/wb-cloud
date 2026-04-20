@@ -100,14 +100,6 @@ def _chunks(values: List[int], size: int) -> Iterable[List[int]]:
         yield values[idx: idx + size]
 
 
-def _date_chunks(date_from: date, date_to: date, max_days: int = 30) -> Iterable[tuple[date, date]]:
-    current_from = date_from
-    while current_from <= date_to:
-        current_to = min(current_from + timedelta(days=max_days - 1), date_to)
-        yield current_from, current_to
-        current_from = current_to + timedelta(days=1)
-
-
 def _extract_advert_id(row: Dict) -> int | None:
     for key in ("advertId", "advertID", "id", "campaignId"):
         if key in row:
@@ -237,7 +229,12 @@ def sync_ad_campaigns_and_stats(
                 "advert_id": advert_id,
             },
             defaults={
-                "campaign_name": (row.get("name") or row.get("advertName") or "").strip() or None,
+                "campaign_name": (
+                    row.get("name")
+                    or row.get("advertName")
+                    or ((row.get("settings") or {}).get("name") if isinstance(row.get("settings"), dict) else None)
+                    or ""
+                ).strip() or None,
                 "advert_type": _to_int(row.get("type"), default=0) or None,
                 "status": _to_int(row.get("status"), default=0) or None,
                 "create_time": _to_datetime(
@@ -272,10 +269,11 @@ def sync_ad_campaigns_and_stats(
             "stats_rows_upserted": stats_rows_upserted,
         }
 
-    # Логика фильтрации из старого стабильного пайплайна:
-    # type in [8, 9] and status not in [-1, 8, 7].
+    # Выгружаем статистику по кампаниям type in [8, 9].
+    # Исключаем только явно неактуальные/недоступные статусы.
+    # Завершенные кампании (status=7) оставляем, чтобы не терять историческую статистику.
     stats_allowed_types = {8, 9}
-    excluded_statuses = {-1, 8, 7}
+    excluded_statuses = {-1, 8}
     advert_ids_for_stats: List[int] = []
     for row in campaigns_rows:
         if not isinstance(row, dict):
@@ -294,139 +292,140 @@ def sync_ad_campaigns_and_stats(
             "campaigns_synced": campaigns_synced,
             "stats_rows_upserted": 0,
         }
+
     partial_errors: List[str] = []
-    grouped_id_chunks = _chunk_adverts_by_start_date(
-        unique_advert_ids,
-        advert_start_dates=advert_start_dates,
-        max_chunk_size=50,
-        max_date_span_days=45,
-    )
+    # Для ускорения синка используем максимально крупные чанки (до 50 ID),
+    # без дополнительного дробления по разбросу дат запуска.
+    # Это существенно снижает количество вызовов /adv/v3/fullstats и паузы по rate-limit.
+    grouped_id_chunks = list(_chunks(unique_advert_ids, 50))
     # Ограничение WB для advert fullstats фактически ~1 запрос / 20 секунд на кабинет.
     min_fullstats_interval_sec = 20.5
     last_fullstats_request_ts: float | None = None
+    today = timezone.localdate()
+    effective_date_to = min(date_to, today)
+    # WB /adv/v3/fullstats: максимум 31 день истории на запрос.
+    max_lookback_from = effective_date_to - timedelta(days=31)
+    effective_date_from = max(date_from, max_lookback_from)
 
-    for current_from, current_to in _date_chunks(date_from, date_to, max_days=30):
-        date_to_str = current_to.isoformat()
+    for ids_chunk in grouped_id_chunks:
+        chunk_start_dates = [advert_start_dates.get(int(advert_id)) for advert_id in ids_chunk]
+        chunk_start_dates = [d for d in chunk_start_dates if d is not None]
+        chunk_min_start = min(chunk_start_dates) if chunk_start_dates else effective_date_from
+        common_begin = max(effective_date_from, chunk_min_start)
+        common_end = effective_date_to
+        if common_begin > common_end:
+            continue
 
-        for ids_chunk in grouped_id_chunks:
-            chunk_from = current_from
-            chunk_start_dates = [advert_start_dates.get(int(advert_id)) for advert_id in ids_chunk]
-            chunk_start_dates = [d for d in chunk_start_dates if d is not None]
-            if chunk_start_dates:
-                chunk_from = max(chunk_from, max(chunk_start_dates))
-            if chunk_from > current_to:
+        try:
+            if last_fullstats_request_ts is not None:
+                elapsed = time.monotonic() - last_fullstats_request_ts
+                sleep_for = min_fullstats_interval_sec - elapsed
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+            stats_rows = client.get_fullstats(
+                ids_chunk,
+                date_from=common_begin.isoformat(),
+                date_to=common_end.isoformat(),
+            )
+            last_fullstats_request_ts = time.monotonic()
+        except Exception as exc:
+            last_fullstats_request_ts = time.monotonic()
+            partial_errors.append(str(exc))
+            continue
+        if not isinstance(stats_rows, list):
+            continue
+
+        for campaign_row in stats_rows:
+            if not isinstance(campaign_row, dict):
+                continue
+            advert_id = _extract_advert_id(campaign_row)
+            if not advert_id:
                 continue
 
-            try:
-                if last_fullstats_request_ts is not None:
-                    elapsed = time.monotonic() - last_fullstats_request_ts
-                    sleep_for = min_fullstats_interval_sec - elapsed
-                    if sleep_for > 0:
-                        time.sleep(sleep_for)
-                stats_rows = client.get_fullstats(
-                    ids_chunk,
-                    date_from=chunk_from.isoformat(),
-                    date_to=date_to_str,
-                )
-                last_fullstats_request_ts = time.monotonic()
-            except Exception as exc:
-                last_fullstats_request_ts = time.monotonic()
-                partial_errors.append(str(exc))
-                continue
-            if not isinstance(stats_rows, list):
+            days = campaign_row.get("days") or campaign_row.get("dates") or []
+            if not isinstance(days, list):
                 continue
 
-            for campaign_row in stats_rows:
-                if not isinstance(campaign_row, dict):
+            for day_row in days:
+                if not isinstance(day_row, dict):
                     continue
-                advert_id = _extract_advert_id(campaign_row)
-                if not advert_id:
-                    continue
-
-                days = campaign_row.get("days") or campaign_row.get("dates") or []
-                if not isinstance(days, list):
+                stat_date = _to_date(day_row.get("date"))
+                if stat_date is None:
                     continue
 
-                for day_row in days:
-                    if not isinstance(day_row, dict):
-                        continue
-                    stat_date = _to_date(day_row.get("date"))
-                    if stat_date is None:
-                        continue
+                day_views = _to_int(day_row.get("views"), default=0)
+                day_clicks = _to_int(day_row.get("clicks"), default=0)
+                day_orders = _to_int(day_row.get("orders"), default=0)
+                day_atc = _to_int(day_row.get("atbs"), default=0)
+                day_spend = _to_float(day_row.get("sum"), 0.0)
 
-                    day_views = _to_int(day_row.get("views"), default=0)
-                    day_clicks = _to_int(day_row.get("clicks"), default=0)
-                    day_orders = _to_int(day_row.get("orders"), default=0)
-                    day_atc = _to_int(day_row.get("atbs"), default=0)
-                    day_spend = _to_float(day_row.get("sum"), 0.0)
-
-                    apps = day_row.get("apps") or []
-                    nm_rows_written = 0
-                    if isinstance(apps, list):
-                        for app_row in apps:
-                            if not isinstance(app_row, dict):
+                apps = day_row.get("apps") or []
+                nm_rows_written = 0
+                if isinstance(apps, list):
+                    for app_row in apps:
+                        if not isinstance(app_row, dict):
+                            continue
+                        nm_rows = app_row.get("nm") or app_row.get("nms") or []
+                        if not isinstance(nm_rows, list):
+                            continue
+                        for nm_row in nm_rows:
+                            if not isinstance(nm_row, dict):
                                 continue
-                            nm_rows = app_row.get("nm") or app_row.get("nms") or []
-                            if not isinstance(nm_rows, list):
+                            nm_id = _to_int(
+                                nm_row.get("nmId", nm_row.get("nmID", nm_row.get("id"))),
+                                default=0,
+                            )
+                            if nm_id <= 0:
                                 continue
-                            for nm_row in nm_rows:
-                                if not isinstance(nm_row, dict):
-                                    continue
-                                nm_id = _to_int(
-                                    nm_row.get("nmId", nm_row.get("nmID", nm_row.get("id"))),
-                                    default=0,
-                                )
-                                if nm_id <= 0:
-                                    continue
-                                nm_spend = _to_float(nm_row.get("sum"), 0.0)
-                                _update_or_create_with_db_retry(
-                                    WbAdvertStatDaily,
-                                    lookup={
-                                        "seller": seller,
-                                        "advert_id": advert_id,
-                                        "stat_date": stat_date,
-                                        "nm_id": nm_id,
-                                    },
-                                    defaults={
-                                        "spend": nm_spend,
-                                        "views": None,
-                                        "clicks": None,
-                                        "orders": None,
-                                        "add_to_cart": None,
-                                        "raw_payload": {
-                                            "campaign": campaign_row,
-                                            "day": day_row,
-                                            "app": app_row,
-                                            "nm": nm_row,
-                                        },
-                                    },
-                                )
-                                stats_rows_upserted += 1
-                                nm_rows_written += 1
-
-                    if nm_rows_written == 0:
-                        # Если разбивки по артикулам нет, сохраняем агрегатной строкой nm_id=0.
-                        _update_or_create_with_db_retry(
-                            WbAdvertStatDaily,
-                            lookup={
-                                "seller": seller,
-                                "advert_id": advert_id,
-                                "stat_date": stat_date,
-                                "nm_id": 0,
-                            },
-                            defaults={
-                                "spend": day_spend,
-                                "views": day_views,
-                                "clicks": day_clicks,
-                                "orders": day_orders,
-                                "add_to_cart": day_atc,
-                                "raw_payload": {
-                                    "campaign": campaign_row,
-                                    "day": day_row,
+                            nm_spend = _to_float(nm_row.get("sum"), 0.0)
+                            _update_or_create_with_db_retry(
+                                WbAdvertStatDaily,
+                                lookup={
+                                    "seller": seller,
+                                    "advert_id": advert_id,
+                                    "stat_date": stat_date,
+                                    "nm_id": nm_id,
                                 },
+                                defaults={
+                                    "spend": nm_spend,
+                                    "views": None,
+                                    "clicks": None,
+                                    "orders": None,
+                                    "add_to_cart": None,
+                                    "raw_payload": {
+                                        "campaign": campaign_row,
+                                        "day": day_row,
+                                        "app": app_row,
+                                        "nm": nm_row,
+                                    },
+                                },
+                            )
+                            stats_rows_upserted += 1
+                            nm_rows_written += 1
+
+                if nm_rows_written == 0:
+                    # Если разбивки по артикулам нет, сохраняем агрегатной строкой nm_id=0.
+                    _update_or_create_with_db_retry(
+                        WbAdvertStatDaily,
+                        lookup={
+                            "seller": seller,
+                            "advert_id": advert_id,
+                            "stat_date": stat_date,
+                            "nm_id": 0,
+                        },
+                        defaults={
+                            "spend": day_spend,
+                            "views": day_views,
+                            "clicks": day_clicks,
+                            "orders": day_orders,
+                            "add_to_cart": day_atc,
+                            "raw_payload": {
+                                "campaign": campaign_row,
+                                "day": day_row,
                             },
-                        )
-                        stats_rows_upserted += 1
+                        },
+                    )
+                    stats_rows_upserted += 1
 
     result = {
         "campaigns_synced": campaigns_synced,

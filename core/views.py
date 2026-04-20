@@ -21,6 +21,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_POST
 import time
 from app.services.supply_recommendations.loaders import list_available_transit_warehouses, list_regular_warehouses
@@ -83,6 +84,17 @@ from core.services.localization import (
 )
 
 SYNC_TASK_STALE_MINUTES = 8
+SYNC_STAGE_TTL_HOURS = 24
+DAILY_SYNC_STAGES = {
+    "products",
+    "commissions",
+    "tariffs",
+    "acceptance",
+    "offices",
+    "seller_warehouses",
+    "transit",
+}
+FBO_STORAGE_ALLOCATION_MIN_STOCK_QTY = 5
 
 
 def _get_or_create_unit_economics_settings(seller: SellerAccount) -> UnitEconomicsSettings:
@@ -273,6 +285,30 @@ def _extract_penalty_from_raw(payload: dict | None) -> float:
     return 0.0
 
 
+def _advert_type_label(advert_type: int | None) -> str:
+    mapping = {
+        8: "Аукцион",
+        9: "Автоматическая",
+    }
+    if advert_type is None:
+        return "-"
+    return mapping.get(int(advert_type), str(advert_type))
+
+
+def _advert_status_meta(status: int | None) -> tuple[str, str]:
+    mapping = {
+        9: ("Активна", "green"),
+        11: ("Приостановлена", "yellow"),
+        7: ("Завершена", "gray"),
+        8: ("Отклонена", "red"),
+        -1: ("Удаляется", "gray"),
+    }
+    if status is None:
+        return "-", "gray"
+    label, css = mapping.get(int(status), (str(status), "blue"))
+    return label, css
+
+
 def _build_fact_profit_metrics_for_product(
     *,
     seller: SellerAccount,
@@ -283,6 +319,10 @@ def _build_fact_profit_metrics_for_product(
     discounted_price: float,
     settings_obj: UnitEconomicsSettings,
 ) -> dict:
+    insufficient_data_message = (
+        "Еще недостаточно данных для расчета, требуется синхронизация данных "
+        "или отсутствуют отчеты о выкупах"
+    )
     rr_qs = RealizationReportDetail.objects.filter(
         seller=seller,
         nm_id=nm_id,
@@ -539,6 +579,7 @@ def _build_fact_profit_metrics_for_product(
             .filter(
                 seller=seller,
                 is_cancel=False,
+                warehouse_type__iexact="Склад WB",
                 order_date__date__gte=date_from,
                 order_date__date__lte=date_to,
             )
@@ -547,6 +588,24 @@ def _build_fact_profit_metrics_for_product(
         )
         buyouts_by_nm = {int(r["nm_id"]): int(r["cnt"] or 0) for r in buyouts_all_rows if r.get("nm_id") is not None}
         all_nm_ids = list(buyouts_by_nm.keys())
+        if all_nm_ids:
+            fbo_stock_by_nm = {
+                int(r["nm_id"]): int(r.get("total_qty") or 0)
+                for r in (
+                    WarehouseStockDetailed.objects
+                    .filter(seller=seller, nm_id__in=all_nm_ids)
+                    .values("nm_id")
+                    .annotate(total_qty=Sum("quantity"))
+                )
+            }
+            has_fbo_stock_data = bool(fbo_stock_by_nm)
+            if has_fbo_stock_data:
+                buyouts_by_nm = {
+                    article_nm_id: cnt
+                    for article_nm_id, cnt in buyouts_by_nm.items()
+                    if int(fbo_stock_by_nm.get(article_nm_id, 0)) >= FBO_STORAGE_ALLOCATION_MIN_STOCK_QTY
+                }
+            all_nm_ids = list(buyouts_by_nm.keys())
         if all_nm_ids:
             volumes_by_nm = {
                 int(r["nm_id"]): (
@@ -615,10 +674,15 @@ def _build_fact_profit_metrics_for_product(
     avg_penalty_per_buyout = (penalty_sum / buyouts_count) if buyouts_count > 0 else 0.0
     avg_ad_spend_per_buyout = (ad_spend_sum / buyouts_count) if buyouts_count > 0 else 0.0
     avg_acceptance_per_buyout = (acceptance_sum / buyouts_count) if buyouts_count > 0 else 0.0
+    withheld_sum = deduction_sum + jam_sum + penalty_sum + acceptance_sum
+    avg_withheld_per_buyout = (withheld_sum / buyouts_count) if buyouts_count > 0 else 0.0
+    has_enough_data = bool(rr_rows) and buyouts_count > 0
 
     return {
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
+        "has_enough_data": has_enough_data,
+        "insufficient_data_message": insufficient_data_message,
         "buyouts_count": buyouts_count,
         "cancel_return_count": cancel_return_count,
         "wb_transfer_sum": round(wb_transfer_sum, 2),
@@ -651,6 +715,8 @@ def _build_fact_profit_metrics_for_product(
         "avg_storage_per_buyout": round(avg_storage_per_buyout, 2),
         "avg_penalty_per_buyout": round(avg_penalty_per_buyout, 2),
         "avg_acceptance_per_buyout": round(avg_acceptance_per_buyout, 2),
+        "withheld_sum": round(withheld_sum, 2),
+        "avg_withheld_per_buyout": round(avg_withheld_per_buyout, 2),
         "logistics_sum": round(logistics_sum, 2),
         "purchase_sum": round(purchase_sum, 2),
         "defect_sum": round(defect_sum, 2),
@@ -710,6 +776,84 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
             time.sleep(min(2.0, 0.12 * attempt))
     if last_exc:
         raise last_exc
+
+
+def _get_sync_stage_success_map(seller: SellerAccount | None) -> dict:
+    if not seller:
+        return {}
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    stage_map = meta.get("stage_success_at")
+    if isinstance(stage_map, dict):
+        return dict(stage_map)
+    return {}
+
+
+def _get_stage_success_at(seller: SellerAccount | None, stage_key: str):
+    stage_map = _get_sync_stage_success_map(seller)
+    raw_value = stage_map.get(stage_key)
+    if not raw_value:
+        return None
+    dt = parse_datetime(str(raw_value))
+    if dt is None:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+    return dt
+
+
+def _mark_stage_success(seller: SellerAccount, stage_key: str, dt=None) -> None:
+    if not seller:
+        return
+    when = dt or timezone.now()
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    stage_map = meta.get("stage_success_at")
+    if not isinstance(stage_map, dict):
+        stage_map = {}
+    stage_map[str(stage_key)] = when.isoformat()
+    meta["stage_success_at"] = stage_map
+    seller.sync_meta = meta
+    _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
+
+
+def _should_skip_stage_by_ttl(seller: SellerAccount, stage_key: str, ttl_hours: int = SYNC_STAGE_TTL_HOURS) -> bool:
+    last_success_at = _get_stage_success_at(seller, stage_key)
+    if not last_success_at:
+        return False
+    threshold = timezone.now() - timedelta(hours=int(ttl_hours))
+    return last_success_at >= threshold
+
+
+def _recommended_orders_days_back(seller: SellerAccount, fallback_days: int = 175, overlap_days: int = 3) -> int:
+    max_last_change = Order.objects.filter(seller=seller).aggregate(max_dt=Max("last_change_date")).get("max_dt")
+    if max_last_change:
+        current_date = timezone.localdate()
+        delta_days = (current_date - max_last_change.date()).days
+        return max(overlap_days, delta_days + overlap_days)
+    return int(fallback_days)
+
+
+def _recommended_realization_date_from(seller: SellerAccount, fallback_days: int = 175, overlap_days: int = 14) -> date:
+    max_rr_dt = RealizationReportDetail.objects.filter(seller=seller).aggregate(max_dt=Max("rr_dt")).get("max_dt")
+    if max_rr_dt:
+        return max_rr_dt - timedelta(days=int(overlap_days))
+    return timezone.localdate() - timedelta(days=int(fallback_days))
+
+
+def _recommended_ads_date_from(seller: SellerAccount, fallback_days: int = 30, overlap_days: int = 7) -> date:
+    today = timezone.localdate()
+    rolling_from = today - timedelta(days=int(fallback_days))
+    agg = WbAdvertStatDaily.objects.filter(seller=seller).aggregate(
+        min_dt=Min("stat_date"),
+        max_dt=Max("stat_date"),
+    )
+    min_stat_date = agg.get("min_dt")
+    max_stat_date = agg.get("max_dt")
+    if not max_stat_date:
+        return rolling_from
+    # Если в БД еще нет полного окна за fallback_days, продолжаем backfill за весь период.
+    if not min_stat_date or min_stat_date > rolling_from:
+        return rolling_from
+    return max(rolling_from, max_stat_date - timedelta(days=int(overlap_days)))
 
 
 def _get_sync_task(task_id: str) -> SyncTask | None:
@@ -910,6 +1054,11 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             return
 
         result = {}
+        skipped_steps = []
+        today = timezone.localdate()
+        ads_date_from = _recommended_ads_date_from(seller=seller, fallback_days=30, overlap_days=7)
+        orders_days_back = _recommended_orders_days_back(seller=seller, fallback_days=175, overlap_days=3)
+        realization_date_from = _recommended_realization_date_from(seller=seller, fallback_days=175, overlap_days=14)
         steps = [
             ("Карточки товаров", "products", sync_products_content, {"seller": seller}),
             ("Цены и скидки", "prices", sync_product_size_prices, {"seller": seller}),
@@ -920,8 +1069,8 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                 sync_ad_campaigns_and_stats,
                 {
                     "seller": seller,
-                    "date_from": timezone.localdate() - timedelta(days=29),
-                    "date_to": timezone.localdate(),
+                    "date_from": ads_date_from,
+                    "date_to": today,
                 },
             ),
             ("Тарифы коробов", "tariffs", sync_warehouse_tariffs, {"seller": seller}),
@@ -929,7 +1078,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             ("Склады WB", "offices", sync_wb_offices, {"seller": seller}),
             ("Склады продавца", "seller_warehouses", sync_seller_warehouses, {"seller": seller}),
             ("Транзитные направления", "transit", sync_transit_direction_tariffs, {"seller": seller}),
-            ("Заказы", "orders", sync_fbw_orders, {"seller": seller, "days_back": 175}),
+            ("Заказы", "orders", sync_fbw_orders, {"seller": seller, "days_back": orders_days_back}),
             ("Остатки", "stocks", sync_supplier_stocks, {"seller": seller}),
         ]
 
@@ -947,11 +1096,16 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     "result": result,
                 },
             )
+            if key in DAILY_SYNC_STAGES and _should_skip_stage_by_ttl(seller, key):
+                result[key] = {"skipped": True, "reason": "already_synced_today"}
+                skipped_steps.append(label)
+                continue
             step_result = _run_with_db_lock_retry(lambda: fn(**kwargs))
             if isinstance(step_result, dict):
                 result[key] = step_result
             else:
                 result[key] = int(step_result or 0)
+            _mark_stage_success(seller, key)
 
         ads_warning = None
         ads_result = result.get("ads")
@@ -973,17 +1127,18 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                 },
             )
         try:
-            today = timezone.localdate()
             realization_result = _run_with_db_lock_retry(
                 lambda: sync_realization_report_detail(
                     seller=seller,
-                    date_from=today - timedelta(days=175),
+                    date_from=realization_date_from,
                     date_to=today,
                     period="weekly",
+                    limit=10000,
                     respect_rate_limit=False,
                 )
             )
             result["realization_rows"] = int(realization_result.get("upserted_rows") or 0)
+            _mark_stage_success(seller, "realization")
         except Exception as exc:
             result["realization_rows"] = 0
             realization_warning = str(exc)
@@ -1006,6 +1161,8 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             message += f" Отчёты реализации частично пропущены: {realization_warning}"
         if ads_warning:
             message += f" Рекламная статистика частично пропущена: {ads_warning}"
+        if skipped_steps:
+            message += f" Пропущены по лимиту 1/день: {', '.join(skipped_steps)}."
 
         _set_sync_task(
             task_id,
@@ -1062,33 +1219,88 @@ def home(request):
             messages.error(request, "Сначала добавьте API-ключ в настройках аккаунта.")
             return redirect("home")
         try:
-            products_count = sync_products_content(seller)
+            skipped_steps = []
+
+            if _should_skip_stage_by_ttl(seller, "products"):
+                products_count = 0
+                skipped_steps.append("Карточки товаров")
+            else:
+                products_count = sync_products_content(seller)
+                _mark_stage_success(seller, "products")
+
             prices_count = sync_product_size_prices(seller)
-            commissions_count = sync_category_commissions(seller)
+            _mark_stage_success(seller, "prices")
+
+            if _should_skip_stage_by_ttl(seller, "commissions"):
+                commissions_count = 0
+                skipped_steps.append("Комиссии категорий")
+            else:
+                commissions_count = sync_category_commissions(seller)
+                _mark_stage_success(seller, "commissions")
+
             ads_result = sync_ad_campaigns_and_stats(
                 seller=seller,
-                date_from=timezone.localdate() - timedelta(days=29),
+                date_from=_recommended_ads_date_from(seller=seller, fallback_days=30, overlap_days=7),
                 date_to=timezone.localdate(),
             )
-            tariffs_count = sync_warehouse_tariffs(seller)
-            acceptance_coeffs_count = sync_acceptance_coefficients(seller)
-            offices_count = sync_wb_offices(seller)
-            seller_warehouses_count = sync_seller_warehouses(seller)
-            transit_tariffs_count = sync_transit_direction_tariffs(seller)
-            orders_count = sync_fbw_orders(seller, days_back=175)
+            _mark_stage_success(seller, "ads")
+
+            if _should_skip_stage_by_ttl(seller, "tariffs"):
+                tariffs_count = 0
+                skipped_steps.append("Тарифы коробов")
+            else:
+                tariffs_count = sync_warehouse_tariffs(seller)
+                _mark_stage_success(seller, "tariffs")
+
+            if _should_skip_stage_by_ttl(seller, "acceptance"):
+                acceptance_coeffs_count = 0
+                skipped_steps.append("Тарифы приемки")
+            else:
+                acceptance_coeffs_count = sync_acceptance_coefficients(seller)
+                _mark_stage_success(seller, "acceptance")
+
+            if _should_skip_stage_by_ttl(seller, "offices"):
+                offices_count = 0
+                skipped_steps.append("Склады WB")
+            else:
+                offices_count = sync_wb_offices(seller)
+                _mark_stage_success(seller, "offices")
+
+            if _should_skip_stage_by_ttl(seller, "seller_warehouses"):
+                seller_warehouses_count = 0
+                skipped_steps.append("Склады продавца")
+            else:
+                seller_warehouses_count = sync_seller_warehouses(seller)
+                _mark_stage_success(seller, "seller_warehouses")
+
+            if _should_skip_stage_by_ttl(seller, "transit"):
+                transit_tariffs_count = 0
+                skipped_steps.append("Транзитные направления")
+            else:
+                transit_tariffs_count = sync_transit_direction_tariffs(seller)
+                _mark_stage_success(seller, "transit")
+
+            orders_count = sync_fbw_orders(
+                seller,
+                days_back=_recommended_orders_days_back(seller=seller, fallback_days=175, overlap_days=3),
+            )
+            _mark_stage_success(seller, "orders")
             stocks_count = sync_supplier_stocks(seller)
+            _mark_stage_success(seller, "stocks")
             realization_upserted_rows = 0
             realization_sync_error = None
             try:
                 today = timezone.localdate()
                 realization_result = sync_realization_report_detail(
                     seller=seller,
-                    date_from=today - timedelta(days=175),
+                    date_from=_recommended_realization_date_from(seller=seller, fallback_days=175, overlap_days=14),
                     date_to=today,
                     period="weekly",
+                    limit=10000,
                     respect_rate_limit=False,
                 )
                 realization_upserted_rows = int(realization_result.get("upserted_rows") or 0)
+                _mark_stage_success(seller, "realization")
             except Exception as exc:
                 realization_sync_error = str(exc)
             messages.success(
@@ -1104,6 +1316,11 @@ def home(request):
                     f"строк отчета реализации {realization_upserted_rows}."
                 ),
             )
+            if skipped_steps:
+                messages.info(
+                    request,
+                    f"Пропущены по лимиту 1/день: {', '.join(skipped_steps)}.",
+                )
             if realization_sync_error:
                 messages.warning(
                     request,
@@ -2237,6 +2454,18 @@ def product_card_detail(request, product_id: int):
     for advert_id in related_advert_ids:
         campaign = campaigns_by_id.get(int(advert_id))
         nm_ids_in_campaign = campaign_nm_ids_map.get(int(advert_id), [])
+        campaign_raw_payload = campaign.raw_payload if campaign and isinstance(campaign.raw_payload, dict) else {}
+        campaign_name_value = (
+            (campaign.campaign_name if campaign else None)
+            or (campaign_raw_payload.get("name") if campaign_raw_payload else None)
+            or (campaign_raw_payload.get("advertName") if campaign_raw_payload else None)
+            or (
+                (campaign_raw_payload.get("settings") or {}).get("name")
+                if isinstance(campaign_raw_payload.get("settings"), dict)
+                else None
+            )
+            or "-"
+        )
         campaign_total_spend = float(spend_by_advert_for_block.get(int(advert_id), 0.0))
         spend_sum, spend_is_allocated = _allocate_campaign_spend_for_nm(
             target_nm_id=int(nm_id),
@@ -2252,11 +2481,33 @@ def product_card_detail(request, product_id: int):
         )
         first_stat_date = stats_qs.aggregate(v=Min("stat_date")).get("v")
         last_stat_date = stats_qs.aggregate(v=Max("stat_date")).get("v")
-        days_count = int(stats_qs.values("stat_date").distinct().count())
-        views_sum = int(_to_float_or_default(stats_qs.aggregate(v=Sum("views")).get("v"), 0.0))
-        clicks_sum = int(_to_float_or_default(stats_qs.aggregate(v=Sum("clicks")).get("v"), 0.0))
-        orders_sum = int(_to_float_or_default(stats_qs.aggregate(v=Sum("orders")).get("v"), 0.0))
-        atc_sum = int(_to_float_or_default(stats_qs.aggregate(v=Sum("add_to_cart")).get("v"), 0.0))
+        day_totals: dict[date, dict[str, float]] = {}
+        for stat_row in stats_qs.only("stat_date", "views", "clicks", "orders", "add_to_cart", "raw_payload"):
+            stat_day = stat_row.stat_date
+            if stat_day is None:
+                continue
+            payload = stat_row.raw_payload if isinstance(stat_row.raw_payload, dict) else {}
+            day_payload = payload.get("day") if isinstance(payload.get("day"), dict) else {}
+
+            views_value = _to_float_or_default(stat_row.views, _to_float_or_default(day_payload.get("views"), 0.0))
+            clicks_value = _to_float_or_default(stat_row.clicks, _to_float_or_default(day_payload.get("clicks"), 0.0))
+            orders_value = _to_float_or_default(stat_row.orders, _to_float_or_default(day_payload.get("orders"), 0.0))
+            atc_value = _to_float_or_default(stat_row.add_to_cart, _to_float_or_default(day_payload.get("atbs"), 0.0))
+
+            bucket = day_totals.setdefault(
+                stat_day,
+                {"views": 0.0, "clicks": 0.0, "orders": 0.0, "add_to_cart": 0.0},
+            )
+            bucket["views"] = max(bucket["views"], views_value)
+            bucket["clicks"] = max(bucket["clicks"], clicks_value)
+            bucket["orders"] = max(bucket["orders"], orders_value)
+            bucket["add_to_cart"] = max(bucket["add_to_cart"], atc_value)
+
+        days_count = len(day_totals)
+        views_sum = int(sum(values["views"] for values in day_totals.values()))
+        clicks_sum = int(sum(values["clicks"] for values in day_totals.values()))
+        orders_sum = int(sum(values["orders"] for values in day_totals.values()))
+        atc_sum = int(sum(values["add_to_cart"] for values in day_totals.values()))
 
         campaign_status = int(_to_float_or_default((campaign.status if campaign else None), 0.0))
         # Завершенные кампании без какой-либо статистики за период не показываем.
@@ -2273,6 +2524,9 @@ def product_card_detail(request, product_id: int):
 
         ctr_percent = round((clicks_sum / views_sum) * 100.0, 2) if views_sum > 0 else 0.0
         cpc = round((spend_sum / clicks_sum), 2) if clicks_sum > 0 else 0.0
+        advert_type_value = campaign.advert_type if campaign else None
+        status_value = campaign.status if campaign else None
+        status_label, status_css = _advert_status_meta(status_value)
 
         total_ad_spend_related += spend_sum
         total_ad_orders_related += orders_sum
@@ -2282,9 +2536,12 @@ def product_card_detail(request, product_id: int):
         ad_campaign_rows.append(
             {
                 "advert_id": int(advert_id),
-                "campaign_name": (campaign.campaign_name if campaign else "") or "-",
-                "status": campaign.status if campaign else None,
-                "advert_type": campaign.advert_type if campaign else None,
+                "campaign_name": campaign_name_value,
+                "status": status_value,
+                "status_label": status_label,
+                "status_css": status_css,
+                "advert_type": advert_type_value,
+                "advert_type_label": _advert_type_label(advert_type_value),
                 "create_time": campaign.create_time if campaign else None,
                 "start_time": campaign.start_time if campaign else None,
                 "end_time": campaign.end_time if campaign else None,
@@ -2305,7 +2562,13 @@ def product_card_detail(request, product_id: int):
                 "cpc": cpc,
             }
         )
-    ad_campaign_rows.sort(key=lambda row: (row.get("spend_sum") or 0.0, row.get("last_stat_date") or date.min), reverse=True)
+    ad_campaign_rows.sort(
+        key=lambda row: (
+            row.get("create_time") or row.get("start_time") or row.get("last_stat_date") or date.min,
+            row.get("advert_id") or 0,
+        ),
+        reverse=True,
+    )
 
     return render(
         request,
