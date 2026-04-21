@@ -49,20 +49,17 @@
         </div>
 
         <div class="nav-spacer"></div>
-        {% if enable_sync_button %}
-            <div class="sync-control">
-                <button class="btn" type="button" id="sync-orders-btn">Синхронизировать данные</button>
-                <span class="sync-meta" id="sync-last-at">
-                    {% if last_sync_at %}
-                        Последняя синхронизация: {{ last_sync_at|date:"d.m.Y H:i" }}
-                    {% else %}
-                        Последняя синхронизация: не было
-                    {% endif %}
-                </span>
-            </div>
-        {% else %}
-            <a class="btn" href="{% url 'analytics_logistics' %}">Синхронизировать данные</a>
-        {% endif %}
+        <div class="sync-control">
+            <button class="btn" type="button" id="sync-orders-btn">Синхронизировать данные</button>
+            <span class="sync-meta" id="sync-last-at">
+                {% if last_sync_at %}
+                    Последняя синхронизация: {{ last_sync_at|date:"d.m.Y H:i" }}
+                {% else %}
+                    Последняя синхронизация: не было
+                {% endif %}
+            </span>
+            <span class="sync-meta" id="sync-inline-status" style="display:none;"></span>
+        </div>
         <div class="feedback-inline">
             <button class="btn btn-ghost" type="button" id="feedback-open-btn">Сообщить проблему</button>
         </div>
@@ -76,6 +73,8 @@
         </div>
     </nav>
 </div>
+
+{{ running_sync_task|default:None|json_script:"top-nav-running-sync-task-data" }}
 
 <div id="feedback-modal" class="feedback-modal" aria-hidden="true">
     <div class="feedback-card" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
@@ -128,6 +127,153 @@
         <span>Загружаем страницу…</span>
     </div>
 </div>
+
+<script>
+    (function topNavSyncWidget() {
+        if (window.__globalSyncWidgetInstalled) {
+            return;
+        }
+        window.__globalSyncWidgetInstalled = true;
+
+        const syncBtn = document.getElementById("sync-orders-btn");
+        const syncStatus = document.getElementById("sync-inline-status");
+        if (!syncBtn || !syncStatus) {
+            return;
+        }
+
+        let pollTimer = null;
+        let currentTaskId = null;
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) {
+                return parts.pop().split(";").shift();
+            }
+            return "";
+        }
+
+        function setStatus(text, isError = false) {
+            if (!text) {
+                syncStatus.style.display = "none";
+                syncStatus.textContent = "";
+                syncStatus.style.color = "";
+                return;
+            }
+            syncStatus.style.display = "inline";
+            syncStatus.textContent = text;
+            syncStatus.style.color = isError ? "#b91c1c" : "";
+        }
+
+        function setButtonState(isBusy) {
+            syncBtn.disabled = Boolean(isBusy);
+            syncBtn.textContent = isBusy ? "Синхронизация..." : "Синхронизировать данные";
+        }
+
+        function clearPoll() {
+            if (pollTimer) {
+                window.clearTimeout(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function schedulePoll(taskId, delayMs = 2200) {
+            clearPoll();
+            pollTimer = window.setTimeout(() => pollStatus(taskId), delayMs);
+        }
+
+        async function pollStatus(taskId) {
+            if (!taskId) return;
+            try {
+                const res = await fetch(`{% url 'sync_orders_status_api' %}?task_id=${encodeURIComponent(taskId)}`, {
+                    method: "GET",
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || "Ошибка статуса");
+                }
+                if (!data.exists) {
+                    setButtonState(false);
+                    setStatus("");
+                    clearPoll();
+                    currentTaskId = null;
+                    return;
+                }
+                const status = (data.status || "").toLowerCase();
+                const progress = Number(data.progress || 0);
+                const step = data.step || "Синхронизация";
+                if (status === "running" || status === "pending") {
+                    setButtonState(true);
+                    setStatus(`${step} (${Math.max(0, Math.min(100, progress))}%)`);
+                    schedulePoll(taskId);
+                    return;
+                }
+                if (status === "done") {
+                    setButtonState(false);
+                    setStatus("Синхронизация завершена");
+                    clearPoll();
+                    currentTaskId = null;
+                    return;
+                }
+                if (status === "failed") {
+                    setButtonState(false);
+                    setStatus(data.message || "Ошибка синхронизации", true);
+                    clearPoll();
+                    currentTaskId = null;
+                    return;
+                }
+                setButtonState(false);
+                clearPoll();
+                currentTaskId = null;
+            } catch (err) {
+                setButtonState(false);
+                setStatus(`Ошибка статуса: ${err}`, true);
+                clearPoll();
+                currentTaskId = null;
+            }
+        }
+
+        syncBtn.addEventListener("click", async () => {
+            try {
+                setButtonState(true);
+                setStatus("Запуск синхронизации...");
+                const res = await fetch("{% url 'sync_orders_start_api' %}", {
+                    method: "POST",
+                    headers: {
+                        "Accept": "application/json",
+                        "X-CSRFToken": getCookie("csrftoken"),
+                    },
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok || !data.task_id) {
+                    throw new Error(data.error || "Не удалось запустить синк");
+                }
+                currentTaskId = data.task_id;
+                setStatus("Синхронизация запущена");
+                schedulePoll(currentTaskId, 1000);
+            } catch (err) {
+                setButtonState(false);
+                setStatus(`Ошибка синхронизации: ${err}`, true);
+                clearPoll();
+                currentTaskId = null;
+            }
+        });
+
+        const runningTaskRaw = document.getElementById("top-nav-running-sync-task-data")?.textContent || "null";
+        try {
+            const runningTask = JSON.parse(runningTaskRaw);
+            if (runningTask && runningTask.task_id) {
+                currentTaskId = runningTask.task_id;
+                setButtonState(true);
+                const step = runningTask.step || "Синхронизация";
+                const progress = Number(runningTask.progress || 0);
+                setStatus(`${step} (${Math.max(0, Math.min(100, progress))}%)`);
+                schedulePoll(currentTaskId, 800);
+            }
+        } catch (_err) {}
+    })();
+</script>
 
 <script>
     (function installAuthAwareFetch() {

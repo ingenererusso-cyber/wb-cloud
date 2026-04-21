@@ -356,6 +356,10 @@
             ]);
             renderHistogramChart("revenue-chart", "revenue", "#0f766e");
 
+            if (window.__globalSyncWidgetInstalled) {
+                return;
+            }
+
             const syncBtn = document.getElementById("sync-orders-btn");
             const syncBanner = document.getElementById("sync-status-banner");
             const syncLastAt = document.getElementById("sync-last-at");
