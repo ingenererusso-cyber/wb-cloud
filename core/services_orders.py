@@ -6,6 +6,26 @@ from .models import Order, SellerAccount
 from core.services.localization import determine_locality
 
 
+def _extract_order_price_from_row(row: dict) -> float | None:
+    for key in (
+        "priceWithDisc",
+        "priceWithDiscount",
+        "price",
+        "totalPrice",
+        "total_price",
+        "retailPrice",
+        "discountedPrice",
+    ):
+        value = row.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _to_aware_datetime(value, default_tz):
     if isinstance(value, datetime):
         dt = value
@@ -54,6 +74,7 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 175):
                 "country_name": r.get("countryName"),
                 "oblast_okrug_name": oblast_okrug_name or None,
                 "is_cancel": r["isCancel"],
+                "order_price": _extract_order_price_from_row(r),
                 "finished_price": r.get("finishedPrice"),
                 "order_date": order_date,
                 "last_change_date": last_change_date,

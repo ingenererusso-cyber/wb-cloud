@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendra — Главная</title>
+    <style>
+        :root {
+            --ink: #132033;
+            --muted: #5a6778;
+            --accent: #14532d;
+            --accent-2: #065f46;
+            --line: rgba(19, 32, 51, 0.12);
+            --surface: rgba(255, 255, 255, 0.84);
+            --shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+            padding: 20px;
+        }
+
+        .hero {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: var(--surface);
+            backdrop-filter: blur(3px);
+            box-shadow: var(--shadow);
+            padding: 24px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: clamp(28px, 3.4vw, 44px);
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.45;
+        }
+
+        .metrics {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .hint-banner {
+            margin-top: 12px;
+            border: 1px solid #facc15;
+            background: #fef9c3;
+            color: #713f12;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .hint-banner-error {
+            border-color: #fecaca;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .hint-banner-success {
+            border-color: #bbf7d0;
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .hint-banner-info {
+            border-color: #bfdbfe;
+            background: #dbeafe;
+            color: #1e3a8a;
+        }
+
+        .metric-card {
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.78);
+            border-radius: 14px;
+            padding: 14px 15px;
+        }
+
+        .metric-title {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .metric-value {
+            margin: 7px 0 3px;
+            font-size: 30px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: #0f5132;
+        }
+
+        .metric-meta {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .chart-grid {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+
+        .chart-card {
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.78);
+            border-radius: 14px;
+            padding: 14px 15px;
+        }
+
+        .chart-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+            gap: 8px;
+        }
+
+        .chart-title {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .chart-range {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .line-wrap {
+            height: 230px;
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(6, 95, 70, 0.08) 0%, rgba(6, 95, 70, 0.02) 100%);
+            border: 1px solid rgba(6, 95, 70, 0.12);
+            padding: 8px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .line-wrap svg {
+            width: 100%;
+            min-width: 900px;
+            height: 100%;
+            display: block;
+        }
+
+        .chart-empty {
+            display: grid;
+            place-items: center;
+            min-height: 120px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 720px) {
+            body { padding: 12px; }
+            .hero { padding: 14px; border-radius: 16px; }
+            .metric-value { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+    {% include "partials/top_nav_css.html" %}
+    {% include "partials/top_nav.html" with enable_sync_button=True %}
+
+    <main class="hero">
+        <h1>Главная</h1>
+        <p class="subtitle">Ключевые показатели магазина за последние 30 дней.</p>
+        <div id="sync-status-banner" class="hint-banner hint-banner-info"></div>
+
+        <section class="metrics">
+            <article class="metric-card">
+                <p class="metric-title">Выручка (30 дней)</p>
+                <p class="metric-value">{{ revenue_30d|floatformat:2 }} ₽</p>
+                <p class="metric-meta">Средний чек: {{ avg_check_30d|floatformat:2 }} ₽</p>
+            </article>
+            <article class="metric-card">
+                <p class="metric-title">Заказы / Выкупы</p>
+                <p class="metric-value">{{ total_orders_30d }} / {{ buyouts_30d }}</p>
+                <p class="metric-meta">Процент выкупа: {{ buyout_rate_30d|floatformat:2 }}%</p>
+            </article>
+            <article class="metric-card">
+                <p class="metric-title">Доля локальных выкупов</p>
+                <p class="metric-value">{{ local_share_buyouts_30d|floatformat:2 }}%</p>
+                <p class="metric-meta">По выкупленным заказам</p>
+            </article>
+            <article class="metric-card">
+                <p class="metric-title">Карточки / Остатки</p>
+                <p class="metric-value">{{ products_count }} / {{ fbo_stock_total }}</p>
+                <p class="metric-meta">FBS остатки: {{ fbs_stock_total }}</p>
+            </article>
+            <article class="metric-card">
+                <p class="metric-title">Расход на рекламу (30 дней)</p>
+                <p class="metric-value">{{ ad_spend_30d|floatformat:2 }} ₽</p>
+                <p class="metric-meta">Активных РК: {{ active_ads_count }}</p>
+            </article>
+            <article class="metric-card">
+                <p class="metric-title">Последняя синхронизация</p>
+                <p class="metric-value" style="font-size:22px;">{% if last_sync_at %}{{ last_sync_at|date:"d.m.Y H:i" }}{% else %}не было{% endif %}</p>
+                <p class="metric-meta">Подробная аналитика во вкладке «Аналитика»</p>
+            </article>
+        </section>
+
+        <section class="chart-grid">
+            <article class="chart-card">
+                <div class="chart-head">
+                    <p class="chart-title">Динамика заказов и выкупов (30 дней)</p>
+                    <p class="chart-range">{{ daily_points_json|length }} точек</p>
+                </div>
+                <div class="line-wrap">
+                    <svg id="orders-buyouts-chart"></svg>
+                </div>
+            </article>
+
+            <article class="chart-card">
+                <div class="chart-head">
+                    <p class="chart-title">Выручка по дням (30 дней)</p>
+                    <p class="chart-range">В рублях</p>
+                </div>
+                <div class="line-wrap">
+                    <svg id="revenue-chart"></svg>
+                </div>
+            </article>
+        </section>
+    </main>
+
+    {{ daily_points_json|json_script:"dashboard-daily-points" }}
+    {{ running_sync_task|json_script:"running-sync-task-data" }}
+
+    <script>
+        (function () {
+            const points = JSON.parse(document.getElementById("dashboard-daily-points")?.textContent || "[]");
+
+            function renderLineChart(svgId, seriesConfig) {
+                const svg = document.getElementById(svgId);
+                if (!svg) return;
+                if (!Array.isArray(points) || !points.length) {
+                    svg.outerHTML = '<div class="chart-empty">Недостаточно данных для графика</div>';
+                    return;
+                }
+
+                const width = 1200;
+                const height = 220;
+                const left = 48;
+                const right = 18;
+                const top = 18;
+                const bottom = 36;
+                const chartW = width - left - right;
+                const chartH = height - top - bottom;
+                const maxY = Math.max(
+                    1,
+                    ...seriesConfig.flatMap((s) => points.map((p) => Number(p[s.key] || 0)))
+                );
+
+                const x = (i) => left + (chartW * i) / Math.max(1, points.length - 1);
+                const y = (v) => top + chartH - (Number(v || 0) / maxY) * chartH;
+
+                const lines = seriesConfig.map((s) => {
+                    const poly = points.map((p, i) => `${x(i)},${y(p[s.key])}`).join(" ");
+                    return `<polyline fill="none" stroke="${s.color}" stroke-width="2.5" points="${poly}" />`;
+                }).join("");
+
+                const xLabels = points
+                    .map((p, i) => {
+                        if (i % 3 !== 0 && i !== points.length - 1) return "";
+                        return `<text x="${x(i)}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#5a6778">${p.label}</text>`;
+                    })
+                    .join("");
+
+                const legend = seriesConfig
+                    .map((s, idx) => `<text x="${left + idx * 170}" y="12" font-size="12" fill="${s.color}">${s.label}</text>`)
+                    .join("");
+
+                svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+                svg.innerHTML = `
+                    <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"/>
+                    <line x1="${left}" y1="${top}" x2="${left}" y2="${top + chartH}" stroke="rgba(19,32,51,0.35)" stroke-width="1"/>
+                    <line x1="${left}" y1="${top + chartH}" x2="${left + chartW}" y2="${top + chartH}" stroke="rgba(19,32,51,0.35)" stroke-width="1"/>
+                    ${lines}
+                    ${legend}
+                    ${xLabels}
+                `;
+            }
+
+            function renderHistogramChart(svgId, key, color) {
+                const svg = document.getElementById(svgId);
+                if (!svg) return;
+                if (!Array.isArray(points) || !points.length) {
+                    svg.outerHTML = '<div class="chart-empty">Недостаточно данных для графика</div>';
+                    return;
+                }
+
+                const width = 1200;
+                const height = 220;
+                const left = 48;
+                const right = 18;
+                const top = 18;
+                const bottom = 36;
+                const chartW = width - left - right;
+                const chartH = height - top - bottom;
+                const maxY = Math.max(1, ...points.map((p) => Number(p[key] || 0)));
+                const step = chartW / Math.max(1, points.length);
+                const barW = Math.max(2, step * 0.72);
+
+                const bars = points.map((p, i) => {
+                    const value = Number(p[key] || 0);
+                    const h = (value / maxY) * chartH;
+                    const x = left + i * step + (step - barW) / 2;
+                    const y = top + chartH - h;
+                    return `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(1, h)}" rx="2" fill="${color}" opacity="0.92"></rect>`;
+                }).join("");
+
+                const xLabels = points
+                    .map((p, i) => {
+                        if (i % 3 !== 0 && i !== points.length - 1) return "";
+                        const x = left + i * step + step / 2;
+                        return `<text x="${x}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#5a6778">${p.label}</text>`;
+                    })
+                    .join("");
+
+                svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+                svg.innerHTML = `
+                    <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"/>
+                    <line x1="${left}" y1="${top}" x2="${left}" y2="${top + chartH}" stroke="rgba(19,32,51,0.35)" stroke-width="1"/>
+                    <line x1="${left}" y1="${top + chartH}" x2="${left + chartW}" y2="${top + chartH}" stroke="rgba(19,32,51,0.35)" stroke-width="1"/>
+                    ${bars}
+                    ${xLabels}
+                `;
+            }
+
+            renderLineChart("orders-buyouts-chart", [
+                { key: "orders", label: "Заказы", color: "#14532d" },
+                { key: "buyouts", label: "Выкупы", color: "#0ea5e9" },
+            ]);
+            renderHistogramChart("revenue-chart", "revenue", "#0f766e");
+
+            const syncBtn = document.getElementById("sync-orders-btn");
+            const syncBanner = document.getElementById("sync-status-banner");
+            const syncLastAt = document.getElementById("sync-last-at");
+            const runningSyncTaskData = JSON.parse(
+                document.getElementById("running-sync-task-data")?.textContent || "null"
+            );
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) {
+                    return parts.pop().split(";").shift();
+                }
+                return "";
+            }
+
+            function setSyncBanner(text, mode) {
+                if (!syncBanner) return;
+                syncBanner.style.display = "block";
+                syncBanner.classList.remove("hint-banner-info", "hint-banner-error", "hint-banner-success");
+                syncBanner.classList.add(mode || "hint-banner-info");
+                syncBanner.textContent = text;
+            }
+
+            async function pollSyncStatus(taskId) {
+                const statusUrl = `{% url 'sync_orders_status_api' %}?task_id=${encodeURIComponent(taskId)}`;
+                try {
+                    const res = await fetch(statusUrl, { headers: { "Accept": "application/json" } });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        setSyncBanner(`Ошибка статуса: ${data.error || "не удалось получить статус"}`, "hint-banner-error");
+                        if (syncBtn) syncBtn.disabled = false;
+                        return;
+                    }
+
+                    const progress = Number(data.progress || 0);
+                    const step = data.step ? `${data.step}. ` : "";
+                    setSyncBanner(`${step}${data.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
+
+                    if (data.status === "running") {
+                        window.setTimeout(() => pollSyncStatus(taskId), 2000);
+                        return;
+                    }
+
+                    if (data.status === "success") {
+                        setSyncBanner(data.message || "Синхронизация завершена.", "hint-banner-success");
+                        if (syncLastAt) {
+                            const finishedAt = data.finished_at ? new Date(data.finished_at) : new Date();
+                            const text = Number.isNaN(finishedAt.getTime())
+                                ? "Последняя синхронизация: только что"
+                                : `Последняя синхронизация: ${finishedAt.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+                            syncLastAt.textContent = text;
+                        }
+                    } else {
+                        setSyncBanner(data.message || "Ошибка синхронизации.", "hint-banner-error");
+                    }
+                    if (syncBtn) syncBtn.disabled = false;
+                } catch (_err) {
+                    setSyncBanner("Ошибка сети при проверке статуса синхронизации.", "hint-banner-error");
+                    if (syncBtn) syncBtn.disabled = false;
+                }
+            }
+
+            async function startSyncOrders() {
+                if (!syncBtn) return;
+                syncBtn.disabled = true;
+                setSyncBanner("Запускаю синхронизацию...", "hint-banner-info");
+                try {
+                    const res = await fetch("{% url 'sync_orders_start_api' %}", {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": getCookie("csrftoken"),
+                            "Accept": "application/json",
+                        },
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        setSyncBanner(`Ошибка запуска: ${data.error || "не удалось запустить синхронизацию"}`, "hint-banner-error");
+                        syncBtn.disabled = false;
+                        return;
+                    }
+                    pollSyncStatus(data.task_id);
+                } catch (err) {
+                    setSyncBanner(`Ошибка сети при запуске синхронизации: ${err && err.message ? err.message : "unknown"}`, "hint-banner-error");
+                    syncBtn.disabled = false;
+                }
+            }
+
+            if (syncBtn) {
+                syncBtn.addEventListener("click", startSyncOrders);
+            }
+
+            if (runningSyncTaskData && runningSyncTaskData.task_id) {
+                const progress = Number(runningSyncTaskData.progress || 0);
+                const step = runningSyncTaskData.step ? `${runningSyncTaskData.step}. ` : "";
+                setSyncBanner(`${step}${runningSyncTaskData.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
+                if (syncBtn) syncBtn.disabled = true;
+                pollSyncStatus(runningSyncTaskData.task_id);
+            }
+        })();
+    </script>
+</body>
+</html>

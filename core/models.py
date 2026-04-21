@@ -94,6 +94,7 @@ class Order(models.Model):
 
     is_cancel = models.BooleanField(default=False)
 
+    order_price = models.FloatField(null=True, blank=True)
     finished_price = models.FloatField(null=True, blank=True)
 
     order_date = models.DateTimeField()

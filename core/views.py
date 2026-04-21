@@ -142,6 +142,15 @@ def _extract_retail_price_withdisc_from_raw(payload: dict | None) -> float:
     return 0.0
 
 
+def _extract_retail_amount_from_raw(payload: dict | None) -> float:
+    if not isinstance(payload, dict):
+        return 0.0
+    for key in ("retailAmount", "retail_amount"):
+        if key in payload:
+            return _to_float_or_default(payload.get(key), 0.0)
+    return 0.0
+
+
 def _extract_campaign_nm_ids_from_payload(payload: dict | None) -> list[int]:
     if not isinstance(payload, dict):
         return []
@@ -351,6 +360,10 @@ def _build_fact_profit_metrics_for_product(
     buyout_rows_without_srid = 0
     buyout_sale_price_by_srid: dict[str, float] = {}
     buyout_sale_price_without_srid: list[float] = []
+    buyout_retail_amount_by_srid: dict[str, float] = {}
+    buyout_retail_amount_without_srid: list[float] = []
+    buyout_spp_by_srid: dict[str, float] = {}
+    buyout_spp_without_srid: list[float] = []
     cancel_return_srids: set[str] = set()
     cancel_return_rows_without_srid = 0
     row_cache: list[tuple[RealizationReportDetail, dict, bool, str, bool]] = []
@@ -383,6 +396,9 @@ def _build_fact_profit_metrics_for_product(
         row_for_pay = _extract_wb_for_pay_from_raw(payload)
         row_acquiring = _extract_acquiring_fee_from_raw(payload)
         row_sale_price_withdisc = _extract_retail_price_withdisc_from_raw(payload)
+        row_retail_amount = _extract_retail_amount_from_raw(payload)
+        row_spp = _to_float_or_default(payload.get("spp", payload.get("SPP")), 0.0)
+        row_has_spp = ("spp" in payload) or ("SPP" in payload)
         wb_transfer_sum += row_for_pay
         acquiring_sum += max(row_acquiring, 0.0)
 
@@ -411,11 +427,19 @@ def _build_fact_profit_metrics_for_product(
                 buyout_srids.add(srid)
                 if row_sale_price_withdisc > 0 and srid not in buyout_sale_price_by_srid:
                     buyout_sale_price_by_srid[srid] = row_sale_price_withdisc
+                if row_retail_amount > 0 and srid not in buyout_retail_amount_by_srid:
+                    buyout_retail_amount_by_srid[srid] = row_retail_amount
+                if row_has_spp and row_spp > 0 and srid not in buyout_spp_by_srid:
+                    buyout_spp_by_srid[srid] = row_spp
             else:
                 # Если srid в строке отчета пустой, считаем такую строку как 1 выкуп.
                 buyout_rows_without_srid += 1
                 if row_sale_price_withdisc > 0:
                     buyout_sale_price_without_srid.append(row_sale_price_withdisc)
+                if row_retail_amount > 0:
+                    buyout_retail_amount_without_srid.append(row_retail_amount)
+                if row_has_spp and row_spp > 0:
+                    buyout_spp_without_srid.append(row_spp)
 
     for row, _payload, is_buyout, srid, is_cancel_marker in row_cache:
         storage_direct_sum += _to_float_or_default(row.storage_fee, 0.0)
@@ -631,14 +655,16 @@ def _build_fact_profit_metrics_for_product(
     purchase_sum = max(purchase_price, 0.0) * buyouts_count
     defect_sum = purchase_sum * (max(settings_obj.defect_percent, 0.0) / 100.0)
     fulfillment_sum = max(settings_obj.fulfillment_cost_per_order, 0.0) * buyouts_count
+    tax_sale_base_sum = sum(buyout_retail_amount_by_srid.values()) + sum(buyout_retail_amount_without_srid)
+    if tax_sale_base_sum <= 0:
+        # fallback для старых/неполных отчетов, где retailAmount не заполнен
+        tax_sale_base_sum = max(discounted_price, 0.0) * buyouts_count
     tax_sum = (
-        max(discounted_price, 0.0)
-        * buyouts_count
+        tax_sale_base_sum
         * (max(settings_obj.usn_percent, 0.0) / 100.0)
     )
     vat_sum = (
-        max(discounted_price, 0.0)
-        * buyouts_count
+        tax_sale_base_sum
         * (max(settings_obj.vat_percent, 0.0) / 100.0)
     )
     logistics_sum = logistics_buyout_sum + logistics_cancel_return_sum + logistics_adjustments_sum
@@ -674,6 +700,33 @@ def _build_fact_profit_metrics_for_product(
     avg_penalty_per_buyout = (penalty_sum / buyouts_count) if buyouts_count > 0 else 0.0
     avg_ad_spend_per_buyout = (ad_spend_sum / buyouts_count) if buyouts_count > 0 else 0.0
     avg_acceptance_per_buyout = (acceptance_sum / buyouts_count) if buyouts_count > 0 else 0.0
+    # СПП в факте: приоритетно считаем по модели заказов
+    # как разницу между ценой заказа и finished_price.
+    spp_values_orders: list[float] = []
+    if buyout_srids:
+        order_rows_for_spp = (
+            Order.objects
+            .filter(
+                seller=seller,
+                srid__in=list(buyout_srids),
+                is_cancel=False,
+            )
+            .exclude(order_price__isnull=True)
+            .exclude(finished_price__isnull=True)
+            .values("order_price", "finished_price")
+        )
+        for row in order_rows_for_spp:
+            order_price = _to_float_or_default(row.get("order_price"), 0.0)
+            finished_price = _to_float_or_default(row.get("finished_price"), 0.0)
+            if order_price <= 0:
+                continue
+            spp_value = ((order_price - finished_price) / order_price) * 100.0
+            spp_values_orders.append(spp_value)
+
+    spp_values_reports = list(buyout_spp_by_srid.values()) + buyout_spp_without_srid
+    spp_source = "orders" if spp_values_orders else "reports"
+    spp_values = spp_values_orders if spp_values_orders else spp_values_reports
+    spp_percent_fact = (sum(spp_values) / len(spp_values)) if spp_values else 0.0
     withheld_sum = deduction_sum + jam_sum + penalty_sum + acceptance_sum
     avg_withheld_per_buyout = (withheld_sum / buyouts_count) if buyouts_count > 0 else 0.0
     has_enough_data = bool(rr_rows) and buyouts_count > 0
@@ -712,6 +765,9 @@ def _build_fact_profit_metrics_for_product(
         "ad_spend_is_approx": ad_spend_is_approx,
         "avg_ad_spend_per_buyout": round(avg_ad_spend_per_buyout, 2),
         "acceptance_sum": round(acceptance_sum, 2),
+        "spp_source": spp_source,
+        "spp_samples_count": len(spp_values),
+        "spp_percent_fact": round(spp_percent_fact, 2),
         "avg_storage_per_buyout": round(avg_storage_per_buyout, 2),
         "avg_penalty_per_buyout": round(avg_penalty_per_buyout, 2),
         "avg_acceptance_per_buyout": round(avg_acceptance_per_buyout, 2),
@@ -1213,11 +1269,128 @@ def home(request):
         return render(request, "home_landing.html")
 
     seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    missing_api_token = not seller or not seller.has_api_token
+    running_sync_task = _get_running_sync_task_for_user(request.user)
+    running_sync_task_payload = None
+    if running_sync_task:
+        running_sync_task_payload = {
+            "task_id": running_sync_task.task_id,
+            "status": running_sync_task.status,
+            "progress": running_sync_task.progress,
+            "step": running_sync_task.step,
+            "message": running_sync_task.message,
+        }
+
+    today = timezone.localdate()
+    date_from_30d = today - timedelta(days=29)
+
+    orders_30_qs = Order.objects.filter(
+        seller=seller,
+        order_date__date__gte=date_from_30d,
+        order_date__date__lte=today,
+    )
+    orders_30_stats = orders_30_qs.aggregate(
+        total_orders=Count("id"),
+        buyouts=Count("id", filter=Q(is_cancel=False)),
+        revenue=Sum("finished_price", filter=Q(is_cancel=False, finished_price__isnull=False)),
+        local_buyouts=Count("id", filter=Q(is_cancel=False, is_local=True)),
+    )
+
+    total_orders_30d = int(orders_30_stats.get("total_orders") or 0)
+    buyouts_30d = int(orders_30_stats.get("buyouts") or 0)
+    revenue_30d = float(orders_30_stats.get("revenue") or 0.0)
+    local_buyouts_30d = int(orders_30_stats.get("local_buyouts") or 0)
+    buyout_rate_30d = round((buyouts_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
+    avg_check_30d = round(revenue_30d / buyouts_30d, 2) if buyouts_30d > 0 else 0.0
+    local_share_buyouts_30d = round((local_buyouts_30d / buyouts_30d) * 100.0, 2) if buyouts_30d > 0 else 0.0
+
+    products_count = Product.objects.filter(seller=seller).count()
+    fbo_stock_total = int(
+        WarehouseStockDetailed.objects.filter(seller=seller).aggregate(total=Sum("quantity")).get("total") or 0
+    )
+    fbs_stock_total = int(
+        SellerFbsStock.objects.filter(seller=seller).aggregate(total=Sum("amount")).get("total") or 0
+    )
+
+    ad_spend_30d = float(
+        WbAdvertStatDaily.objects
+        .filter(seller=seller, stat_date__gte=date_from_30d, stat_date__lte=today)
+        .aggregate(total=Sum("spend"))
+        .get("total")
+        or 0.0
+    )
+    active_ads_count = WbAdvertCampaign.objects.filter(seller=seller, status=9).count()
+
+    daily_rows = list(
+        orders_30_qs
+        .annotate(day=TruncDate("order_date"))
+        .values("day")
+        .annotate(
+            total=Count("id"),
+            buyouts=Count("id", filter=Q(is_cancel=False)),
+            revenue=Sum("finished_price", filter=Q(is_cancel=False, finished_price__isnull=False)),
+        )
+        .order_by("day")
+    )
+    daily_map = {
+        row["day"]: {
+            "total": int(row.get("total") or 0),
+            "buyouts": int(row.get("buyouts") or 0),
+            "revenue": round(float(row.get("revenue") or 0.0), 2),
+        }
+        for row in daily_rows
+        if row.get("day")
+    }
+
+    daily_points = []
+    for i in range(30):
+        day = date_from_30d + timedelta(days=i)
+        data = daily_map.get(day, {"total": 0, "buyouts": 0, "revenue": 0.0})
+        daily_points.append(
+            {
+                "date": day.isoformat(),
+                "label": day.strftime("%d.%m"),
+                "orders": data["total"],
+                "buyouts": data["buyouts"],
+                "revenue": data["revenue"],
+            }
+        )
+
+    return render(
+        request,
+        "dashboard_main.html",
+        {
+            "seller": seller,
+            "missing_api_token": missing_api_token,
+            "last_sync_at": last_sync_at,
+            "products_count": products_count,
+            "total_orders_30d": total_orders_30d,
+            "buyouts_30d": buyouts_30d,
+            "buyout_rate_30d": buyout_rate_30d,
+            "revenue_30d": round(revenue_30d, 2),
+            "avg_check_30d": avg_check_30d,
+            "local_share_buyouts_30d": local_share_buyouts_30d,
+            "fbo_stock_total": fbo_stock_total,
+            "fbs_stock_total": fbs_stock_total,
+            "ad_spend_30d": round(ad_spend_30d, 2),
+            "active_ads_count": active_ads_count,
+            "daily_points_json": daily_points,
+            "running_sync_task": running_sync_task_payload,
+        },
+    )
+
+
+def analytics_logistics(request):
+    if not request.user.is_authenticated:
+        return render(request, "home_landing.html")
+
+    seller = _get_or_create_seller_for_user(request.user)
 
     if request.method == "POST" and request.POST.get("action") == "sync_orders":
         if not seller.has_api_token:
             messages.error(request, "Сначала добавьте API-ключ в настройках аккаунта.")
-            return redirect("home")
+            return redirect("analytics_logistics")
         try:
             skipped_steps = []
 
@@ -1334,23 +1507,10 @@ def home(request):
                 )
         except Exception as exc:
             messages.error(request, _ui_error_message("Ошибка синхронизации", exc))
-        return redirect("home")
+        return redirect("analytics_logistics")
 
-    local_orders_percent = None
-    local_orders_trend = {"points": []}
-    fact_localization_index_trend = {"points": []}
-    theoretical_localization_index_trend = {"points": []}
-    theoretical_irp_trend = {"points": []}
-    top_non_local_districts = {"points": []}
     missing_api_token = not seller or not seller.has_api_token
 
-    if seller:
-        local_orders_percent = get_local_orders_percent_last_full_week(seller)
-        local_orders_trend = get_local_orders_percent_trend_last_full_weeks(seller, weeks=25)
-        fact_localization_index_trend = get_fact_localization_index_trend_last_full_weeks(seller, weeks=25)
-        theoretical_localization_index_trend = get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25)
-        theoretical_irp_trend = get_theoretical_irp_trend_last_full_weeks(seller, weeks=25)
-        top_non_local_districts = get_top_non_local_districts_last_full_weeks(seller, weeks=13, limit=5)
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     running_sync_task = _get_running_sync_task_for_user(request.user)
     running_sync_task_payload = None
@@ -1366,18 +1526,43 @@ def home(request):
         request,
         "home.html",
         {
-            "local_orders_percent": local_orders_percent,
-            "local_orders_trend": local_orders_trend,
-            "fact_localization_index_trend": fact_localization_index_trend,
-            "theoretical_localization_index_trend": theoretical_localization_index_trend,
-            "theoretical_irp_trend": theoretical_irp_trend,
-            "top_non_local_districts": top_non_local_districts,
             "seller": seller,
             "missing_api_token": missing_api_token,
             "last_sync_at": last_sync_at,
             "running_sync_task": running_sync_task_payload,
         },
     )
+
+
+@login_required
+@require_GET
+def analytics_logistics_data_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    if not seller or not seller.has_api_token:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "api_token_missing",
+                "local_orders_percent": None,
+                "local_orders_trend": {"points": []},
+                "fact_localization_index_trend": {"points": []},
+                "theoretical_localization_index_trend": {"points": []},
+                "theoretical_irp_trend": {"points": []},
+                "top_non_local_districts": {"points": []},
+            },
+            status=200,
+        )
+
+    payload = {
+        "ok": True,
+        "local_orders_percent": get_local_orders_percent_last_full_week(seller),
+        "local_orders_trend": get_local_orders_percent_trend_last_full_weeks(seller, weeks=25),
+        "fact_localization_index_trend": get_fact_localization_index_trend_last_full_weeks(seller, weeks=25),
+        "theoretical_localization_index_trend": get_theoretical_localization_index_trend_last_full_weeks(seller, weeks=25),
+        "theoretical_irp_trend": get_theoretical_irp_trend_last_full_weeks(seller, weeks=25),
+        "top_non_local_districts": get_top_non_local_districts_last_full_weeks(seller, weeks=13, limit=5),
+    }
+    return JsonResponse(payload, status=200)
 
 
 @login_required
@@ -2775,6 +2960,7 @@ def product_unit_economics_calculate_api(request, product_id: int):
         "segments": segments,
         "breakdown": {
             "sale_price": round(sale_price, 2),
+            "spp_percent": round(spp_percent, 4),
             "purchase_price": round(purchase_price, 2),
             "drr_cost": round(drr_cost, 2),
             "defect_cost": round(defect_cost, 2),

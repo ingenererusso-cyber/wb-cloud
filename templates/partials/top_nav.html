@@ -1,6 +1,21 @@
+{% load static %}
 <div class="nav-shell">
     <nav class="wb-nav" aria-label="Основное меню">
-        <a class="home-link" href="{% url 'home' %}">⌂ На главную</a>
+        <a class="home-link" href="{% url 'home' %}" aria-label="На главную" title="На главную">
+            <img class="home-logo-img" src="{% static 'img/vendra-logo.png' %}" alt="Vendra">
+        </a>
+
+        <div class="menu-item">
+            <a class="menu-link" href="{% url 'product_cards_report' %}">Товары и цены</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>Товары</h4>
+                        <a href="{% url 'product_cards_report' %}">Карточка товара</a>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div class="menu-item">
             <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
@@ -18,27 +33,12 @@
         </div>
 
         <div class="menu-item">
-            <a class="menu-link" href="{% url 'product_cards_report' %}">Товары и цены</a>
-            <div class="mega">
-                <div class="mega-grid">
-                    <div class="mega-col">
-                        <h4>Товары</h4>
-                        <a href="{% url 'product_cards_report' %}">Карточка товара</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="menu-item">
-            <a class="menu-link" href="{% url 'home' %}">Аналитика</a>
+            <a class="menu-link" href="{% url 'analytics_logistics' %}">Аналитика</a>
             <div class="mega">
                 <div class="mega-grid">
                     <div class="mega-col">
                         <h4>Дашборд</h4>
-                        <a href="{% url 'home' %}#local-orders-chart">Динамика локальности</a>
-                        <a href="{% url 'home' %}#fact-localization-index-chart">Фактический ИЛ</a>
-                        <a href="{% url 'home' %}#theoretical-localization-index-chart">Теоретический ИЛ</a>
-                        <a href="{% url 'home' %}#non-local-districts-chart">Топ нелокальных регионов</a>
+                        <a href="{% url 'analytics_logistics' %}">Логистика и ИЛ</a>
                     </div>
                     <div class="mega-col">
                         <h4>Справочники</h4>
@@ -61,7 +61,7 @@
                 </span>
             </div>
         {% else %}
-            <a class="btn" href="{% url 'home' %}">Синхронизировать данные</a>
+            <a class="btn" href="{% url 'analytics_logistics' %}">Синхронизировать данные</a>
         {% endif %}
         <div class="feedback-inline">
             <button class="btn btn-ghost" type="button" id="feedback-open-btn">Сообщить проблему</button>
@@ -119,6 +119,13 @@
             </div>
             <div id="feedback-status" class="feedback-status" aria-live="polite"></div>
         </form>
+    </div>
+</div>
+
+<div id="nav-loading-overlay" class="nav-loading-overlay" aria-hidden="true">
+    <div class="nav-loading-box">
+        <span class="nav-loading-spinner" aria-hidden="true"></span>
+        <span>Загружаем страницу…</span>
     </div>
 </div>
 
@@ -305,5 +312,90 @@
                 submitBtn.disabled = false;
             }
         });
+    })();
+</script>
+
+<script>
+    (function navigationLoadingSetup() {
+        const overlay = document.getElementById("nav-loading-overlay");
+        if (!overlay) {
+            return;
+        }
+
+        const body = document.body;
+
+        function showLoader() {
+            body.classList.add("nav-loading");
+            overlay.setAttribute("aria-hidden", "false");
+        }
+
+        function hideLoader() {
+            body.classList.remove("nav-loading");
+            overlay.setAttribute("aria-hidden", "true");
+        }
+
+        function isModifiedClick(event) {
+            return Boolean(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0);
+        }
+
+        function isNavigableAnchor(anchor) {
+            if (!anchor) {
+                return false;
+            }
+            if (anchor.dataset.noNavLoader === "1") {
+                return false;
+            }
+            if (anchor.hasAttribute("download")) {
+                return false;
+            }
+            if ((anchor.getAttribute("target") || "").toLowerCase() === "_blank") {
+                return false;
+            }
+            const href = anchor.getAttribute("href") || "";
+            if (!href || href.startsWith("#") || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+                return false;
+            }
+            try {
+                const targetUrl = new URL(anchor.href, window.location.origin);
+                if (targetUrl.origin !== window.location.origin) {
+                    return false;
+                }
+                const currentPath = `${window.location.pathname}${window.location.search}`;
+                const targetPath = `${targetUrl.pathname}${targetUrl.search}`;
+                if (targetPath === currentPath && (targetUrl.hash || "")) {
+                    return false;
+                }
+            } catch (_err) {
+                return false;
+            }
+            return true;
+        }
+
+        document.addEventListener("click", (event) => {
+            if (isModifiedClick(event)) {
+                return;
+            }
+            const anchor = event.target.closest("a[href]");
+            if (!isNavigableAnchor(anchor)) {
+                return;
+            }
+            showLoader();
+        }, true);
+
+        document.addEventListener("submit", (event) => {
+            const form = event.target;
+            if (!(form instanceof HTMLFormElement)) {
+                return;
+            }
+            if (form.dataset.noNavLoader === "1") {
+                return;
+            }
+            if (form.id === "feedback-form") {
+                return;
+            }
+            showLoader();
+        }, true);
+
+        window.addEventListener("pageshow", hideLoader);
     })();
 </script>

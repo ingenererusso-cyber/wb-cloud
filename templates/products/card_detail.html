@@ -1304,6 +1304,7 @@
         const warehouseOptions = {{ unit_warehouse_coeff_options_json|safe }};
         const savedUnitCalc = {{ unit_saved_calc_json|safe }};
         const factProfitMonth = JSON.parse(document.getElementById("fact-profit-month-json")?.textContent || "{}");
+        const categoryCommissionPercent = Number({{ unit_default_commission_percent|default:0 }});
         const resultEl = document.getElementById("ue-result");
         const compareEl = document.getElementById("ue-compare");
         const step0 = document.getElementById("ue-step-0");
@@ -1513,14 +1514,23 @@
             return `${n.toFixed(2)} ₽`;
         }
 
+        function percentOrNA(value) {
+            if (value === null || value === undefined || value === "") return "н/д";
+            const n = Number(value);
+            if (!Number.isFinite(n)) return "н/д";
+            return `${n.toFixed(2)}%`;
+        }
+
         function perBuyout(total, count) {
             const c = Number(count || 0);
             if (!c) return 0;
             return Number(total || 0) / c;
         }
 
-        function renderUnitVsFactComparison(result) {
+        function renderUnitVsFactComparison(payload) {
             if (!compareEl) return;
+            const result = payload?.result || payload || {};
+            const inputData = payload?.input_data || {};
             const breakdown = result?.breakdown || {};
             const buyouts = Number(factProfitMonth.buyouts_count || 0);
             if (!buyouts) {
@@ -1550,40 +1560,50 @@
             const factTax = perBuyout(factProfitMonth.tax_sum, buyouts);
             const factVat = perBuyout(factProfitMonth.vat_sum, buyouts);
             const factLogisticsBuyout = perBuyout(factProfitMonth.logistics_buyout_sum, buyouts);
-            const factLogisticsCancelReturn = Number(factProfitMonth.avg_logistics_cancel_return_per_return || 0);
+            const factLogisticsCancelReturn = perBuyout(factProfitMonth.logistics_cancel_return_sum, buyouts);
             const factLogisticsAdjustments = perBuyout(factProfitMonth.logistics_adjustments_sum, buyouts);
             const factLogisticsNegative = perBuyout(factProfitMonth.logistics_negative_sum, buyouts);
+            const factLogisticsTotal = factLogisticsBuyout + factLogisticsCancelReturn + factLogisticsAdjustments + factLogisticsNegative;
             const factStorage = perBuyout(factProfitMonth.storage_sum, buyouts);
             const factDeduction = perBuyout(factProfitMonth.deduction_sum, buyouts);
             const factJam = perBuyout(factProfitMonth.jam_sum, buyouts);
             const factPenalty = perBuyout(factProfitMonth.penalty_sum, buyouts);
             const factAdSpend = perBuyout(factProfitMonth.ad_spend_sum, buyouts);
             const factAcceptance = perBuyout(factProfitMonth.acceptance_sum, buyouts);
+            const factCommission = factSalePrice * (Math.max(categoryCommissionPercent, 0) / 100.0);
+            const factExtra = Number(breakdown.extra_cost || 0);
+            const unitSppPercent = Number(
+                breakdown.spp_percent ?? inputData.spp_percent ?? 0
+            );
+            const factSppPercent = Number(factProfitMonth.spp_percent_fact || 0);
+            const unitDrrPercent = Number(breakdown.sale_price || 0) > 0
+                ? (Number(breakdown.drr_cost || 0) / Number(breakdown.sale_price || 0)) * 100.0
+                : 0;
+            const factDrrPercent = Number(factProfitMonth.sale_base_sum || 0) > 0
+                ? (Number(factProfitMonth.ad_spend_sum || 0) / Number(factProfitMonth.sale_base_sum || 0)) * 100.0
+                : 0;
 
             const rows = [
-                { label: "Цена продажи на 1 заказ", unit: Number(breakdown.sale_price || 0), fact: factSalePrice },
-                { label: "Сумма к переводу от ВБ (без вычета логистики) на 1 выкуп", unit: null, fact: factTransfer },
-                { label: "Закупочная цена на 1 выкуп", unit: unitPurchase, fact: factPurchase },
-                { label: "ДРР на 1 заказ", unit: Number(breakdown.drr_cost || 0), fact: null },
-                { label: "Брак на 1 выкуп", unit: unitDefect, fact: factDefect },
-                { label: "Эквайринг на 1 заказ", unit: Number(breakdown.acquiring_cost || 0), fact: factAcquiring },
-                { label: "Фулфилмент на 1 выкуп", unit: unitFulfillment, fact: factFulfillment },
-                { label: "Доп. расходы на 1 заказ", unit: Number(breakdown.extra_cost || 0), fact: null },
-                { label: "Логистика выкупов на 1 выкуп", unit: unitLogistics, fact: factLogisticsBuyout },
-                { label: "Логистика отмен/возвратов (среднее среди отмен/возвратов)", unit: null, fact: factLogisticsCancelReturn },
-                { label: "Логистические корректировки/возмещения на 1 выкуп", unit: null, fact: factLogisticsAdjustments },
-                { label: "Отрицательные логистические значения (сторно) на 1 выкуп", unit: null, fact: factLogisticsNegative },
-                { label: "Комиссия WB на 1 заказ", unit: Number(breakdown.commission_cost || 0), fact: null },
-                { label: "Налог УСН на 1 заказ", unit: Number(breakdown.usn_cost || 0), fact: factTax },
-                { label: "НДС на 1 заказ", unit: Number(breakdown.vat_cost || 0), fact: factVat },
-                { label: "Налоги + НДС на 1 выкуп", unit: unitTaxVat, fact: factTaxVat },
-                { label: "Хранение на 1 заказ (факт: приближенно)", unit: Number(breakdown.storage_cost || 0), fact: factStorage },
-                { label: "Удержания WB (прочее) на 1 выкуп", unit: null, fact: factDeduction },
-                { label: "Подписка Джем на 1 выкуп (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factJam },
-                { label: "Штрафы WB на 1 выкуп (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factPenalty },
-                { label: "Реклама WB на 1 выкуп (факт: прямые + распределение неатрибутированных)", unit: null, fact: factAdSpend },
-                { label: "Платная приемка FBS в ПВЗ на 1 заказ", unit: Number(breakdown.acceptance_cost || 0), fact: factAcceptance },
-                { label: "Чистая прибыль на 1 выкуп", unit: unitNet, fact: factNet },
+                { label: "Цена продажи", unit: Number(breakdown.sale_price || 0), fact: factSalePrice },
+                { label: "СПП, %", unit: unitSppPercent, fact: factSppPercent, format: "percent" },
+                { label: "Закупочная цена", unit: unitPurchase, fact: factPurchase },
+                { label: "ДРР, %", unit: unitDrrPercent, fact: factDrrPercent, format: "percent" },
+                { label: "Реклама WB, ₽", unit: Number(breakdown.drr_cost || 0), fact: factAdSpend },
+                { label: "Брак", unit: unitDefect, fact: factDefect },
+                { label: "Эквайринг", unit: Number(breakdown.acquiring_cost || 0), fact: factAcquiring },
+                { label: "Фулфилмент", unit: unitFulfillment, fact: factFulfillment },
+                { label: "Доп. расходы", unit: Number(breakdown.extra_cost || 0), fact: factExtra },
+                { label: "Суммарная логистика", unit: unitLogistics, fact: factLogisticsTotal },
+                { label: "Комиссия WB", unit: Number(breakdown.commission_cost || 0), fact: factCommission },
+                { label: "Налог УСН", unit: Number(breakdown.usn_cost || 0), fact: factTax },
+                { label: "НДС", unit: Number(breakdown.vat_cost || 0), fact: factVat },
+                { label: "Налоги + НДС", unit: unitTaxVat, fact: factTaxVat },
+                { label: "Хранение (факт: приближенно)", unit: Number(breakdown.storage_cost || 0), fact: factStorage },
+                { label: "Удержания WB (прочее)", unit: null, fact: factDeduction },
+                { label: "Подписка Джем (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factJam },
+                { label: "Штрафы WB (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factPenalty },
+                { label: "Платная приемка FBS в ПВЗ", unit: Number(breakdown.acceptance_cost || 0), fact: factAcceptance },
+                { label: "Чистая прибыль", unit: unitNet, fact: factNet },
             ];
 
             const bodyHtml = rows.map((row) => {
@@ -1595,13 +1615,21 @@
                     Number.isFinite(Number(row.unit)) &&
                     Number.isFinite(Number(row.fact));
                 const delta = hasDelta ? (Number(row.fact) - Number(row.unit)) : null;
-                const deltaCls = (delta !== null && delta >= 0) ? "delta-pos" : "delta-neg";
+                const deltaCls = (delta !== null && delta >= 0) ? "delta-neg" : "delta-pos";
+                const isPercent = row.format === "percent";
+                const unitRendered = isPercent ? percentOrNA(row.unit) : moneyOrNA(row.unit);
+                const factRendered = isPercent ? percentOrNA(row.fact) : moneyOrNA(row.fact);
+                const deltaRendered = delta !== null
+                    ? (isPercent
+                        ? `${delta >= 0 ? "+" : ""}${Number(delta).toFixed(2)} п.п.`
+                        : `${delta >= 0 ? "+" : ""}${money(delta)}`)
+                    : "н/д";
                 return `
                     <tr>
                         <td>${row.label}</td>
-                        <td>${moneyOrNA(row.unit)}</td>
-                        <td>${moneyOrNA(row.fact)}</td>
-                        <td class="${delta !== null ? deltaCls : ""}">${delta !== null ? `${delta >= 0 ? "+" : ""}${money(delta)}` : "н/д"}</td>
+                        <td>${unitRendered}</td>
+                        <td>${factRendered}</td>
+                        <td class="${delta !== null ? deltaCls : ""}">${deltaRendered}</td>
                     </tr>
                 `;
             }).join("");
@@ -1611,7 +1639,7 @@
                 <h4>Сравнение юнитки и факта за месяц</h4>
                 <p class="unit-compare-note">
                     Период факта: ${factProfitMonth.date_from || "-"} — ${factProfitMonth.date_to || "-"},
-                    выкупов: ${buyouts}.
+                    выкупов: ${buyouts}. Все значения в таблице — средние на 1 выкуп.
                 </p>
                 <table>
                     <thead>
@@ -1703,7 +1731,7 @@
             `;
 
             if (withCompare) {
-                renderUnitVsFactComparison(result);
+                renderUnitVsFactComparison(payload);
             }
 
             const tooltip = ensureUnitTooltip();

@@ -170,6 +170,11 @@
             color: var(--muted);
         }
 
+        .metric-loading {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
         .chart-card {
             margin-top: 12px;
             border: 1px solid var(--line);
@@ -363,38 +368,22 @@
         <section class="metrics">
             <article class="metric-card">
                 <p class="metric-title">% локальных заказов (последние 7 полных дней)</p>
-                {% if local_orders_percent %}
+                <div id="local-orders-metric-loading" class="metric-loading">Загрузка...</div>
+                <div id="local-orders-metric-content" style="display:none;">
                     <div class="metric-value-row">
-                        <p class="metric-value">{{ local_orders_percent.percent }}%</p>
-                        {% if local_orders_percent.change_direction == "up" %}
-                            <span class="metric-change metric-change-up">+{{ local_orders_percent.change_percent }}%</span>
-                        {% elif local_orders_percent.change_direction == "down" %}
-                            <span class="metric-change metric-change-down">{{ local_orders_percent.change_percent }}%</span>
-                        {% else %}
-                            <span class="metric-change metric-change-neutral">{{ local_orders_percent.change_percent }}%</span>
-                        {% endif %}
+                        <p id="local-orders-metric-percent" class="metric-value">-</p>
+                        <span id="local-orders-metric-change" class="metric-change metric-change-neutral">0%</span>
                     </div>
-                    <p class="metric-meta">
-                        Локальные заказы: {{ local_orders_percent.local_orders }} из {{ local_orders_percent.total_orders }}
-                    </p>
-                    <p class="metric-meta">
-                        Период: {{ local_orders_percent.date_from|date:"d.m.Y" }} - {{ local_orders_percent.date_to|date:"d.m.Y" }}
-                    </p>
-                    <p class="metric-meta">
-                        Изменение к предыдущим 7 дням ({{ local_orders_percent.previous_date_from|date:"d.m" }} - {{ local_orders_percent.previous_date_to|date:"d.m" }})
-                    </p>
-                {% else %}
-                    <p class="metric-value">-</p>
-                    <p class="metric-meta">Для этого пользователя ещё не назначен кабинет продавца.</p>
-                {% endif %}
+                    <p id="local-orders-metric-counts" class="metric-meta"></p>
+                    <p id="local-orders-metric-period" class="metric-meta"></p>
+                    <p id="local-orders-metric-prev" class="metric-meta"></p>
+                </div>
             </article>
         </section>
         <section class="chart-card">
             <div class="chart-head">
                 <p class="chart-title">Динамика % локальных заказов по полным неделям</p>
-                {% if local_orders_trend.start_label and local_orders_trend.end_label %}
-                    <p class="chart-range">{{ local_orders_trend.start_label }} - {{ local_orders_trend.end_label }}</p>
-                {% endif %}
+                <p id="local-orders-range" class="chart-range">Загрузка...</p>
             </div>
             <div class="chart-wrap chart-wrap--line">
                 <svg id="local-orders-chart"></svg>
@@ -410,9 +399,7 @@
                         aria-label="Подсказка"
                     >?</span>
                 </p>
-                {% if fact_localization_index_trend.start_label and fact_localization_index_trend.end_label %}
-                    <p class="chart-range">{{ fact_localization_index_trend.start_label }} - {{ fact_localization_index_trend.end_label }}</p>
-                {% endif %}
+                <p id="fact-localization-range" class="chart-range">Загрузка...</p>
             </div>
             <div class="chart-wrap chart-wrap--line">
                 <svg id="fact-localization-index-chart"></svg>
@@ -421,9 +408,7 @@
         <section class="chart-card">
             <div class="chart-head">
                 <p class="chart-title">Теоретический индекс локализации (13 недель, аппроксимация WB)</p>
-                {% if theoretical_localization_index_trend.start_label and theoretical_localization_index_trend.end_label %}
-                    <p class="chart-range">{{ theoretical_localization_index_trend.start_label }} - {{ theoretical_localization_index_trend.end_label }}</p>
-                {% endif %}
+                <p id="theoretical-localization-range" class="chart-range">Загрузка...</p>
             </div>
             <div class="chart-wrap chart-wrap--line">
                 <svg id="theoretical-localization-index-chart"></svg>
@@ -432,9 +417,7 @@
         <section class="chart-card">
             <div class="chart-head">
                 <p class="chart-title">Теоретический индекс распределения продаж (ИРП, 13 недель)</p>
-                {% if theoretical_irp_trend.start_label and theoretical_irp_trend.end_label %}
-                    <p class="chart-range">{{ theoretical_irp_trend.start_label }} - {{ theoretical_irp_trend.end_label }}</p>
-                {% endif %}
+                <p id="theoretical-irp-range" class="chart-range">Загрузка...</p>
             </div>
             <div class="chart-wrap chart-wrap--line">
                 <svg id="theoretical-irp-chart"></svg>
@@ -443,11 +426,7 @@
         <section class="chart-card">
             <div class="chart-head">
                 <p class="chart-title">Топ-5 регионов по нелокальным заказам (приоритет пополнения)</p>
-                {% if top_non_local_districts.date_from and top_non_local_districts.date_to %}
-                    <p class="chart-range">
-                        {{ top_non_local_districts.date_from|date:"d.m.Y" }} - {{ top_non_local_districts.date_to|date:"d.m.Y" }}
-                    </p>
-                {% endif %}
+                <p id="top-non-local-range" class="chart-range">Загрузка...</p>
             </div>
             <div class="chart-wrap">
                 <div id="non-local-districts-chart" class="bar-chart"></div>
@@ -455,11 +434,6 @@
         </section>
         <span class="pill">Раздел в разработке</span>
     </main>
-    {{ local_orders_trend|json_script:"local-orders-trend-data" }}
-    {{ fact_localization_index_trend|json_script:"fact-localization-index-trend-data" }}
-    {{ theoretical_localization_index_trend|json_script:"theoretical-localization-index-trend-data" }}
-    {{ theoretical_irp_trend|json_script:"theoretical-irp-trend-data" }}
-    {{ top_non_local_districts|json_script:"top-non-local-districts-data" }}
     {{ running_sync_task|json_script:"running-sync-task-data" }}
     <script>
         function renderLineChart(config) {
@@ -587,21 +561,11 @@
             `;
         }
 
-        const localOrdersTrendData = JSON.parse(
-            document.getElementById("local-orders-trend-data").textContent || '{"points": []}'
-        );
-
-        const factLocalizationIndexTrendData = JSON.parse(
-            document.getElementById("fact-localization-index-trend-data").textContent || '{"points": []}'
-        );
-
-        const theoreticalLocalizationIndexTrendData = JSON.parse(
-            document.getElementById("theoretical-localization-index-trend-data").textContent || '{"points": []}'
-        );
-
-        const theoreticalIrpTrendData = JSON.parse(
-            document.getElementById("theoretical-irp-trend-data").textContent || '{"points": []}'
-        );
+        let localOrdersTrendData = {"points": []};
+        let factLocalizationIndexTrendData = {"points": []};
+        let theoreticalLocalizationIndexTrendData = {"points": []};
+        let theoreticalIrpTrendData = {"points": []};
+        let topNonLocalDistrictsData = {"points": []};
         function renderAllLineCharts() {
             renderLineChart({
                 svgId: "local-orders-chart",
@@ -661,8 +625,6 @@
             });
         }
 
-        renderAllLineCharts();
-
         let chartResizeTimer = null;
         window.addEventListener("resize", () => {
             if (chartResizeTimer) {
@@ -697,10 +659,89 @@
                 .join("");
         }
 
-        const topNonLocalDistrictsData = JSON.parse(
-            document.getElementById("top-non-local-districts-data").textContent || '{"points":[]}'
-        );
-        renderTopNonLocalDistricts(topNonLocalDistrictsData);
+        function formatRangeLabel(data) {
+            if (!data) return "";
+            if (data.start_label && data.end_label) return `${data.start_label} - ${data.end_label}`;
+            if (data.date_from && data.date_to) return `${data.date_from} - ${data.date_to}`;
+            return "";
+        }
+
+        function renderLocalMetric(localData) {
+            const loadingEl = document.getElementById("local-orders-metric-loading");
+            const contentEl = document.getElementById("local-orders-metric-content");
+            if (!localData) {
+                if (loadingEl) loadingEl.textContent = "Недостаточно данных.";
+                return;
+            }
+            if (loadingEl) loadingEl.style.display = "none";
+            if (contentEl) contentEl.style.display = "";
+
+            const percentEl = document.getElementById("local-orders-metric-percent");
+            const changeEl = document.getElementById("local-orders-metric-change");
+            const countsEl = document.getElementById("local-orders-metric-counts");
+            const periodEl = document.getElementById("local-orders-metric-period");
+            const prevEl = document.getElementById("local-orders-metric-prev");
+
+            if (percentEl) percentEl.textContent = `${Number(localData.percent || 0).toFixed(2)}%`;
+            if (changeEl) {
+                const changeVal = Number(localData.change_percent || 0);
+                changeEl.textContent = `${changeVal > 0 ? "+" : ""}${changeVal.toFixed(2)}%`;
+                changeEl.classList.remove("metric-change-up", "metric-change-down", "metric-change-neutral");
+                if (localData.change_direction === "up") changeEl.classList.add("metric-change-up");
+                else if (localData.change_direction === "down") changeEl.classList.add("metric-change-down");
+                else changeEl.classList.add("metric-change-neutral");
+            }
+            if (countsEl) countsEl.textContent = `Локальные заказы: ${localData.local_orders || 0} из ${localData.total_orders || 0}`;
+            if (periodEl) periodEl.textContent = `Период: ${localData.date_from || "-"} - ${localData.date_to || "-"}`;
+            if (prevEl) prevEl.textContent = `Изменение к предыдущим 7 дням (${localData.previous_date_from || "-"} - ${localData.previous_date_to || "-"})`;
+        }
+
+        async function loadAnalyticsData() {
+            try {
+                const res = await fetch("{% url 'analytics_logistics_data_api' %}", {
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok || !data) {
+                    throw new Error((data && data.error) || "Ошибка загрузки");
+                }
+                renderLocalMetric(data.local_orders_percent);
+
+                localOrdersTrendData = data.local_orders_trend || {"points": []};
+                factLocalizationIndexTrendData = data.fact_localization_index_trend || {"points": []};
+                theoreticalLocalizationIndexTrendData = data.theoretical_localization_index_trend || {"points": []};
+                theoreticalIrpTrendData = data.theoretical_irp_trend || {"points": []};
+                topNonLocalDistrictsData = data.top_non_local_districts || {"points": []};
+
+                const setRange = (id, text) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = text || "";
+                };
+                setRange("local-orders-range", formatRangeLabel(localOrdersTrendData));
+                setRange("fact-localization-range", formatRangeLabel(factLocalizationIndexTrendData));
+                setRange("theoretical-localization-range", formatRangeLabel(theoreticalLocalizationIndexTrendData));
+                setRange("theoretical-irp-range", formatRangeLabel(theoreticalIrpTrendData));
+                setRange("top-non-local-range", formatRangeLabel(topNonLocalDistrictsData));
+
+                renderAllLineCharts();
+                renderTopNonLocalDistricts(topNonLocalDistrictsData);
+            } catch (_err) {
+                const loadingEl = document.getElementById("local-orders-metric-loading");
+                if (loadingEl) loadingEl.textContent = "Ошибка загрузки данных.";
+                [
+                    "local-orders-range",
+                    "fact-localization-range",
+                    "theoretical-localization-range",
+                    "theoretical-irp-range",
+                    "top-non-local-range",
+                ].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = "Ошибка загрузки";
+                });
+            }
+        }
+
+        loadAnalyticsData();
 
         function scrollToHashCenter(hash, updateHistory = true) {
             if (!hash || !hash.startsWith("#")) {

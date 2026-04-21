@@ -20,6 +20,8 @@ from django.urls import path
 from core.views import (
     account_settings,
     acceptance_coefficients_report,
+    analytics_logistics,
+    analytics_logistics_data_api,
     create_feedback_api,
     dashboard_supply_recommendations_api,
     home,
@@ -59,7 +61,9 @@ urlpatterns = [
         name='product_unit_economics_calculate_api',
     ),
     path('api/dashboard/supply-recommendations/', dashboard_supply_recommendations_api, name='dashboard_supply_recommendations_api'),
+    path('api/analytics/logistics/data/', analytics_logistics_data_api, name='analytics_logistics_data_api'),
     path('supply_recommendations/', supply_recommendations_report, name='supply_recommendations_report'),
     path('', home, name='home'),
+    path('analytics/logistics/', analytics_logistics, name='analytics_logistics'),
     path('replenishment_report/', replenishment_report, name='replenishment_report'),
 ]
