@@ -34,6 +34,7 @@ from core.views import (
     replenishment_report,
     seller_warehouses_report,
     sync_orders_start_api,
+    sync_orders_current_api,
     sync_orders_status_api,
     supply_recommendations_report,
 )
@@ -44,6 +45,7 @@ urlpatterns = [
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('account/settings/', account_settings, name='account_settings'),
     path('api/sync/orders/start/', sync_orders_start_api, name='sync_orders_start_api'),
+    path('api/sync/orders/current/', sync_orders_current_api, name='sync_orders_current_api'),
     path('api/sync/orders/status/', sync_orders_status_api, name='sync_orders_status_api'),
     path('api/feedback/create/', create_feedback_api, name='create_feedback_api'),
     path('acceptance_coefficients/', acceptance_coefficients_report, name='acceptance_coefficients_report'),

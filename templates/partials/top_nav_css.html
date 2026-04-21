@@ -1,13 +1,24 @@
 <style>
+    body {
+        margin: 0 !important;
+        padding: 12px 20px 28px !important;
+    }
+
     .nav-shell {
+        --nav-line: #dbe3ec;
+        --nav-ink: #1f2a37;
+        --nav-muted: #6b7280;
+        --nav-accent: #147a59;
+        --nav-accent-2: #0e9f6e;
         width: 100%;
+        max-width: 1480px;
         margin: 0 auto 12px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--nav-line);
         border-radius: 16px;
         background: rgba(255, 255, 255, 0.9);
         box-shadow: 0 10px 22px rgba(19, 39, 60, 0.1);
         position: relative;
-        z-index: 20;
+        z-index: 200;
     }
 
     .wb-nav {
@@ -15,7 +26,11 @@
         align-items: center;
         gap: 8px;
         padding: 8px 10px;
-        flex-wrap: wrap;
+        min-height: 58px;
+        font-family: "Inter", "Segoe UI", sans-serif;
+        flex-wrap: nowrap;
+        overflow: visible;
+        scrollbar-width: thin;
     }
 
     .nav-spacer {
@@ -26,8 +41,8 @@
         display: inline-flex;
         align-items: center;
         text-decoration: none;
-        color: var(--ink);
-        border: 1px solid var(--line);
+        color: var(--nav-ink);
+        border: 1px solid var(--nav-line);
         border-radius: 10px;
         padding: 6px 10px;
         background: #fff;
@@ -52,7 +67,7 @@
         align-items: center;
         gap: 6px;
         text-decoration: none;
-        color: var(--ink);
+        color: var(--nav-ink);
         font-size: 14px;
         font-weight: 700;
         border: 1px solid transparent;
@@ -71,7 +86,7 @@
     .menu-link:hover,
     .menu-item:hover > .menu-link,
     .menu-item:focus-within > .menu-link {
-        border-color: var(--line);
+        border-color: var(--nav-line);
         background: #fff;
         transform: translateY(-1px);
         box-shadow: 0 8px 16px rgba(19, 39, 60, 0.12);
@@ -84,7 +99,7 @@
         top: 100%;
         min-width: 700px;
         background: #fff;
-        border: 1px solid var(--line);
+        border: 1px solid var(--nav-line);
         border-radius: 14px;
         box-shadow: 0 14px 26px rgba(19, 39, 60, 0.14);
         padding: 14px 16px;
@@ -105,7 +120,7 @@
     .mega-col h4 {
         margin: 0 0 8px;
         font-size: 14px;
-        color: var(--ink);
+        color: var(--nav-ink);
     }
 
     .mega-col a {
@@ -130,28 +145,99 @@
         flex-direction: column;
         align-items: flex-start;
         gap: 3px;
+        min-width: 236px;
+        flex: 0 0 auto;
+    }
+
+    .sync-control .btn {
+        width: 220px;
+        min-width: 220px;
+        height: 38px;
+        white-space: nowrap;
+        line-height: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .sync-meta {
         font-size: 11px;
-        color: var(--muted);
+        color: var(--nav-muted);
         white-space: nowrap;
     }
 
-    .nav-user {
+    .account-menu {
+        position: relative;
+        flex: 0 0 auto;
+        padding-bottom: 8px;
+        margin-bottom: -8px;
+    }
+
+    .account-menu-trigger {
         font-size: 13px;
-        color: var(--muted);
-        border: 1px solid var(--line);
+        color: var(--nav-muted);
+        border: 1px solid var(--nav-line);
         background: rgba(255, 255, 255, 0.92);
         border-radius: 10px;
         padding: 8px 10px;
         white-space: nowrap;
+        cursor: pointer;
     }
 
-    .nav-account-actions {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
+    .account-menu-trigger::after {
+        content: "▾";
+        margin-left: 6px;
+        font-size: 11px;
+        color: #64748b;
+    }
+
+    .account-menu:hover .account-menu-trigger,
+    .account-menu:focus-within .account-menu-trigger {
+        border-color: #cbd5e1;
+        box-shadow: 0 8px 16px rgba(19, 39, 60, 0.12);
+    }
+
+    .account-menu-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 170px;
+        padding: 6px;
+        border: 1px solid var(--nav-line);
+        border-radius: 10px;
+        background: #fff;
+        box-shadow: 0 14px 24px rgba(19, 39, 60, 0.14);
+        display: none;
+        z-index: 40;
+    }
+
+    .account-menu:hover .account-menu-dropdown,
+    .account-menu:focus-within .account-menu-dropdown {
+        display: block;
+    }
+
+    .account-menu-item {
+        display: block;
+        width: 100%;
+        text-decoration: none;
+        color: var(--nav-ink);
+        font-size: 13px;
+        font-weight: 600;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        padding: 8px 9px;
+        text-align: left;
+    }
+
+    .account-menu-item:hover,
+    .account-menu-item:focus-visible {
+        background: rgba(6, 95, 70, 0.08);
+        border-color: rgba(6, 95, 70, 0.2);
+        color: #065f46;
+    }
+
+    .account-menu-item-btn {
+        cursor: pointer;
     }
 
     .feedback-inline {
@@ -162,22 +248,25 @@
     .nav-shell .btn {
         text-decoration: none;
         color: #fff;
-        background: linear-gradient(135deg, var(--accent, #147a59) 0%, var(--accent-2, var(--accent, #147a59)) 100%);
+        background: linear-gradient(135deg, var(--nav-accent) 0%, var(--nav-accent-2) 100%);
         border-radius: 10px;
         padding: 8px 10px;
         font-weight: 700;
         border: none;
         cursor: pointer;
         font-size: 13px;
+        min-width: 220px;
+        flex: 0 0 auto;
         box-shadow: none;
         transition: transform .16s ease, box-shadow .16s ease, filter .16s ease, background-color .16s ease, border-color .16s ease;
     }
 
     .nav-shell .btn-ghost {
-        border: 1px solid var(--line);
+        border: 1px solid var(--nav-line);
         background: rgba(255, 255, 255, 0.85);
-        color: var(--ink);
+        color: var(--nav-ink);
         box-shadow: none;
+        min-width: auto;
     }
 
     .nav-shell .btn:hover,
@@ -187,7 +276,48 @@
         filter: saturate(1.04);
     }
 
+    .nav-shell .btn.sync-busy {
+        --sync-progress: 0%;
+        color: #ffffff;
+        border: 1px solid #7fb89d;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.24);
+        background: linear-gradient(
+            90deg,
+            #22a06b 0%,
+            #22a06b var(--sync-progress),
+            #e5e7eb var(--sync-progress),
+            #e5e7eb 100%
+        );
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+        animation: sync-busy-pulse 1.25s ease-in-out infinite;
+    }
+
+    @keyframes sync-busy-pulse {
+        0%, 100% {
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+                0 0 0 0 rgba(34, 160, 107, 0.22);
+        }
+        50% {
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+                0 0 0 6px rgba(34, 160, 107, 0.1);
+        }
+    }
+
     @media (max-width: 900px) {
+        body {
+            padding: 10px 12px 20px !important;
+        }
+
+        .wb-nav {
+            min-height: auto;
+            overflow-x: auto;
+            overflow-y: visible;
+        }
+
         .mega {
             min-width: 280px;
             max-width: min(90vw, 420px);
@@ -217,7 +347,7 @@
         width: min(680px, 100%);
         max-height: 90vh;
         overflow: auto;
-        border: 1px solid var(--line);
+        border: 1px solid var(--nav-line);
         border-radius: 14px;
         background: #fff;
         box-shadow: 0 14px 28px rgba(19, 39, 60, 0.18);
@@ -235,13 +365,13 @@
     .feedback-head h3 {
         margin: 0;
         font-size: 20px;
-        color: var(--ink);
+        color: var(--nav-ink);
     }
 
     .feedback-close {
-        border: 1px solid var(--line);
+        border: 1px solid var(--nav-line);
         background: #fff;
-        color: var(--ink);
+        color: var(--nav-ink);
         border-radius: 9px;
         padding: 6px 10px;
         font-size: 13px;
@@ -265,18 +395,18 @@
 
     .feedback-field label {
         font-size: 12px;
-        color: var(--muted);
+        color: var(--nav-muted);
     }
 
     .feedback-field select,
     .feedback-field textarea,
     .feedback-field input[type="text"] {
         width: 100%;
-        border: 1px solid var(--line);
+        border: 1px solid var(--nav-line);
         border-radius: 10px;
         padding: 9px 11px;
         font-size: 14px;
-        color: var(--ink);
+        color: var(--nav-ink);
         background: #fff;
     }
 
@@ -290,7 +420,7 @@
         align-items: center;
         gap: 8px;
         font-size: 13px;
-        color: var(--ink);
+        color: var(--nav-ink);
     }
 
     .feedback-footer {
@@ -304,7 +434,7 @@
 
     .feedback-note {
         font-size: 12px;
-        color: var(--muted);
+        color: var(--nav-muted);
     }
 
     .feedback-status {

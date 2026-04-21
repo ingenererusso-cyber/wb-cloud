@@ -52,28 +52,35 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = 175):
     rows = client.get_orders(date_from=date_from)
 
     for r in rows:
+        srid = r.get("srid")
+        warehouse_name = r.get("warehouseName")
+        warehouse_type = r.get("warehouseType")
+        nm_id = r.get("nmId")
+        if not srid or not warehouse_name or warehouse_type is None or nm_id is None:
+            continue
+
         is_fbw = r.get("warehouseType") == "Склад WB"
         oblast_okrug_name = (r.get("oblastOkrugName") or "").strip()
         if not oblast_okrug_name:
             oblast_okrug_name = (r.get("countryName") or "").strip()
 
-        is_local = determine_locality(r["warehouseName"], oblast_okrug_name) if is_fbw else False
+        is_local = determine_locality(warehouse_name, oblast_okrug_name) if is_fbw else False
         order_date = _to_aware_datetime(r.get("date"), default_tz)
         last_change_date = _to_aware_datetime(r.get("lastChangeDate"), default_tz)
 
         Order.objects.update_or_create(
             seller=seller,
-            srid=r["srid"],  # уникальный ID заказа в рамках seller
+            srid=srid,  # уникальный ID заказа в рамках seller
             defaults={
-                "nm_id": r["nmId"],
-                "supplier_article": r["supplierArticle"],
-                "tech_size": r["techSize"],
-                "warehouse_name": r["warehouseName"],
-                "warehouse_type": r["warehouseType"],
+                "nm_id": nm_id,
+                "supplier_article": r.get("supplierArticle"),
+                "tech_size": r.get("techSize"),
+                "warehouse_name": warehouse_name,
+                "warehouse_type": warehouse_type,
                 "region_name": r.get("regionName"),
                 "country_name": r.get("countryName"),
                 "oblast_okrug_name": oblast_okrug_name or None,
-                "is_cancel": r["isCancel"],
+                "is_cancel": bool(r.get("isCancel", False)),
                 "order_price": _extract_order_price_from_row(r),
                 "finished_price": r.get("finishedPrice"),
                 "order_date": order_date,

@@ -63,13 +63,17 @@
         <div class="feedback-inline">
             <button class="btn btn-ghost" type="button" id="feedback-open-btn">Сообщить проблему</button>
         </div>
-        <span class="nav-user">Аккаунт: {{ request.user.username }}</span>
-        <div class="nav-account-actions">
-            <a class="btn btn-ghost" href="{% url 'account_settings' %}">Настройки</a>
-            <form method="post" action="{% url 'logout' %}">
-                {% csrf_token %}
-                <button class="btn btn-ghost" type="submit">Выйти</button>
-            </form>
+        <div class="account-menu" id="account-menu">
+            <button class="account-menu-trigger" id="account-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                Аккаунт: {{ request.user.username }}
+            </button>
+            <div class="account-menu-dropdown" id="account-menu-dropdown" role="menu" aria-label="Меню аккаунта">
+                <a class="account-menu-item" href="{% url 'account_settings' %}" role="menuitem">Настройки</a>
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button class="account-menu-item account-menu-item-btn" type="submit" role="menuitem">Выйти</button>
+                </form>
+            </div>
         </div>
     </nav>
 </div>
@@ -129,6 +133,22 @@
 </div>
 
 <script>
+    (function accountMenuSetup() {
+        const menu = document.getElementById("account-menu");
+        const trigger = document.getElementById("account-menu-trigger");
+        if (!menu || !trigger) {
+            return;
+        }
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                trigger.blur();
+            }
+        });
+    })();
+</script>
+
+<script>
     (function topNavSyncWidget() {
         if (window.__globalSyncWidgetInstalled) {
             return;
@@ -140,6 +160,7 @@
         if (!syncBtn || !syncStatus) {
             return;
         }
+        const isHomePage = window.location.pathname === "{% url 'home' %}";
 
         let pollTimer = null;
         let currentTaskId = null;
@@ -153,21 +174,45 @@
             return "";
         }
 
-        function setStatus(text, isError = false) {
+        function setStatus(text, mode = "info") {
+            // Этапы синхронизации не показываем в верхнем меню.
+            syncStatus.style.display = "none";
+            syncStatus.textContent = "";
+            syncStatus.style.color = "";
+
+            if (!isHomePage) return;
+            const banner = document.getElementById("sync-status-banner");
+            if (!banner) return;
             if (!text) {
-                syncStatus.style.display = "none";
-                syncStatus.textContent = "";
-                syncStatus.style.color = "";
+                banner.style.display = "none";
+                banner.textContent = "";
+                banner.classList.remove("hint-banner-info", "hint-banner-error", "hint-banner-success");
                 return;
             }
-            syncStatus.style.display = "inline";
-            syncStatus.textContent = text;
-            syncStatus.style.color = isError ? "#b91c1c" : "";
+            banner.style.display = "block";
+            banner.textContent = text;
+            banner.classList.remove("hint-banner-info", "hint-banner-error", "hint-banner-success");
+            if (mode === "error") {
+                banner.classList.add("hint-banner-error");
+            } else if (mode === "success") {
+                banner.classList.add("hint-banner-success");
+            } else {
+                banner.classList.add("hint-banner-info");
+            }
         }
 
         function setButtonState(isBusy) {
             syncBtn.disabled = Boolean(isBusy);
-            syncBtn.textContent = isBusy ? "Синхронизация..." : "Синхронизировать данные";
+            syncBtn.textContent = isBusy ? "Идет синхронизация..." : "Синхронизировать данные";
+            syncBtn.classList.toggle("sync-busy", Boolean(isBusy));
+            if (!isBusy) {
+                syncBtn.style.setProperty("--sync-progress", "0%");
+            }
+        }
+
+        function setButtonProgress(progress) {
+            const bounded = Math.max(0, Math.min(100, Number(progress || 0)));
+            syncBtn.style.setProperty("--sync-progress", `${bounded}%`);
         }
 
         function clearPoll() {
@@ -193,7 +238,7 @@
                 if (!res.ok) {
                     throw new Error(data.error || "Ошибка статуса");
                 }
-                if (!data.exists) {
+                if (Object.prototype.hasOwnProperty.call(data, "exists") && data.exists === false) {
                     setButtonState(false);
                     setStatus("");
                     clearPoll();
@@ -202,23 +247,24 @@
                 }
                 const status = (data.status || "").toLowerCase();
                 const progress = Number(data.progress || 0);
-                const step = data.step || "Синхронизация";
+                const phaseMessage = data.message || "Синхронизация...";
                 if (status === "running" || status === "pending") {
                     setButtonState(true);
-                    setStatus(`${step} (${Math.max(0, Math.min(100, progress))}%)`);
+                    setButtonProgress(progress);
+                    setStatus(`${phaseMessage} (${Math.max(0, Math.min(100, progress))}%)`, "info");
                     schedulePoll(taskId);
                     return;
                 }
-                if (status === "done") {
+                if (status === "success") {
                     setButtonState(false);
-                    setStatus("Синхронизация завершена");
+                    setStatus(data.message || "Синхронизация завершена", "success");
                     clearPoll();
                     currentTaskId = null;
                     return;
                 }
-                if (status === "failed") {
+                if (status === "error") {
                     setButtonState(false);
-                    setStatus(data.message || "Ошибка синхронизации", true);
+                    setStatus(data.message || "Ошибка синхронизации", "error");
                     clearPoll();
                     currentTaskId = null;
                     return;
@@ -228,7 +274,7 @@
                 currentTaskId = null;
             } catch (err) {
                 setButtonState(false);
-                setStatus(`Ошибка статуса: ${err}`, true);
+                setStatus(`Ошибка статуса: ${err}`, "error");
                 clearPoll();
                 currentTaskId = null;
             }
@@ -246,32 +292,68 @@
                     },
                 });
                 const data = await res.json();
-                if (!res.ok || !data.ok || !data.task_id) {
+                if (res.status === 409 && data.task_id) {
+                    currentTaskId = data.task_id;
+                    const progress = Number(data.progress || 0);
+                    setButtonProgress(progress);
+                    setStatus(`${data.message || "Синхронизация..."} (${Math.max(0, Math.min(100, progress))}%)`, "info");
+                    schedulePoll(currentTaskId, 800);
+                    return;
+                }
+                if (!res.ok || !data.task_id) {
                     throw new Error(data.error || "Не удалось запустить синк");
                 }
                 currentTaskId = data.task_id;
-                setStatus("Синхронизация запущена");
+                setButtonProgress(Number(data.progress || 0));
+                setStatus(data.message || "Синхронизация запущена", "info");
                 schedulePoll(currentTaskId, 1000);
             } catch (err) {
                 setButtonState(false);
-                setStatus(`Ошибка синхронизации: ${err}`, true);
+                setStatus(`Ошибка синхронизации: ${err}`, "error");
                 clearPoll();
                 currentTaskId = null;
             }
         });
 
         const runningTaskRaw = document.getElementById("top-nav-running-sync-task-data")?.textContent || "null";
+        async function bootstrapCurrentRunningTask() {
+            try {
+                const res = await fetch("{% url 'sync_orders_current_api' %}", {
+                    method: "GET",
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok || !data.has_running || !data.task_id) {
+                    return;
+                }
+                currentTaskId = data.task_id;
+                setButtonState(true);
+                setButtonProgress(Number(data.progress || 0));
+                if (isHomePage) {
+                    const progress = Number(data.progress || 0);
+                    setStatus(`${data.message || "Синхронизация..."} (${Math.max(0, Math.min(100, progress))}%)`, "info");
+                }
+                schedulePoll(currentTaskId, 800);
+            } catch (_err) {}
+        }
+
         try {
             const runningTask = JSON.parse(runningTaskRaw);
             if (runningTask && runningTask.task_id) {
                 currentTaskId = runningTask.task_id;
                 setButtonState(true);
-                const step = runningTask.step || "Синхронизация";
-                const progress = Number(runningTask.progress || 0);
-                setStatus(`${step} (${Math.max(0, Math.min(100, progress))}%)`);
+                setButtonProgress(Number(runningTask.progress || 0));
+                if (isHomePage) {
+                    const progress = Number(runningTask.progress || 0);
+                    setStatus(`${runningTask.message || "Синхронизация..."} (${Math.max(0, Math.min(100, progress))}%)`, "info");
+                }
                 schedulePoll(currentTaskId, 800);
+            } else {
+                bootstrapCurrentRunningTask();
             }
-        } catch (_err) {}
+        } catch (_err) {
+            bootstrapCurrentRunningTask();
+        }
     })();
 </script>
 
@@ -310,9 +392,21 @@
 
         function redirectAndStop(loginUrl) {
             redirectToLogin(loginUrl);
-            // Не даем локальным catch-блокам показывать модалки ошибок
-            // в момент, когда уже начался переход на страницу логина.
-            return new Promise(() => {});
+            // Возвращаем завершенный ответ, чтобы await fetch не зависал навсегда.
+            return Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        error: "auth_required",
+                        code: "auth_required",
+                    }),
+                    {
+                        status: 401,
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                    }
+                )
+            );
         }
 
         window.fetch = async function authAwareFetch(...args) {

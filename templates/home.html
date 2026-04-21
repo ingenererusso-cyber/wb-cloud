@@ -697,9 +697,12 @@
         }
 
         async function loadAnalyticsData() {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), 20000);
             try {
                 const res = await fetch("{% url 'analytics_logistics_data_api' %}", {
                     headers: { "Accept": "application/json" },
+                    signal: controller.signal,
                 });
                 const data = await res.json();
                 if (!res.ok || !data) {
@@ -725,9 +728,10 @@
 
                 renderAllLineCharts();
                 renderTopNonLocalDistricts(topNonLocalDistrictsData);
-            } catch (_err) {
+            } catch (err) {
                 const loadingEl = document.getElementById("local-orders-metric-loading");
-                if (loadingEl) loadingEl.textContent = "Ошибка загрузки данных.";
+                const isTimeout = err && (err.name === "AbortError");
+                if (loadingEl) loadingEl.textContent = isTimeout ? "Таймаут загрузки данных." : "Ошибка загрузки данных.";
                 [
                     "local-orders-range",
                     "fact-localization-range",
@@ -736,8 +740,10 @@
                     "top-non-local-range",
                 ].forEach((id) => {
                     const el = document.getElementById(id);
-                    if (el) el.textContent = "Ошибка загрузки";
+                    if (el) el.textContent = isTimeout ? "Таймаут загрузки" : "Ошибка загрузки";
                 });
+            } finally {
+                window.clearTimeout(timeoutId);
             }
         }
 
@@ -781,119 +787,6 @@
             }, 120);
         }
 
-        if (window.__globalSyncWidgetInstalled) {
-            return;
-        }
-
-        const syncBtn = document.getElementById("sync-orders-btn");
-        const syncBanner = document.getElementById("sync-status-banner");
-        const syncLastAt = document.getElementById("sync-last-at");
-        const runningSyncTaskData = JSON.parse(
-            document.getElementById("running-sync-task-data").textContent || "null"
-        );
-
-        function getCookie(name) {
-            const value = `; ${document.cookie}`;
-            const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) {
-                return parts.pop().split(";").shift();
-            }
-            return "";
-        }
-
-        function setSyncBanner(text, mode) {
-            syncBanner.style.display = "block";
-            syncBanner.classList.remove("hint-banner-info", "hint-banner-error", "hint-banner-success");
-            syncBanner.classList.add(mode || "hint-banner-info");
-            syncBanner.textContent = text;
-        }
-
-        async function pollSyncStatus(taskId) {
-            const statusUrl = `{% url 'sync_orders_status_api' %}?task_id=${encodeURIComponent(taskId)}`;
-            try {
-                const res = await fetch(statusUrl, { headers: { "Accept": "application/json" } });
-                let data = null;
-                const contentType = res.headers.get("content-type") || "";
-                if (contentType.includes("application/json")) {
-                    data = await res.json();
-                } else {
-                    const text = await res.text();
-                    data = { error: text || "Неизвестная ошибка" };
-                }
-                if (!res.ok) {
-                    setSyncBanner(`Ошибка статуса: ${data.error || "не удалось получить статус"}`, "hint-banner-error");
-                    syncBtn.disabled = false;
-                    return;
-                }
-
-                const progress = Number(data.progress || 0);
-                const step = data.step ? `${data.step}. ` : "";
-                setSyncBanner(`${step}${data.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
-
-                if (data.status === "running") {
-                    window.setTimeout(() => pollSyncStatus(taskId), 2000);
-                    return;
-                }
-
-                if (data.status === "success") {
-                    setSyncBanner(data.message || "Синхронизация завершена.", "hint-banner-success");
-                    if (syncLastAt) {
-                        const finishedAt = data.finished_at ? new Date(data.finished_at) : new Date();
-                        const text = Number.isNaN(finishedAt.getTime())
-                            ? "Последняя синхронизация: только что"
-                            : `Последняя синхронизация: ${finishedAt.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`;
-                        syncLastAt.textContent = text;
-                    }
-                } else {
-                    setSyncBanner(data.message || "Ошибка синхронизации.", "hint-banner-error");
-                }
-                syncBtn.disabled = false;
-            } catch (err) {
-                setSyncBanner("Ошибка сети при проверке статуса синхронизации.", "hint-banner-error");
-                syncBtn.disabled = false;
-            }
-        }
-
-        async function startSyncOrders() {
-            syncBtn.disabled = true;
-            setSyncBanner("Запускаю синхронизацию...", "hint-banner-info");
-            try {
-                const res = await fetch("{% url 'sync_orders_start_api' %}", {
-                    method: "POST",
-                    headers: {
-                        "X-CSRFToken": getCookie("csrftoken"),
-                        "Accept": "application/json",
-                    },
-                });
-                let data = null;
-                const contentType = res.headers.get("content-type") || "";
-                if (contentType.includes("application/json")) {
-                    data = await res.json();
-                } else {
-                    const text = await res.text();
-                    data = { error: text || "Неизвестная ошибка" };
-                }
-                if (!res.ok) {
-                    setSyncBanner(`Ошибка запуска: ${data.error || "не удалось запустить синхронизацию"}`, "hint-banner-error");
-                    syncBtn.disabled = false;
-                    return;
-                }
-                pollSyncStatus(data.task_id);
-            } catch (err) {
-                setSyncBanner(`Ошибка сети при запуске синхронизации: ${err && err.message ? err.message : "unknown"}`, "hint-banner-error");
-                syncBtn.disabled = false;
-            }
-        }
-
-        syncBtn.addEventListener("click", startSyncOrders);
-
-        if (runningSyncTaskData && runningSyncTaskData.task_id) {
-            const progress = Number(runningSyncTaskData.progress || 0);
-            const step = runningSyncTaskData.step ? `${runningSyncTaskData.step}. ` : "";
-            setSyncBanner(`${step}${runningSyncTaskData.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
-            syncBtn.disabled = true;
-            pollSyncStatus(runningSyncTaskData.task_id);
-        }
     </script>
 </body>
 </html>

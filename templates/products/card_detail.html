@@ -1035,9 +1035,31 @@
     </div>
 </div>
 
+{{ sales_points_json|json_script:"card-detail-sales-points-data" }}
+{{ unit_warehouse_coeff_options_json|json_script:"card-detail-warehouse-options-data" }}
+{{ unit_saved_calc_json|json_script:"card-detail-saved-calc-data" }}
+
 <script>
+    function parseScriptJson(id, fallback) {
+        const raw = document.getElementById(id)?.textContent;
+        if (!raw) return fallback;
+        try {
+            const first = JSON.parse(raw);
+            if (typeof first === "string") {
+                try {
+                    return JSON.parse(first);
+                } catch (_err) {
+                    return fallback;
+                }
+            }
+            return first;
+        } catch (_err) {
+            return fallback;
+        }
+    }
+
     (function () {
-        const points = {{ sales_points_json|safe }};
+        const points = parseScriptJson("card-detail-sales-points-data", []);
         const svg = document.getElementById("sales-chart");
         const empty = document.getElementById("sales-chart-empty");
         if (!svg) return;
@@ -1146,8 +1168,8 @@
     })();
 
     (function () {
-        const warehouseOptions = {{ unit_warehouse_coeff_options_json|safe }};
-        const savedUnitCalc = {{ unit_saved_calc_json|safe }};
+        const warehouseOptions = parseScriptJson("card-detail-warehouse-options-data", []);
+        const savedUnitCalc = parseScriptJson("card-detail-saved-calc-data", null);
         let factProfitMonth = {};
         const categoryCommissionPercent = Number({{ unit_default_commission_percent|default:0 }});
         const resultEl = document.getElementById("ue-result");
@@ -1165,6 +1187,35 @@
             const parts = value.split(`; ${name}=`);
             if (parts.length === 2) return parts.pop().split(";").shift();
             return "";
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function sanitizeHtmlString(value) {
+            const template = document.createElement("template");
+            template.innerHTML = String(value || "");
+            template.content.querySelectorAll("script,iframe,object,embed,link,style").forEach((node) => node.remove());
+            template.content.querySelectorAll("*").forEach((node) => {
+                for (const attr of Array.from(node.attributes)) {
+                    const attrName = attr.name.toLowerCase();
+                    const attrValue = (attr.value || "").trim().toLowerCase();
+                    if (attrName.startsWith("on")) {
+                        node.removeAttribute(attr.name);
+                        continue;
+                    }
+                    if ((attrName === "href" || attrName === "src") && attrValue.startsWith("javascript:")) {
+                        node.removeAttribute(attr.name);
+                    }
+                }
+            });
+            return template.innerHTML;
         }
 
         function showStep(index) {
@@ -1228,13 +1279,22 @@
             });
 
             if (!filtered.length) {
-                optionsEl.innerHTML = `<div class="searchable-empty">Ничего не найдено</div>`;
+                optionsEl.textContent = "";
+                const emptyEl = document.createElement("div");
+                emptyEl.className = "searchable-empty";
+                emptyEl.textContent = "Ничего не найдено";
+                optionsEl.appendChild(emptyEl);
                 return;
             }
 
-            optionsEl.innerHTML = filtered
-                .map((item) => `<div class="searchable-option" data-value="${item.warehouse_name}">${item.warehouse_name}</div>`)
-                .join("");
+            optionsEl.textContent = "";
+            filtered.forEach((item) => {
+                const optionEl = document.createElement("div");
+                optionEl.className = "searchable-option";
+                optionEl.setAttribute("data-value", String(item.warehouse_name || ""));
+                optionEl.textContent = String(item.warehouse_name || "");
+                optionsEl.appendChild(optionEl);
+            });
 
             optionsEl.querySelectorAll(".searchable-option").forEach((el) => {
                 el.addEventListener("click", () => {
@@ -1472,9 +1532,9 @@
                     : "н/д";
                 return `
                     <tr>
-                        <td>${row.label}</td>
-                        <td>${unitRendered}</td>
-                        <td>${factRendered}</td>
+                        <td>${escapeHtml(row.label)}</td>
+                        <td>${escapeHtml(unitRendered)}</td>
+                        <td>${escapeHtml(factRendered)}</td>
                         <td class="${delta !== null ? deltaCls : ""}">${deltaRendered}</td>
                     </tr>
                 `;
@@ -1484,7 +1544,7 @@
             compareEl.innerHTML = `
                 <h4>Сравнение юнитки и факта за месяц</h4>
                 <p class="unit-compare-note">
-                    Период факта: ${factProfitMonth.date_from || "-"} — ${factProfitMonth.date_to || "-"},
+                        Период факта: ${escapeHtml(factProfitMonth.date_from || "-")} — ${escapeHtml(factProfitMonth.date_to || "-")},
                     выкупов: ${buyouts}. Все значения в таблице — средние на 1 выкуп.
                 </p>
                 <table>
@@ -1512,7 +1572,7 @@
                 if (!res.ok || !data.ok) {
                     throw new Error(data.error || "Не удалось загрузить блоки");
                 }
-                heavySectionsEl.innerHTML = data.html || "";
+                heavySectionsEl.innerHTML = sanitizeHtmlString(data.html || "");
                 factProfitMonth = (data.fact_profit_month && typeof data.fact_profit_month === "object")
                     ? data.fact_profit_month
                     : {};
@@ -1589,7 +1649,7 @@
             const storageBase = Number(breakdown.storage_base_liter || 0);
             const storageAdditional = Number(breakdown.storage_additional_liter || 0);
             const warehouseNote = warehouseName
-                ? `Рассчитано для склада: ${warehouseName}. Коэф. логистики: ${deliveryCoef.toFixed(2)}%, хранение: ${storageBase.toFixed(2)} / ${storageAdditional.toFixed(2)} ₽/л в день.`
+                ? `Рассчитано для склада: ${escapeHtml(warehouseName)}. Коэф. логистики: ${deliveryCoef.toFixed(2)}%, хранение: ${storageBase.toFixed(2)} / ${storageAdditional.toFixed(2)} ₽/л в день.`
                 : "";
 
             targetEl.classList.remove("unit-hidden");
@@ -1599,7 +1659,7 @@
                     <div class="stacked-bar">${segmentsHtml}</div>
                 </div>
                 <div class="segment-legend">${legendHtml}</div>
-                <p class="unit-note">${breakdown.acceptance_note || ""}</p>
+                <p class="unit-note">${escapeHtml(breakdown.acceptance_note || "")}</p>
                 <p class="unit-note">Цена продажи: ${money(breakdown.sale_price || 0)}</p>
                 ${warehouseNote ? `<p class="unit-note">${warehouseNote}</p>` : ""}
                 ${withPlayButton ? `<div class="unit-actions"><button type="button" class="btn btn-secondary" id="ue-open-playground">Поиграться</button></div>` : ""}

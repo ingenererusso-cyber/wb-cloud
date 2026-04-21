@@ -394,6 +394,15 @@
             return value === null || value === undefined || value === "" ? "-" : String(value);
         }
 
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
         function signClass(value) {
             const num = Number(value);
             if (!Number.isFinite(num) || num === 0) {
@@ -441,16 +450,16 @@
 
             rowsEl.innerHTML = regions.map((r) => `
                 <tr>
-                    <td>${safe(r.region_name)}</td>
-                    <td class="align-right">${safe(r.orders_count)}</td>
-                    <td class="align-right">${safe(r.non_local_orders)}</td>
+                    <td>${escapeHtml(safe(r.region_name))}</td>
+                    <td class="align-right">${escapeHtml(safe(r.orders_count))}</td>
+                    <td class="align-right">${escapeHtml(safe(r.non_local_orders))}</td>
                     <td class="align-right">${fmtMoney(r.current_total_cost)}</td>
                     <td class="align-right">${fmtMoney(r.projected_total_cost)}</td>
                     <td class="align-right">
                         <span class="${Number(r.projected_transit_cost) > 0 ? "num-positive" : "num-neutral"}">${fmtMoney(r.projected_transit_cost)}</span>
                     </td>
-                    <td class="align-right" title="${buildWarehouseOptionsTooltip(r)}">
-                        <span class="warehouse-name">${safe(r.target_warehouse_name)}</span>:
+                    <td class="align-right" title="${escapeHtml(buildWarehouseOptionsTooltip(r))}">
+                        <span class="warehouse-name">${escapeHtml(safe(r.target_warehouse_name))}</span>:
                         <span class="${signClass(r.projected_extra_warehouse_cost)}">${fmtMoney(r.projected_extra_warehouse_cost)}</span>
                     </td>
                     <td class="align-right">
@@ -460,7 +469,7 @@
                         <span class="${signClass(invert(r.net_effect))}">${fmtMoney(invert(r.net_effect))}</span>
                     </td>
                     <td><span class="pill ${r.recommended ? "pill-yes" : "pill-no"}">${r.recommended ? "Да" : "Нет"}</span></td>
-                    <td>${safe(r.comment)}</td>
+                    <td>${escapeHtml(safe(r.comment))}</td>
                 </tr>
             `).join("");
 

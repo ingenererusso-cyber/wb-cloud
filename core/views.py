@@ -1033,7 +1033,9 @@ def _log_app_error(
             traceback_text=traceback_text or "",
         )
     except Exception:
-        pass
+        # Логирование в БД не должно ломать пользовательский поток.
+        # Оставляем fallback в stderr для последующей диагностики.
+        traceback.print_exc()
 
 
 def _friendly_api_error_text(exc: Exception | str) -> str:
@@ -1623,7 +1625,7 @@ def sync_orders_start_api(request):
             path=request.path,
             traceback_text=traceback.format_exc(),
         )
-        return JsonResponse({"error": f"Не удалось запустить синхронизацию: {exc}"}, status=500)
+        return JsonResponse({"error": "Не удалось запустить синхронизацию. Попробуйте позже."}, status=500)
 
 
 @login_required
@@ -1665,7 +1667,37 @@ def sync_orders_status_api(request):
             context={"task_id": request.GET.get("task_id")},
             traceback_text=traceback.format_exc(),
         )
-        return JsonResponse({"error": f"Не удалось получить статус синхронизации: {exc}"}, status=500)
+        return JsonResponse({"error": "Не удалось получить статус синхронизации. Попробуйте позже."}, status=500)
+
+
+@login_required
+@require_GET
+def sync_orders_current_api(request):
+    try:
+        running_task = _get_running_sync_task_for_user(request.user)
+        if not running_task:
+            return JsonResponse({"has_running": False}, status=200)
+        return JsonResponse(
+            {
+                "has_running": True,
+                "task_id": running_task.task_id,
+                "status": running_task.status,
+                "progress": running_task.progress,
+                "step": running_task.step,
+                "message": running_task.message,
+            },
+            status=200,
+        )
+    except Exception as exc:
+        _log_app_error(
+            source="sync.current_api",
+            message=f"Не удалось получить текущую синхронизацию: {exc}",
+            user=request.user,
+            seller=_get_seller_for_user(request.user),
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": "Не удалось получить текущую синхронизацию. Попробуйте позже."}, status=500)
 
 
 @login_required
@@ -2202,7 +2234,7 @@ def fbs_stocks_report(request):
     rows_qs = SellerFbsStock.objects.filter(seller=seller)
     if warehouse_filter:
         rows_qs = rows_qs.filter(warehouse_name=warehouse_filter)
-    rows_qs = rows_qs.order_by("-amount", "warehouse_name", "chrt_id")
+    rows_qs = rows_qs.select_related("seller_warehouse").order_by("-amount", "warehouse_name", "chrt_id")
 
     rows = []
     total_amount = 0
@@ -2311,9 +2343,11 @@ def product_cards_report(request):
             continue
         fbs_stock_map[nm_id] = int(fbs_stock_map.get(nm_id, 0) + int(row.get("total_qty") or 0))
 
-    rows = []
-    for product in products_qs:
-        rows.append(
+    paginator = Paginator(products_qs, 50)
+    page_obj = paginator.get_page(request.GET.get("page") or 1)
+    page_rows = []
+    for product in page_obj.object_list:
+        page_rows.append(
             {
                 "id": product.id,
                 "nm_id": product.nm_id,
@@ -2328,9 +2362,7 @@ def product_cards_report(request):
                 "fbs_stock_qty": fbs_stock_map.get(product.nm_id, 0),
             }
         )
-
-    paginator = Paginator(rows, 50)
-    page_obj = paginator.get_page(request.GET.get("page") or 1)
+    page_obj.object_list = page_rows
 
     return render(
         request,
@@ -2340,7 +2372,7 @@ def product_cards_report(request):
             "last_sync_at": last_sync_at,
             "query": query,
             "page_obj": page_obj,
-            "total_cards_count": len(rows),
+            "total_cards_count": paginator.count,
         },
     )
 
@@ -2788,7 +2820,7 @@ def product_card_detail(request, product_id: int):
             "product": product,
             "chart_start": chart_start,
             "chart_end": chart_end,
-            "sales_points_json": json.dumps(sales_points, ensure_ascii=False),
+            "sales_points_json": sales_points,
             "month_start": month_start,
             "monthly_total_orders": monthly_total_orders,
             "monthly_buyout_percent": monthly_buyout_percent,
@@ -2806,8 +2838,8 @@ def product_card_detail(request, product_id: int):
             "unit_latest_theoretical_irp_percent": latest_theoretical_irp_percent,
             "unit_default_commission_percent": commission_percent,
             "unit_default_days_to_sell_batch": default_days_to_sell_batch,
-            "unit_warehouse_coeff_options_json": json.dumps(warehouse_coeff_options, ensure_ascii=False),
-            "unit_saved_calc_json": json.dumps(saved_unit_calc_payload, ensure_ascii=False),
+            "unit_warehouse_coeff_options_json": warehouse_coeff_options,
+            "unit_saved_calc_json": saved_unit_calc_payload,
             "unit_has_saved_calc": bool(saved_unit_calc_payload),
         },
     )

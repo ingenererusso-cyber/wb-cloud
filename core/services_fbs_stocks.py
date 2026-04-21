@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List
 
+from django.db import transaction
 from core.models import ProductCardSize, SellerAccount, SellerFbsStock, SellerWarehouse
 from wb_api.client import WBContentClient, WBMarketplaceClient
 
@@ -107,8 +108,9 @@ def sync_seller_fbs_stocks(seller: SellerAccount, batch_size: int = 1000) -> Dic
                     )
                 )
 
-    SellerFbsStock.objects.filter(seller=seller).delete()
-    SellerFbsStock.objects.bulk_create(rows_to_create, batch_size=2000)
+    with transaction.atomic():
+        SellerFbsStock.objects.filter(seller=seller).delete()
+        SellerFbsStock.objects.bulk_create(rows_to_create, batch_size=2000)
 
     return {
         "sizes_synced": sizes_synced,
