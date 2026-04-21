@@ -371,15 +371,25 @@
             return true;
         }
 
+        let navigating = false;
+
         document.addEventListener("click", (event) => {
             if (isModifiedClick(event)) {
+                return;
+            }
+            if (navigating) {
                 return;
             }
             const anchor = event.target.closest("a[href]");
             if (!isNavigableAnchor(anchor)) {
                 return;
             }
+            event.preventDefault();
+            navigating = true;
             showLoader();
+            window.requestAnimationFrame(() => {
+                window.location.assign(anchor.href);
+            });
         }, true);
 
         document.addEventListener("submit", (event) => {

@@ -19,6 +19,7 @@ from django.db.models.functions import TruncDate
 from django.db import OperationalError, close_old_connections
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -2344,6 +2345,212 @@ def product_cards_report(request):
     )
 
 
+def _build_product_card_heavy_context(
+    *,
+    seller: SellerAccount,
+    nm_id: int,
+    chart_end: date,
+    month_start: date,
+    purchase_price: float,
+    discounted_price: float,
+    settings_obj: UnitEconomicsSettings,
+) -> dict:
+    product_orders_qs = Order.objects.filter(seller=seller, nm_id=nm_id)
+    first_order_dt = product_orders_qs.aggregate(min_dt=Min("order_date")).get("min_dt")
+    all_history_from = (first_order_dt.date() if first_order_dt else month_start)
+    all_history_to = chart_end
+
+    fact_profit_all = _build_fact_profit_metrics_for_product(
+        seller=seller,
+        nm_id=nm_id,
+        date_from=all_history_from,
+        date_to=all_history_to,
+        purchase_price=purchase_price,
+        discounted_price=discounted_price,
+        settings_obj=settings_obj,
+    )
+    fact_profit_month = _build_fact_profit_metrics_for_product(
+        seller=seller,
+        nm_id=nm_id,
+        date_from=month_start,
+        date_to=chart_end,
+        purchase_price=purchase_price,
+        discounted_price=discounted_price,
+        settings_obj=settings_obj,
+    )
+
+    campaigns_for_seller = list(WbAdvertCampaign.objects.filter(seller=seller).order_by("-updated_at"))
+    advert_ids_from_campaign_payload = set()
+    campaign_nm_ids_map: dict[int, list[int]] = {}
+    for campaign in campaigns_for_seller:
+        nm_ids_in_campaign = _extract_campaign_nm_ids_from_payload(campaign.raw_payload)
+        if not nm_ids_in_campaign:
+            continue
+        try:
+            advert_id_int = int(campaign.advert_id)
+        except (TypeError, ValueError):
+            continue
+        campaign_nm_ids_map[advert_id_int] = nm_ids_in_campaign
+        if int(nm_id) in nm_ids_in_campaign:
+            advert_ids_from_campaign_payload.add(advert_id_int)
+
+    related_advert_ids = sorted(advert_ids_from_campaign_payload)
+    spend_by_advert_for_block = _build_campaign_spend_totals(
+        seller=seller,
+        advert_ids=related_advert_ids,
+        date_from=month_start,
+        date_to=chart_end,
+    )
+    participant_nm_ids_for_block: set[int] = set()
+    for advert_id_int in related_advert_ids:
+        participant_nm_ids_for_block.update(campaign_nm_ids_map.get(advert_id_int, []))
+    sales_base_by_nm_for_block = _build_sales_base_by_nm(
+        seller=seller,
+        date_from=month_start,
+        date_to=chart_end,
+        nm_ids=participant_nm_ids_for_block,
+    )
+    campaigns_by_id = {
+        int(c.advert_id): c
+        for c in campaigns_for_seller
+        if c.advert_id is not None
+    }
+
+    ad_campaign_rows = []
+    total_ad_spend_related = 0.0
+    total_ad_orders_related = 0
+    total_ad_clicks_related = 0
+    total_ad_views_related = 0
+    for advert_id in related_advert_ids:
+        campaign = campaigns_by_id.get(int(advert_id))
+        nm_ids_in_campaign = campaign_nm_ids_map.get(int(advert_id), [])
+        campaign_raw_payload = campaign.raw_payload if campaign and isinstance(campaign.raw_payload, dict) else {}
+        campaign_name_value = (
+            (campaign.campaign_name if campaign else None)
+            or (campaign_raw_payload.get("name") if campaign_raw_payload else None)
+            or (campaign_raw_payload.get("advertName") if campaign_raw_payload else None)
+            or (
+                (campaign_raw_payload.get("settings") or {}).get("name")
+                if isinstance(campaign_raw_payload.get("settings"), dict)
+                else None
+            )
+            or "-"
+        )
+        campaign_total_spend = float(spend_by_advert_for_block.get(int(advert_id), 0.0))
+        spend_sum, spend_is_allocated = _allocate_campaign_spend_for_nm(
+            target_nm_id=int(nm_id),
+            campaign_nm_ids=nm_ids_in_campaign,
+            campaign_total_spend=campaign_total_spend,
+            sale_base_by_nm=sales_base_by_nm_for_block,
+        )
+        stats_qs = WbAdvertStatDaily.objects.filter(
+            seller=seller,
+            advert_id=int(advert_id),
+            stat_date__gte=month_start,
+            stat_date__lte=chart_end,
+        )
+        first_stat_date = stats_qs.aggregate(v=Min("stat_date")).get("v")
+        last_stat_date = stats_qs.aggregate(v=Max("stat_date")).get("v")
+        day_totals: dict[date, dict[str, float]] = {}
+        for stat_row in stats_qs.only("stat_date", "views", "clicks", "orders", "add_to_cart", "raw_payload"):
+            stat_day = stat_row.stat_date
+            if stat_day is None:
+                continue
+            payload = stat_row.raw_payload if isinstance(stat_row.raw_payload, dict) else {}
+            day_payload = payload.get("day") if isinstance(payload.get("day"), dict) else {}
+
+            views_value = _to_float_or_default(stat_row.views, _to_float_or_default(day_payload.get("views"), 0.0))
+            clicks_value = _to_float_or_default(stat_row.clicks, _to_float_or_default(day_payload.get("clicks"), 0.0))
+            orders_value = _to_float_or_default(stat_row.orders, _to_float_or_default(day_payload.get("orders"), 0.0))
+            atc_value = _to_float_or_default(stat_row.add_to_cart, _to_float_or_default(day_payload.get("atbs"), 0.0))
+
+            bucket = day_totals.setdefault(
+                stat_day,
+                {"views": 0.0, "clicks": 0.0, "orders": 0.0, "add_to_cart": 0.0},
+            )
+            bucket["views"] = max(bucket["views"], views_value)
+            bucket["clicks"] = max(bucket["clicks"], clicks_value)
+            bucket["orders"] = max(bucket["orders"], orders_value)
+            bucket["add_to_cart"] = max(bucket["add_to_cart"], atc_value)
+
+        days_count = len(day_totals)
+        views_sum = int(sum(values["views"] for values in day_totals.values()))
+        clicks_sum = int(sum(values["clicks"] for values in day_totals.values()))
+        orders_sum = int(sum(values["orders"] for values in day_totals.values()))
+        atc_sum = int(sum(values["add_to_cart"] for values in day_totals.values()))
+
+        campaign_status = int(_to_float_or_default((campaign.status if campaign else None), 0.0))
+        if (
+            campaign_status == 7
+            and campaign_total_spend <= 0
+            and days_count == 0
+            and views_sum == 0
+            and clicks_sum == 0
+            and orders_sum == 0
+            and atc_sum == 0
+        ):
+            continue
+
+        ctr_percent = round((clicks_sum / views_sum) * 100.0, 2) if views_sum > 0 else 0.0
+        cpc = round((spend_sum / clicks_sum), 2) if clicks_sum > 0 else 0.0
+        advert_type_value = campaign.advert_type if campaign else None
+        status_value = campaign.status if campaign else None
+        status_label, status_css = _advert_status_meta(status_value)
+
+        total_ad_spend_related += spend_sum
+        total_ad_orders_related += orders_sum
+        total_ad_clicks_related += clicks_sum
+        total_ad_views_related += views_sum
+
+        ad_campaign_rows.append(
+            {
+                "advert_id": int(advert_id),
+                "campaign_name": campaign_name_value,
+                "status": status_value,
+                "status_label": status_label,
+                "status_css": status_css,
+                "advert_type": advert_type_value,
+                "advert_type_label": _advert_type_label(advert_type_value),
+                "create_time": campaign.create_time if campaign else None,
+                "start_time": campaign.start_time if campaign else None,
+                "end_time": campaign.end_time if campaign else None,
+                "daily_budget": float(campaign.daily_budget or 0.0) if campaign and campaign.daily_budget is not None else 0.0,
+                "nm_ids_in_campaign": nm_ids_in_campaign,
+                "participants_count": len(nm_ids_in_campaign),
+                "spend_allocated": bool(spend_is_allocated),
+                "campaign_total_spend": campaign_total_spend,
+                "first_stat_date": first_stat_date,
+                "last_stat_date": last_stat_date,
+                "days_count": days_count,
+                "spend_sum": spend_sum,
+                "views_sum": views_sum,
+                "clicks_sum": clicks_sum,
+                "orders_sum": orders_sum,
+                "add_to_cart_sum": atc_sum,
+                "ctr_percent": ctr_percent,
+                "cpc": cpc,
+            }
+        )
+    ad_campaign_rows.sort(
+        key=lambda row: (
+            row.get("create_time") or row.get("start_time") or row.get("last_stat_date") or date.min,
+            row.get("advert_id") or 0,
+        ),
+        reverse=True,
+    )
+
+    return {
+        "fact_profit_all": fact_profit_all,
+        "fact_profit_month": fact_profit_month,
+        "ad_campaign_rows": ad_campaign_rows,
+        "ad_related_campaigns_count": len(ad_campaign_rows),
+        "ad_total_spend_related": total_ad_spend_related,
+        "ad_total_orders_related": total_ad_orders_related,
+        "ad_total_clicks_related": total_ad_clicks_related,
+        "ad_total_views_related": total_ad_views_related,
+    }
+
+
 @login_required
 def product_card_detail(request, product_id: int):
     seller = _get_or_create_seller_for_user(request.user)
@@ -2471,28 +2678,6 @@ def product_card_detail(request, product_id: int):
 
     settings_obj = _get_or_create_unit_economics_settings(seller)
 
-    first_order_dt = product_orders_qs.aggregate(min_dt=Min("order_date")).get("min_dt")
-    all_history_from = (first_order_dt.date() if first_order_dt else month_start)
-    all_history_to = chart_end
-    fact_profit_all = _build_fact_profit_metrics_for_product(
-        seller=seller,
-        nm_id=nm_id,
-        date_from=all_history_from,
-        date_to=all_history_to,
-        purchase_price=default_purchase_price,
-        discounted_price=default_sale_price,
-        settings_obj=settings_obj,
-    )
-    fact_profit_month = _build_fact_profit_metrics_for_product(
-        seller=seller,
-        nm_id=nm_id,
-        date_from=month_start,
-        date_to=chart_end,
-        purchase_price=default_purchase_price,
-        discounted_price=default_sale_price,
-        settings_obj=settings_obj,
-    )
-
     today = timezone.localdate()
     acceptance_rows = list(
         WbAcceptanceCoefficient.objects
@@ -2594,167 +2779,6 @@ def product_card_detail(request, product_id: int):
             "calculated_at": saved_unit_calc.calculated_at.isoformat() if saved_unit_calc.calculated_at else None,
         }
 
-    campaigns_for_seller = list(WbAdvertCampaign.objects.filter(seller=seller).order_by("-updated_at"))
-    advert_ids_from_campaign_payload = set()
-    campaign_nm_ids_map: dict[int, list[int]] = {}
-    for campaign in campaigns_for_seller:
-        nm_ids_in_campaign = _extract_campaign_nm_ids_from_payload(campaign.raw_payload)
-        if not nm_ids_in_campaign:
-            continue
-        try:
-            advert_id_int = int(campaign.advert_id)
-        except (TypeError, ValueError):
-            continue
-        campaign_nm_ids_map[advert_id_int] = nm_ids_in_campaign
-        if int(nm_id) in nm_ids_in_campaign:
-            advert_ids_from_campaign_payload.add(advert_id_int)
-
-    related_advert_ids = sorted(advert_ids_from_campaign_payload)
-    spend_by_advert_for_block = _build_campaign_spend_totals(
-        seller=seller,
-        advert_ids=related_advert_ids,
-        date_from=month_start,
-        date_to=chart_end,
-    )
-    participant_nm_ids_for_block: set[int] = set()
-    for advert_id_int in related_advert_ids:
-        participant_nm_ids_for_block.update(campaign_nm_ids_map.get(advert_id_int, []))
-    sales_base_by_nm_for_block = _build_sales_base_by_nm(
-        seller=seller,
-        date_from=month_start,
-        date_to=chart_end,
-        nm_ids=participant_nm_ids_for_block,
-    )
-    campaigns_by_id = {
-        int(c.advert_id): c
-        for c in campaigns_for_seller
-        if c.advert_id is not None
-    }
-
-    ad_campaign_rows = []
-    total_ad_spend_related = 0.0
-    total_ad_orders_related = 0
-    total_ad_clicks_related = 0
-    total_ad_views_related = 0
-    for advert_id in related_advert_ids:
-        campaign = campaigns_by_id.get(int(advert_id))
-        nm_ids_in_campaign = campaign_nm_ids_map.get(int(advert_id), [])
-        campaign_raw_payload = campaign.raw_payload if campaign and isinstance(campaign.raw_payload, dict) else {}
-        campaign_name_value = (
-            (campaign.campaign_name if campaign else None)
-            or (campaign_raw_payload.get("name") if campaign_raw_payload else None)
-            or (campaign_raw_payload.get("advertName") if campaign_raw_payload else None)
-            or (
-                (campaign_raw_payload.get("settings") or {}).get("name")
-                if isinstance(campaign_raw_payload.get("settings"), dict)
-                else None
-            )
-            or "-"
-        )
-        campaign_total_spend = float(spend_by_advert_for_block.get(int(advert_id), 0.0))
-        spend_sum, spend_is_allocated = _allocate_campaign_spend_for_nm(
-            target_nm_id=int(nm_id),
-            campaign_nm_ids=nm_ids_in_campaign,
-            campaign_total_spend=campaign_total_spend,
-            sale_base_by_nm=sales_base_by_nm_for_block,
-        )
-        stats_qs = WbAdvertStatDaily.objects.filter(
-            seller=seller,
-            advert_id=int(advert_id),
-            stat_date__gte=month_start,
-            stat_date__lte=chart_end,
-        )
-        first_stat_date = stats_qs.aggregate(v=Min("stat_date")).get("v")
-        last_stat_date = stats_qs.aggregate(v=Max("stat_date")).get("v")
-        day_totals: dict[date, dict[str, float]] = {}
-        for stat_row in stats_qs.only("stat_date", "views", "clicks", "orders", "add_to_cart", "raw_payload"):
-            stat_day = stat_row.stat_date
-            if stat_day is None:
-                continue
-            payload = stat_row.raw_payload if isinstance(stat_row.raw_payload, dict) else {}
-            day_payload = payload.get("day") if isinstance(payload.get("day"), dict) else {}
-
-            views_value = _to_float_or_default(stat_row.views, _to_float_or_default(day_payload.get("views"), 0.0))
-            clicks_value = _to_float_or_default(stat_row.clicks, _to_float_or_default(day_payload.get("clicks"), 0.0))
-            orders_value = _to_float_or_default(stat_row.orders, _to_float_or_default(day_payload.get("orders"), 0.0))
-            atc_value = _to_float_or_default(stat_row.add_to_cart, _to_float_or_default(day_payload.get("atbs"), 0.0))
-
-            bucket = day_totals.setdefault(
-                stat_day,
-                {"views": 0.0, "clicks": 0.0, "orders": 0.0, "add_to_cart": 0.0},
-            )
-            bucket["views"] = max(bucket["views"], views_value)
-            bucket["clicks"] = max(bucket["clicks"], clicks_value)
-            bucket["orders"] = max(bucket["orders"], orders_value)
-            bucket["add_to_cart"] = max(bucket["add_to_cart"], atc_value)
-
-        days_count = len(day_totals)
-        views_sum = int(sum(values["views"] for values in day_totals.values()))
-        clicks_sum = int(sum(values["clicks"] for values in day_totals.values()))
-        orders_sum = int(sum(values["orders"] for values in day_totals.values()))
-        atc_sum = int(sum(values["add_to_cart"] for values in day_totals.values()))
-
-        campaign_status = int(_to_float_or_default((campaign.status if campaign else None), 0.0))
-        # Завершенные кампании без какой-либо статистики за период не показываем.
-        if (
-            campaign_status == 7
-            and campaign_total_spend <= 0
-            and days_count == 0
-            and views_sum == 0
-            and clicks_sum == 0
-            and orders_sum == 0
-            and atc_sum == 0
-        ):
-            continue
-
-        ctr_percent = round((clicks_sum / views_sum) * 100.0, 2) if views_sum > 0 else 0.0
-        cpc = round((spend_sum / clicks_sum), 2) if clicks_sum > 0 else 0.0
-        advert_type_value = campaign.advert_type if campaign else None
-        status_value = campaign.status if campaign else None
-        status_label, status_css = _advert_status_meta(status_value)
-
-        total_ad_spend_related += spend_sum
-        total_ad_orders_related += orders_sum
-        total_ad_clicks_related += clicks_sum
-        total_ad_views_related += views_sum
-
-        ad_campaign_rows.append(
-            {
-                "advert_id": int(advert_id),
-                "campaign_name": campaign_name_value,
-                "status": status_value,
-                "status_label": status_label,
-                "status_css": status_css,
-                "advert_type": advert_type_value,
-                "advert_type_label": _advert_type_label(advert_type_value),
-                "create_time": campaign.create_time if campaign else None,
-                "start_time": campaign.start_time if campaign else None,
-                "end_time": campaign.end_time if campaign else None,
-                "daily_budget": float(campaign.daily_budget or 0.0) if campaign and campaign.daily_budget is not None else 0.0,
-                "nm_ids_in_campaign": nm_ids_in_campaign,
-                "participants_count": len(nm_ids_in_campaign),
-                "spend_allocated": bool(spend_is_allocated),
-                "campaign_total_spend": campaign_total_spend,
-                "first_stat_date": first_stat_date,
-                "last_stat_date": last_stat_date,
-                "days_count": days_count,
-                "spend_sum": spend_sum,
-                "views_sum": views_sum,
-                "clicks_sum": clicks_sum,
-                "orders_sum": orders_sum,
-                "add_to_cart_sum": atc_sum,
-                "ctr_percent": ctr_percent,
-                "cpc": cpc,
-            }
-        )
-    ad_campaign_rows.sort(
-        key=lambda row: (
-            row.get("create_time") or row.get("start_time") or row.get("last_stat_date") or date.min,
-            row.get("advert_id") or 0,
-        ),
-        reverse=True,
-    )
-
     return render(
         request,
         "products/card_detail.html",
@@ -2785,15 +2809,61 @@ def product_card_detail(request, product_id: int):
             "unit_warehouse_coeff_options_json": json.dumps(warehouse_coeff_options, ensure_ascii=False),
             "unit_saved_calc_json": json.dumps(saved_unit_calc_payload, ensure_ascii=False),
             "unit_has_saved_calc": bool(saved_unit_calc_payload),
-            "fact_profit_all": fact_profit_all,
-            "fact_profit_month": fact_profit_month,
-            "ad_campaign_rows": ad_campaign_rows,
-            "ad_related_campaigns_count": len(ad_campaign_rows),
-            "ad_total_spend_related": total_ad_spend_related,
-            "ad_total_orders_related": total_ad_orders_related,
-            "ad_total_clicks_related": total_ad_clicks_related,
-            "ad_total_views_related": total_ad_views_related,
         },
+    )
+
+
+@login_required
+@require_GET
+def product_card_detail_heavy_api(request, product_id: int):
+    seller = _get_or_create_seller_for_user(request.user)
+    product = Product.objects.filter(seller=seller, id=product_id).first()
+    if not product:
+        return JsonResponse({"ok": False, "error": "Карточка товара не найдена."}, status=404)
+
+    nm_id = int(product.nm_id)
+    product_orders_qs = Order.objects.filter(seller=seller, nm_id=nm_id)
+    max_order_dt = product_orders_qs.aggregate(max_dt=Max("order_date")).get("max_dt")
+    chart_end = (max_order_dt.date() if max_order_dt else timezone.localdate())
+    month_start = chart_end - timedelta(days=29)
+
+    discounted_price_from_prices = (
+        ProductSizePrice.objects
+        .filter(seller=seller, nm_id=nm_id)
+        .exclude(discounted_price__isnull=True)
+        .order_by("-updated_at", "-id")
+        .values_list("discounted_price", flat=True)
+        .first()
+    )
+    default_sale_price = round(_to_float_or_default(discounted_price_from_prices, 0.0), 2)
+    default_purchase_price = round(_to_float_or_default(product.purchase_price, 0.0), 2)
+    settings_obj = _get_or_create_unit_economics_settings(seller)
+    saved_unit_calc_exists = ProductUnitEconomicsCalculation.objects.filter(seller=seller, product=product).exists()
+
+    heavy_context = _build_product_card_heavy_context(
+        seller=seller,
+        nm_id=nm_id,
+        chart_end=chart_end,
+        month_start=month_start,
+        purchase_price=default_purchase_price,
+        discounted_price=default_sale_price,
+        settings_obj=settings_obj,
+    )
+
+    html = render_to_string(
+        "products/partials/card_detail_heavy_sections.html",
+        {
+            "unit_has_saved_calc": saved_unit_calc_exists,
+            **heavy_context,
+        },
+        request=request,
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "html": html,
+            "fact_profit_month": heavy_context["fact_profit_month"],
+        }
     )
 
 

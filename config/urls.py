@@ -27,6 +27,7 @@ from core.views import (
     home,
     fbs_stocks_report,
     product_card_detail,
+    product_card_detail_heavy_api,
     product_unit_economics_calculate_api,
     product_unit_economics_settings_api,
     product_cards_report,
@@ -50,6 +51,7 @@ urlpatterns = [
     path('fbs_stocks/', fbs_stocks_report, name='fbs_stocks_report'),
     path('product_cards/', product_cards_report, name='product_cards_report'),
     path('product_cards/<int:product_id>/', product_card_detail, name='product_card_detail'),
+    path('api/product_cards/<int:product_id>/heavy/', product_card_detail_heavy_api, name='product_card_detail_heavy_api'),
     path(
         'api/product_cards/<int:product_id>/unit-economics/settings/',
         product_unit_economics_settings_api,

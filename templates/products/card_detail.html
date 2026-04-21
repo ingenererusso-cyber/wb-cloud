@@ -639,6 +639,23 @@
             color: #64748b;
             font-size: 12px;
         }
+        .skeleton-line {
+            height: 12px;
+            border-radius: 7px;
+            background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.2s linear infinite;
+            margin-bottom: 10px;
+        }
+        .skeleton-title {
+            height: 18px;
+            width: 70%;
+            margin-bottom: 14px;
+        }
+        @keyframes skeleton-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
         @media (max-width: 900px) {
             .hero { grid-template-columns: 1fr; }
         }
@@ -916,191 +933,21 @@
         <div id="ue-compare" class="unit-compare unit-hidden"></div>
     </section>
 
-    <section class="section">
-        <h2>Фактическая чистая прибыль по артикулу</h2>
-        {% if unit_has_saved_calc %}
+    <div id="product-heavy-sections">
+        <section class="section">
+            <h2>Фактическая чистая прибыль по артикулу</h2>
             <div class="grid2">
-                <div class="card">
-                    <h3>Средняя прибыль на выкуп за всю историю</h3>
-                    {% if fact_profit_all.has_enough_data %}
-                        <div class="value {% if fact_profit_all.avg_profit_per_buyout < 0 %}neg{% endif %}">
-                            {{ fact_profit_all.avg_profit_per_buyout|floatformat:2 }} ₽
-                        </div>
-                        <p class="muted">Период <span class="info-tip" tabindex="0">?<span class="info-bubble">Диапазон дат, по которому собраны выкупы и строки отчета реализации.</span></span>: {{ fact_profit_all.date_from }} — {{ fact_profit_all.date_to }}</p>
-                        <p class="muted">Выкупов <span class="info-tip" tabindex="0">?<span class="info-bubble">Количество выкупов, используемое как база для средних значений на 1 выкуп.</span></span>: {{ fact_profit_all.buyouts_count }}</p>
-                        <p class="muted">Средняя цена до СПП <span class="info-tip" tabindex="0">?<span class="info-bubble">Средняя retail_price_withdisc_rub по выкупам за период.</span></span>: {{ fact_profit_all.avg_retail_price_withdisc|floatformat:2 }} ₽</p>
-                        <p class="muted">Сумма к переводу от ВБ (без вычета логистики) <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма ppvz_for_pay из отчета реализации по артикулу за период.</span></span>: {{ fact_profit_all.wb_transfer_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Эквайринг <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма эквайринга из отчета реализации и ее доля от общей стоимости выкупов.</span></span>: {{ fact_profit_all.acquiring_sum|floatformat:2 }} ₽ ({{ fact_profit_all.acquiring_percent_of_sale_base|floatformat:2 }}% от общей стоимости выкупов)</p>
-                        <p class="muted logistics-summary">Суммарная логистика за период <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма логистики выкупов, отмен/возвратов и корректировок за период.</span></span>: {{ fact_profit_all.logistics_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_total_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                        <details class="logistics-details">
-                            <summary>Показать детализацию логистики</summary>
-                            <div class="logistics-details-body">
-                                <p class="muted">Логистика выкупов <span class="info-tip" tabindex="0">?<span class="info-bubble">Логистические списания по выкупленным заказам.</span></span>: {{ fact_profit_all.logistics_buyout_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_buyout_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Логистика отмен/возвратов (сумма прямой и обратной) <span class="info-tip" tabindex="0">?<span class="info-bubble">Логистика по отменам и возвратам, включая прямую и обратную доставку.</span></span>: {{ fact_profit_all.logistics_cancel_return_sum|floatformat:2 }} ₽ (среднее среди отмен/возвратов: {{ fact_profit_all.avg_logistics_cancel_return_per_return|floatformat:2 }} ₽)</p>
-                                <p class="muted">Логистические корректировки/возмещения <span class="info-tip" tabindex="0">?<span class="info-bubble">Дополнительные логистические начисления/корректировки, не попавшие в основные категории.</span></span>: {{ fact_profit_all.logistics_adjustments_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_adjustments_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Отрицательные логистические значения (сторно) <span class="info-tip" tabindex="0">?<span class="info-bubble">Отрицательные логистические проводки (сторно/возмещения), показаны отдельно для контроля.</span></span>: {{ fact_profit_all.logistics_negative_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_logistics_negative_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                            </div>
-                        </details>
-                        <p class="muted">Хранение{% if fact_profit_all.storage_is_approx %} (приближенно){% endif %} <span class="info-tip" tabindex="0">?<span class="info-bubble">Расходы на хранение. Если нет прямой привязки к артикулу, распределяются приближенно.</span></span>: {{ fact_profit_all.storage_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_storage_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                        <p class="muted logistics-summary">Удержания WB <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма прочих удержаний WB, подписки Джем, штрафов и платной приемки.</span></span>: {{ fact_profit_all.withheld_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_withheld_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                        <details class="logistics-details">
-                            <summary>Показать детализацию удержаний</summary>
-                            <div class="logistics-details-body">
-                                <p class="muted">Удержания WB (прочее) <span class="info-tip" tabindex="0">?<span class="info-bubble">Прочие удержания WB из отчета реализации, не отнесенные к отдельным статьям.</span></span>: {{ fact_profit_all.deduction_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_deduction_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Подписка Джем{% if fact_profit_all.jam_is_approx %} (распределено по сумме продаж, приближенно){% endif %} <span class="info-tip" tabindex="0">?<span class="info-bubble">Расходы по подписке Джем; при отсутствии прямой привязки распределяются приближенно по доле продаж.</span></span>: {{ fact_profit_all.jam_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_jam_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Штрафы WB{% if fact_profit_all.penalty_is_approx %} (распределено по сумме продаж, приближенно){% endif %} <span class="info-tip" tabindex="0">?<span class="info-bubble">Штрафы WB; при отсутствии прямой привязки к артикулу распределяются приближенно.</span></span>: {{ fact_profit_all.penalty_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_penalty_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Платная приемка FBS в ПВЗ <span class="info-tip" tabindex="0">?<span class="info-bubble">Списания за платную приемку FBS в ПВЗ по строкам отчета реализации.</span></span>: {{ fact_profit_all.acceptance_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_all.avg_acceptance_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                            </div>
-                        </details>
-                        <p class="muted">
-                            Реклама WB:
-                            {{ fact_profit_all.ad_spend_sum|floatformat:2 }} ₽
-                            (среднее: {{ fact_profit_all.avg_ad_spend_per_buyout|floatformat:2 }} ₽/выкуп)
-                            <span class="info-tip" tabindex="0">?
-                                <span class="info-bubble">
-                                    Расчет рекламы: берем фактические дневные расходы по связанным РК из статистики WB.
-                                    Если в одной РК несколько артикулов, расход РК распределяется между ними по доле суммы продаж
-                                    за выбранный период (приближенно). Поэтому показатель может незначительно отличаться от
-                                    бухгалтерского разреза по артикулу.
-                                </span>
-                            </span>
-                        </p>
-                        <p class="muted">Закупка <span class="info-tip" tabindex="0">?<span class="info-bubble">Расход на закуп: закупочная цена × количество выкупов.</span></span>: {{ fact_profit_all.purchase_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Брак <span class="info-tip" tabindex="0">?<span class="info-bubble">Потери от брака: процент брака из настроек × закупка.</span></span>: {{ fact_profit_all.defect_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Фулфилмент <span class="info-tip" tabindex="0">?<span class="info-bubble">Расход на фулфилмент: стоимость фулфилмента из настроек × количество выкупов.</span></span>: {{ fact_profit_all.fulfillment_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Налог <span class="info-tip" tabindex="0">?<span class="info-bubble">Налог УСН по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_all.tax_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">НДС <span class="info-tip" tabindex="0">?<span class="info-bubble">НДС по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_all.vat_sum|floatformat:2 }} ₽</p>
-                        <p class="muted"><strong>Чистая прибыль суммарно <span class="info-tip" tabindex="0">?<span class="info-bubble">Итог за период: сумма к переводу от ВБ минус все учтенные расходы по артикулу.</span></span>: {{ fact_profit_all.net_profit_sum|floatformat:2 }} ₽</strong></p>
-                    {% else %}
-                        <p class="muted">{{ fact_profit_all.insufficient_data_message }}</p>
-                    {% endif %}
-                </div>
-                <div class="card">
-                    <h3>Средняя прибыль на выкуп за последний месяц</h3>
-                    {% if fact_profit_month.has_enough_data %}
-                        <div class="value {% if fact_profit_month.avg_profit_per_buyout < 0 %}neg{% endif %}">
-                            {{ fact_profit_month.avg_profit_per_buyout|floatformat:2 }} ₽
-                        </div>
-                        <p class="muted">Период <span class="info-tip" tabindex="0">?<span class="info-bubble">Диапазон дат, по которому собраны выкупы и строки отчета реализации.</span></span>: {{ fact_profit_month.date_from }} — {{ fact_profit_month.date_to }}</p>
-                        <p class="muted">Выкупов <span class="info-tip" tabindex="0">?<span class="info-bubble">Количество выкупов, используемое как база для средних значений на 1 выкуп.</span></span>: {{ fact_profit_month.buyouts_count }}</p>
-                        <p class="muted">Средняя цена до СПП <span class="info-tip" tabindex="0">?<span class="info-bubble">Средняя retail_price_withdisc_rub по выкупам за период.</span></span>: {{ fact_profit_month.avg_retail_price_withdisc|floatformat:2 }} ₽</p>
-                        <p class="muted">Сумма к переводу от ВБ (без вычета логистики) <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма ppvz_for_pay из отчета реализации по артикулу за период.</span></span>: {{ fact_profit_month.wb_transfer_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Эквайринг <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма эквайринга из отчета реализации и ее доля от общей стоимости выкупов.</span></span>: {{ fact_profit_month.acquiring_sum|floatformat:2 }} ₽ ({{ fact_profit_month.acquiring_percent_of_sale_base|floatformat:2 }}% от общей стоимости выкупов)</p>
-                        <p class="muted logistics-summary">Суммарная логистика за период <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма логистики выкупов, отмен/возвратов и корректировок за период.</span></span>: {{ fact_profit_month.logistics_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_total_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                        <details class="logistics-details">
-                            <summary>Показать детализацию логистики</summary>
-                            <div class="logistics-details-body">
-                                <p class="muted">Логистика выкупов <span class="info-tip" tabindex="0">?<span class="info-bubble">Логистические списания по выкупленным заказам.</span></span>: {{ fact_profit_month.logistics_buyout_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_buyout_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Логистика отмен/возвратов (сумма прямой и обратной) <span class="info-tip" tabindex="0">?<span class="info-bubble">Логистика по отменам и возвратам, включая прямую и обратную доставку.</span></span>: {{ fact_profit_month.logistics_cancel_return_sum|floatformat:2 }} ₽ (среднее среди отмен/возвратов: {{ fact_profit_month.avg_logistics_cancel_return_per_return|floatformat:2 }} ₽)</p>
-                                <p class="muted">Логистические корректировки/возмещения <span class="info-tip" tabindex="0">?<span class="info-bubble">Дополнительные логистические начисления/корректировки, не попавшие в основные категории.</span></span>: {{ fact_profit_month.logistics_adjustments_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_adjustments_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Отрицательные логистические значения (сторно) <span class="info-tip" tabindex="0">?<span class="info-bubble">Отрицательные логистические проводки (сторно/возмещения), показаны отдельно для контроля.</span></span>: {{ fact_profit_month.logistics_negative_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_logistics_negative_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                            </div>
-                        </details>
-                        <p class="muted">Хранение{% if fact_profit_month.storage_is_approx %} (приближенно){% endif %} <span class="info-tip" tabindex="0">?<span class="info-bubble">Расходы на хранение. Если нет прямой привязки к артикулу, распределяются приближенно.</span></span>: {{ fact_profit_month.storage_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_storage_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                        <p class="muted logistics-summary">Удержания WB <span class="info-tip" tabindex="0">?<span class="info-bubble">Сумма прочих удержаний WB, подписки Джем, штрафов и платной приемки.</span></span>: {{ fact_profit_month.withheld_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_withheld_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                        <details class="logistics-details">
-                            <summary>Показать детализацию удержаний</summary>
-                            <div class="logistics-details-body">
-                                <p class="muted">Удержания WB (прочее) <span class="info-tip" tabindex="0">?<span class="info-bubble">Прочие удержания WB из отчета реализации, не отнесенные к отдельным статьям.</span></span>: {{ fact_profit_month.deduction_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_deduction_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Подписка Джем{% if fact_profit_month.jam_is_approx %} (распределено по сумме продаж, приближенно){% endif %} <span class="info-tip" tabindex="0">?<span class="info-bubble">Расходы по подписке Джем; при отсутствии прямой привязки распределяются приближенно по доле продаж.</span></span>: {{ fact_profit_month.jam_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_jam_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Штрафы WB{% if fact_profit_month.penalty_is_approx %} (распределено по сумме продаж, приближенно){% endif %} <span class="info-tip" tabindex="0">?<span class="info-bubble">Штрафы WB; при отсутствии прямой привязки к артикулу распределяются приближенно.</span></span>: {{ fact_profit_month.penalty_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_penalty_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                                <p class="muted">Платная приемка FBS в ПВЗ <span class="info-tip" tabindex="0">?<span class="info-bubble">Списания за платную приемку FBS в ПВЗ по строкам отчета реализации.</span></span>: {{ fact_profit_month.acceptance_sum|floatformat:2 }} ₽ (среднее: {{ fact_profit_month.avg_acceptance_per_buyout|floatformat:2 }} ₽/выкуп)</p>
-                            </div>
-                        </details>
-                        <p class="muted">
-                            Реклама WB:
-                            {{ fact_profit_month.ad_spend_sum|floatformat:2 }} ₽
-                            (среднее: {{ fact_profit_month.avg_ad_spend_per_buyout|floatformat:2 }} ₽/выкуп)
-                            <span class="info-tip" tabindex="0">?
-                                <span class="info-bubble">
-                                    Расчет рекламы: берем фактические дневные расходы по связанным РК из статистики WB.
-                                    Если в одной РК несколько артикулов, расход РК распределяется между ними по доле суммы продаж
-                                    за выбранный период (приближенно). Поэтому показатель может незначительно отличаться от
-                                    бухгалтерского разреза по артикулу.
-                                </span>
-                            </span>
-                        </p>
-                        <p class="muted">Закупка <span class="info-tip" tabindex="0">?<span class="info-bubble">Расход на закуп: закупочная цена × количество выкупов.</span></span>: {{ fact_profit_month.purchase_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Брак <span class="info-tip" tabindex="0">?<span class="info-bubble">Потери от брака: процент брака из настроек × закупка.</span></span>: {{ fact_profit_month.defect_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Фулфилмент <span class="info-tip" tabindex="0">?<span class="info-bubble">Расход на фулфилмент: стоимость фулфилмента из настроек × количество выкупов.</span></span>: {{ fact_profit_month.fulfillment_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">Налог <span class="info-tip" tabindex="0">?<span class="info-bubble">Налог УСН по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_month.tax_sum|floatformat:2 }} ₽</p>
-                        <p class="muted">НДС <span class="info-tip" tabindex="0">?<span class="info-bubble">НДС по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_month.vat_sum|floatformat:2 }} ₽</p>
-                        <p class="muted"><strong>Чистая прибыль суммарно <span class="info-tip" tabindex="0">?<span class="info-bubble">Итог за период: сумма к переводу от ВБ минус все учтенные расходы по артикулу.</span></span>: {{ fact_profit_month.net_profit_sum|floatformat:2 }} ₽</strong></p>
-                    {% else %}
-                        <p class="muted">{{ fact_profit_month.insufficient_data_message }}</p>
-                    {% endif %}
-                </div>
+                <div class="card"><div class="skeleton-line skeleton-title"></div><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
+                <div class="card"><div class="skeleton-line skeleton-title"></div><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
             </div>
-        {% else %}
-            <p class="muted">Сначала проведите расчет юнитки для этого артикула, после этого появится блок фактической прибыли.</p>
-        {% endif %}
-    </section>
-
-    <section class="section">
-        <h2>Реклама по артикулу</h2>
-        <p class="muted">
-            Связанных РК: {{ ad_related_campaigns_count }}.
-            Расход: {{ ad_total_spend_related|floatformat:2 }} ₽,
-            показы: {{ ad_total_views_related }},
-            клики: {{ ad_total_clicks_related }},
-            заказы: {{ ad_total_orders_related }}.
-        </p>
-        <table>
-            <thead>
-            <tr>
-                <th>ID РК</th>
-                <th>Название</th>
-                <th>Тип</th>
-                <th>Статус</th>
-                <th>Артикулов в РК</th>
-                <th>Период статистики</th>
-                <th>Дней</th>
-                <th>Расход РК, ₽</th>
-                <th>На артикул, ₽</th>
-                <th>Показы</th>
-                <th>Клики</th>
-                <th>CTR, %</th>
-                <th>CPC, ₽</th>
-                <th>Заказы</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% for row in ad_campaign_rows %}
-                <tr>
-                    <td>{{ row.advert_id }}</td>
-                    <td>{{ row.campaign_name }}</td>
-                    <td>{{ row.advert_type_label|default:"-" }}</td>
-                    <td>
-                        <span class="status-badge status-{{ row.status_css|default:'gray' }}">
-                            {{ row.status_label|default:"-" }}
-                        </span>
-                    </td>
-                    <td>{{ row.participants_count|default:0 }}</td>
-                    <td>
-                        {% if row.first_stat_date or row.last_stat_date %}
-                            {{ row.first_stat_date|default:"-" }} — {{ row.last_stat_date|default:"-" }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-                    <td>{{ row.days_count }}</td>
-                    <td>{{ row.campaign_total_spend|floatformat:2 }}</td>
-                    <td>
-                        {{ row.spend_sum|floatformat:2 }}
-                        {% if row.spend_allocated %}<span class="muted">(распределено)</span>{% endif %}
-                    </td>
-                    <td>{{ row.views_sum }}</td>
-                    <td>{{ row.clicks_sum }}</td>
-                    <td>{{ row.ctr_percent|floatformat:2 }}</td>
-                    <td>{{ row.cpc|floatformat:2 }}</td>
-                    <td>{{ row.orders_sum }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="14">Нет связанных рекламных кампаний по этому артикулу.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </section>
+        </section>
+        <section class="section">
+            <h2>Реклама по артикулу</h2>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+        </section>
+    </div>
 </div>
 
 <div class="modal-overlay" id="ue-settings-modal" aria-hidden="true">
@@ -1187,8 +1034,6 @@
         <div id="ue-playground-status" class="playground-status"></div>
     </div>
 </div>
-
-{{ fact_profit_month|json_script:"fact-profit-month-json" }}
 
 <script>
     (function () {
@@ -1303,10 +1148,11 @@
     (function () {
         const warehouseOptions = {{ unit_warehouse_coeff_options_json|safe }};
         const savedUnitCalc = {{ unit_saved_calc_json|safe }};
-        const factProfitMonth = JSON.parse(document.getElementById("fact-profit-month-json")?.textContent || "{}");
+        let factProfitMonth = {};
         const categoryCommissionPercent = Number({{ unit_default_commission_percent|default:0 }});
         const resultEl = document.getElementById("ue-result");
         const compareEl = document.getElementById("ue-compare");
+        const heavySectionsEl = document.getElementById("product-heavy-sections");
         const step0 = document.getElementById("ue-step-0");
         const step1 = document.getElementById("ue-step-1");
         const step2 = document.getElementById("ue-step-2");
@@ -1653,6 +1499,35 @@
                     <tbody>${bodyHtml}</tbody>
                 </table>
             `;
+        }
+
+        async function loadHeavySections() {
+            if (!heavySectionsEl) return;
+            try {
+                const res = await fetch("{% url 'product_card_detail_heavy_api' product.id %}", {
+                    method: "GET",
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Не удалось загрузить блоки");
+                }
+                heavySectionsEl.innerHTML = data.html || "";
+                factProfitMonth = (data.fact_profit_month && typeof data.fact_profit_month === "object")
+                    ? data.fact_profit_month
+                    : {};
+                initInfoTipBubbles();
+                if (savedUnitCalc && savedUnitCalc.result) {
+                    renderUnitEconomicsResult(savedUnitCalc);
+                }
+            } catch (_error) {
+                heavySectionsEl.innerHTML = `
+                    <section class="section">
+                        <h2>Фактическая чистая прибыль по артикулу</h2>
+                        <p class="muted">Не удалось загрузить данные. Обновите страницу.</p>
+                    </section>
+                `;
+            }
         }
 
         function renderUnitEconomicsResult(payload) {
@@ -2028,6 +1903,7 @@
         initInfoTipBubbles();
         syncDefaultsFromSettings();
         recalcVolumeFromDimensions();
+        loadHeavySections();
         if (savedUnitCalc && savedUnitCalc.result) {
             renderUnitEconomicsResult(savedUnitCalc);
         }
