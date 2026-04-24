@@ -276,7 +276,8 @@
                     openThread(state.threads[0].id);
                 }
             }
-            async function openThread(threadId) {
+            async function openThread(threadId, opts = {}) {
+                const skipThreadsReload = Boolean(opts.skipThreadsReload);
                 state.activeThreadId = Number(threadId);
                 renderThreads();
                 const res = await fetch(`/api/support/threads/${threadId}/messages/`, { headers: { "Accept": "application/json" } });
@@ -300,7 +301,9 @@
                     method: "POST",
                     headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
                 });
-                await loadThreads();
+                if (!skipThreadsReload) {
+                    await loadThreads();
+                }
             }
             async function sendMessage() {
                 const body = (chatInputEl.value || "").trim();
@@ -320,6 +323,12 @@
             chatFormEl.addEventListener("submit", async (e) => {
                 e.preventDefault();
                 try { await sendMessage(); } catch (err) { alert(String(err)); }
+            });
+            chatInputEl.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    chatFormEl.requestSubmit();
+                }
             });
             threadListEl.addEventListener("click", (e) => {
                 const card = e.target.closest(".thread-card");
@@ -371,7 +380,13 @@
                 threadListEl.innerHTML = `<div class="empty">${String(err)}</div>`;
             });
             window.setInterval(() => {
-                if (!document.hidden) loadThreads().catch(() => {});
+                if (document.hidden) return;
+                if (state.activeThreadId) {
+                    openThread(state.activeThreadId, { skipThreadsReload: true }).catch(() => {});
+                    loadThreads().catch(() => {});
+                    return;
+                }
+                loadThreads().catch(() => {});
             }, 20000);
         })();
     </script>
