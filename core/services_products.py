@@ -31,6 +31,7 @@ def sync_products_content(seller: SellerAccount) -> int:
             nm_id=nm_id,
             vendor_code=vendor_code,
             defaults={
+                "imt_id": payload.get("imt_id"),
                 "title": payload.get("title"),
                 "brand": payload.get("brand"),
                 "subject_id": payload.get("subject_id"),

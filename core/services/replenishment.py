@@ -15,6 +15,7 @@ def get_sales_last_14_days(seller):
             seller=seller,
             order_date__gte=date_from,
             is_cancel=False,
+            is_return=False,
         )
         .exclude(oblast_okrug_name__isnull=True)
         .exclude(oblast_okrug_name="")

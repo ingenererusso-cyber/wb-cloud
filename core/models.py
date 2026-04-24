@@ -33,6 +33,8 @@ class UnitEconomicsSettings(models.Model):
     acquiring_percent = models.FloatField(default=2.5)
     acceptance_cost_per_liter = models.FloatField(default=1.7)
     fulfillment_cost_per_order = models.FloatField(default=0.0)
+    fbo_fulfillment_cost_per_order = models.FloatField(default=0.0)
+    fbs_fulfillment_cost_per_order = models.FloatField(default=0.0)
     usn_percent = models.FloatField(default=6.0)
     vat_percent = models.FloatField(default=0.0)
     updated_at = models.DateTimeField(auto_now=True)
@@ -41,6 +43,7 @@ class UnitEconomicsSettings(models.Model):
 class Product(models.Model):
     seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
     nm_id = models.BigIntegerField()
+    imt_id = models.BigIntegerField(null=True, blank=True)
     vendor_code = models.CharField(max_length=255)
     title = models.CharField(max_length=500, null=True, blank=True)
     brand = models.CharField(max_length=255, null=True, blank=True)
@@ -64,15 +67,16 @@ class ProductUnitEconomicsCalculation(models.Model):
 
     seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    model_type = models.CharField(max_length=10, default="fbo")
     input_data = models.JSONField(default=dict, blank=True)
     result_data = models.JSONField(default=dict, blank=True)
     net_profit = models.FloatField(default=0.0)
     calculated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = [("seller", "product")]
+        unique_together = [("seller", "product", "model_type")]
         indexes = [
-            models.Index(fields=["seller", "product"]),
+            models.Index(fields=["seller", "product", "model_type"]),
             models.Index(fields=["seller", "calculated_at"]),
         ]
 
@@ -93,6 +97,9 @@ class Order(models.Model):
     region_name = models.CharField(max_length=255, null=True, blank=True)
 
     is_cancel = models.BooleanField(default=False)
+    is_return = models.BooleanField(default=False)
+    is_buyout = models.BooleanField(default=False)
+    buyout_date = models.DateTimeField(null=True, blank=True)
 
     order_price = models.FloatField(null=True, blank=True)
     finished_price = models.FloatField(null=True, blank=True)
@@ -546,6 +553,68 @@ class TesterFeedback(models.Model):
             models.Index(fields=["status", "created_at"]),
             models.Index(fields=["category", "priority"]),
             models.Index(fields=["user", "created_at"]),
+        ]
+
+
+class SupportThread(models.Model):
+    STATUS_OPEN = "open"
+    STATUS_WAITING_USER = "waiting_user"
+    STATUS_WAITING_SUPPORT = "waiting_support"
+    STATUS_CLOSED = "closed"
+    STATUS_CHOICES = [
+        (STATUS_OPEN, "Открыт"),
+        (STATUS_WAITING_USER, "Ждет пользователя"),
+        (STATUS_WAITING_SUPPORT, "Ждет поддержки"),
+        (STATUS_CLOSED, "Закрыт"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="support_threads")
+    subject = models.CharField(max_length=255)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_OPEN)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "updated_at"]),
+            models.Index(fields=["status", "updated_at"]),
+        ]
+
+
+class SupportMessage(models.Model):
+    ROLE_USER = "user"
+    ROLE_SUPPORT = "support"
+    ROLE_CHOICES = [
+        (ROLE_USER, "User"),
+        (ROLE_SUPPORT, "Support"),
+    ]
+
+    thread = models.ForeignKey(SupportThread, on_delete=models.CASCADE, related_name="messages")
+    author_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="support_messages")
+    author_role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_USER)
+    body = models.TextField()
+    is_internal = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["thread", "created_at"]),
+            models.Index(fields=["author_user", "created_at"]),
+        ]
+
+
+class SupportThreadParticipantState(models.Model):
+    thread = models.ForeignKey(SupportThread, on_delete=models.CASCADE, related_name="participant_states")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="support_thread_states")
+    unread_count = models.PositiveIntegerField(default=0)
+    last_read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [("thread", "user")]
+        indexes = [
+            models.Index(fields=["user", "unread_count"]),
+            models.Index(fields=["thread", "user"]),
         ]
 
 

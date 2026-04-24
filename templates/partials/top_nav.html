@@ -12,6 +12,7 @@
                     <div class="mega-col">
                         <h4>Товары</h4>
                         <a href="{% url 'product_cards_report' %}">Карточка товара</a>
+                        <a href="{% url 'product_glues_report' %}">Склейки</a>
                     </div>
                 </div>
             </div>
@@ -48,6 +49,20 @@
             </div>
         </div>
 
+        {% if request.user.is_superuser %}
+        <div class="menu-item">
+            <a class="menu-link" href="{% url 'support_chat_admin' %}">Администрирование</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>Поддержка</h4>
+                        <a href="{% url 'support_chat_admin' %}">Чат с поддержкой</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="nav-spacer"></div>
         <div class="sync-control">
             <button class="btn" type="button" id="sync-orders-btn">Синхронизировать данные</button>
@@ -61,7 +76,10 @@
             <span class="sync-meta" id="sync-inline-status" style="display:none;"></span>
         </div>
         <div class="feedback-inline">
-            <button class="btn btn-ghost" type="button" id="feedback-open-btn">Сообщить проблему</button>
+            <a class="btn btn-ghost support-chat-btn" href="{% url 'support_chat' %}" id="support-chat-btn">
+                Чат с поддержкой
+                <span class="support-chat-badge" id="support-chat-unread-badge" style="display:none;">0</span>
+            </a>
         </div>
         <div class="account-menu" id="account-menu">
             <button class="account-menu-trigger" id="account-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false">
@@ -439,6 +457,35 @@
 
             return response;
         };
+    })();
+</script>
+
+<script>
+    (function supportUnreadBadgeSetup() {
+        const badge = document.getElementById("support-chat-unread-badge");
+        if (!badge) return;
+
+        async function refreshUnreadBadge() {
+            try {
+                const res = await fetch("{% url 'support_unread_count_api' %}", {
+                    method: "GET",
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok) return;
+                const unread = Math.max(0, Number(data.unread_count || 0));
+                if (unread > 0) {
+                    badge.style.display = "inline-flex";
+                    badge.textContent = unread > 99 ? "99+" : String(unread);
+                } else {
+                    badge.style.display = "none";
+                    badge.textContent = "0";
+                }
+            } catch (_err) {}
+        }
+
+        refreshUnreadBadge();
+        window.setInterval(refreshUnreadBadge, 20000);
     })();
 </script>
 

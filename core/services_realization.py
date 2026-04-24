@@ -87,6 +87,23 @@ def _row_get(row: dict, *keys):
     return None
 
 
+def _is_return_row(row: dict) -> bool:
+    doc_type = _normalize(_row_get(row, "doc_type_name", "docTypeName")).lower()
+    supplier_oper = _normalize(_row_get(row, "supplier_oper_name", "supplierOperName", "sellerOperName")).lower()
+    bonus_type = _normalize(_row_get(row, "bonus_type_name", "bonusTypeName")).lower()
+    return_amount = _to_float(_row_get(row, "returnAmount", "return_amount"))
+    if return_amount is not None and return_amount > 0:
+        return True
+    return (
+        "возврат" in doc_type
+        or "возврат" in supplier_oper
+        or "возврат" in bonus_type
+        or "отмен" in doc_type
+        or "отмен" in supplier_oper
+        or "отмен" in bonus_type
+    )
+
+
 def sync_realization_report_detail(
     seller: SellerAccount,
     date_from: date,
@@ -110,6 +127,7 @@ def sync_realization_report_detail(
     total_upserted = 0
     pages = 0
     rrdid = 0
+    return_srids: set[str] = set()
 
     while True:
         status, rows = client.get_report_detail_by_period(
@@ -127,6 +145,10 @@ def sync_realization_report_detail(
             rrd_id = _to_int(_row_get(row, "rrd_id", "rrdId"))
             if rrd_id is None:
                 continue
+
+            row_srid = _normalize(_row_get(row, "srid"))
+            if row_srid and _is_return_row(row):
+                return_srids.add(row_srid)
 
             RealizationReportDetail.objects.update_or_create(
                 seller=seller,
@@ -169,6 +191,12 @@ def sync_realization_report_detail(
         # WB limit: 1 request per minute.
         if respect_rate_limit:
             sleep(61)
+
+    if return_srids:
+        Order.objects.filter(
+            seller=seller,
+            srid__in=list(return_srids),
+        ).update(is_return=True, is_buyout=False)
 
     return {
         "pages": pages,
@@ -254,6 +282,7 @@ def _calculate_irp_index_for_effective_date(
         .filter(
             seller=seller,
             is_cancel=False,
+            is_return=False,
             warehouse_type="Склад WB",
             country_name="Россия",
             order_date__date__gte=window_start,

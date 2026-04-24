@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time as dt_time, timedelta
 import json
 import sqlite3
 import threading
@@ -6,6 +6,7 @@ import traceback
 import uuid
 
 from django.contrib.auth import logout
+from django.contrib.auth.models import User
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
@@ -15,7 +16,9 @@ from django.db.models import Max
 from django.db.models import Min
 from django.db.models import Q
 from django.db.models import Sum
-from django.db.models.functions import TruncDate
+from django.db.models import Value
+from django.db.models.functions import Coalesce
+from django.db.models.functions import TruncDate, TruncHour
 from django.db import OperationalError, close_old_connections
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
@@ -38,6 +41,9 @@ from core.models import (
     ProductCardSize,
     ProductUnitEconomicsCalculation,
     SellerWarehouse,
+    SupportMessage,
+    SupportThread,
+    SupportThreadParticipantState,
     SyncTask,
     TesterFeedback,
     TransitDirectionTariff,
@@ -62,8 +68,7 @@ from core.services_realization import (
 )
 from core.services_advertising import sync_ad_campaigns_and_stats
 from core.services_offices import sync_wb_offices
-from core.services_excel_import import import_orders_from_excel
-from core.services_orders import sync_fbw_orders
+from core.services_orders import sync_fbw_orders, sync_sales_buyout_flags
 from core.services_products import sync_products_content
 from core.services_prices import sync_product_size_prices
 from core.services_commissions import sync_category_commissions
@@ -95,7 +100,11 @@ DAILY_SYNC_STAGES = {
     "seller_warehouses",
     "transit",
 }
-FBO_STORAGE_ALLOCATION_MIN_STOCK_QTY = 5
+UNIT_MODEL_FBO = "fbo"
+UNIT_MODEL_FBS = "fbs"
+UNIT_MODEL_TYPES = {UNIT_MODEL_FBO, UNIT_MODEL_FBS}
+INITIAL_SYNC_WEEKS = 25
+INITIAL_SYNC_DAYS = INITIAL_SYNC_WEEKS * 7
 
 
 def _get_or_create_unit_economics_settings(seller: SellerAccount) -> UnitEconomicsSettings:
@@ -114,6 +123,66 @@ def _to_float_or_default(value, default: float = 0.0) -> float:
 
 def _safe_percent(value, default: float = 0.0) -> float:
     return max(0.0, min(100.0, _to_float_or_default(value, default)))
+
+
+def _normalize_unit_model_type(raw_value: str | None) -> str:
+    value = (raw_value or "").strip().lower()
+    if value in UNIT_MODEL_TYPES:
+        return value
+    return UNIT_MODEL_FBO
+
+
+def _resolve_model_fulfillment_cost(
+    settings_obj: UnitEconomicsSettings,
+    model_type: str,
+) -> float:
+    legacy = max(0.0, _to_float_or_default(settings_obj.fulfillment_cost_per_order, 0.0))
+    if model_type == UNIT_MODEL_FBS:
+        direct = _to_float_or_default(getattr(settings_obj, "fbs_fulfillment_cost_per_order", None), legacy)
+        return max(0.0, direct if direct > 0 else legacy)
+    direct = _to_float_or_default(getattr(settings_obj, "fbo_fulfillment_cost_per_order", None), legacy)
+    return max(0.0, direct if direct > 0 else legacy)
+
+
+def _resolve_model_commission_percent(
+    *,
+    seller: SellerAccount,
+    product: Product,
+    model_type: str,
+) -> float:
+    if product.subject_id is None:
+        return 0.0
+    commission_row = (
+        WbCategoryCommission.objects
+        .filter(seller=seller, locale="ru", subject_id=product.subject_id)
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+    if not commission_row:
+        return 0.0
+    if model_type == UNIT_MODEL_FBS:
+        return round(_to_float_or_default(commission_row.kgvp_marketplace, 0.0), 2)
+    return round(_to_float_or_default(commission_row.paid_storage_kgvp, 0.0), 2)
+
+
+def _unit_model_labels(model_type: str) -> dict[str, str]:
+    if model_type == UNIT_MODEL_FBS:
+        return {
+            "model_badge": "FBS",
+            "delivery": "Логистика FBS",
+            "non_buyout": "Логистика невыкупов FBS",
+            "storage": "Хранение WB",
+            "fulfillment": "Фулфилмент продавца",
+            "acceptance": "Приемка/обработка FBS",
+        }
+    return {
+        "model_badge": "FBO",
+        "delivery": "Логистика FBO",
+        "non_buyout": "Логистика невыкупов FBO",
+        "storage": "Хранение WB",
+        "fulfillment": "Фулфилмент продавца",
+        "acceptance": "Приемка WB",
+    }
 
 
 def _extract_wb_for_pay_from_raw(payload: dict | None) -> float:
@@ -180,10 +249,34 @@ def _extract_campaign_nm_ids_from_payload(payload: dict | None) -> list[int]:
 
 
 def _is_buyout_rr_row(row: RealizationReportDetail, payload: dict | None) -> bool:
+    if _is_cancel_or_return_rr_row(row, payload):
+        return False
     row_for_pay = _extract_wb_for_pay_from_raw(payload)
     doc_type = (row.doc_type_name or "").strip().lower()
     bonus_type = (row.bonus_type_name or "").strip().lower()
     return ("продаж" in doc_type) or ("при продаже" in bonus_type) or (row_for_pay > 0)
+
+
+def _is_cancel_or_return_rr_row(row: RealizationReportDetail, payload: dict | None) -> bool:
+    payload = payload if isinstance(payload, dict) else {}
+    doc_type = (row.doc_type_name or "").strip().lower()
+    bonus_type = (row.bonus_type_name or "").strip().lower()
+    op_name = (row.supplier_oper_name or "").strip().lower()
+    return_amount_raw = _to_float_or_default(
+        payload.get("returnAmount", payload.get("return_amount")),
+        0.0,
+    )
+    return (
+        return_amount_raw > 0
+        or ("возврат" in op_name)
+        or ("возврат" in doc_type)
+        or ("отмен" in op_name)
+        or ("отмен" in doc_type)
+        or ("отмен" in bonus_type)
+        or ("сторно" in op_name)
+        or ("сторно" in doc_type)
+        or ("сторно" in bonus_type)
+    )
 
 
 def _build_sales_base_by_nm(
@@ -347,7 +440,6 @@ def _build_fact_profit_metrics_for_product(
     logistics_cancel_return_sum = 0.0
     logistics_adjustments_sum = 0.0
     logistics_negative_sum = 0.0
-    storage_direct_sum = 0.0
     deduction_sum = 0.0
     jam_direct_sum = 0.0
     jam_sum = 0.0
@@ -369,52 +461,19 @@ def _build_fact_profit_metrics_for_product(
     cancel_return_rows_without_srid = 0
     row_cache: list[tuple[RealizationReportDetail, dict, bool, str, bool]] = []
 
-    def _is_cancel_or_return_marker(
-        *,
-        payload: dict,
-        doc_name: str,
-        op_name: str,
-        bonus_name: str,
-    ) -> bool:
-        return_amount_raw = _to_float_or_default(
-            payload.get("returnAmount", payload.get("return_amount")),
-            0.0,
-        )
-        return (
-            return_amount_raw > 0
-            or ("возврат" in op_name)
-            or ("возврат" in doc_name)
-            or ("отмен" in op_name)
-            or ("отмен" in doc_name)
-            or ("отмен" in bonus_name)
-            or ("сторно" in op_name)
-            or ("сторно" in doc_name)
-            or ("сторно" in bonus_name)
-        )
-
     for row in rr_rows:
         payload = row.raw_payload or {}
-        row_for_pay = _extract_wb_for_pay_from_raw(payload)
-        row_acquiring = _extract_acquiring_fee_from_raw(payload)
         row_sale_price_withdisc = _extract_retail_price_withdisc_from_raw(payload)
         row_retail_amount = _extract_retail_amount_from_raw(payload)
         row_spp = _to_float_or_default(payload.get("spp", payload.get("SPP")), 0.0)
         row_has_spp = ("spp" in payload) or ("SPP" in payload)
-        wb_transfer_sum += row_for_pay
-        acquiring_sum += max(row_acquiring, 0.0)
-
+        is_cancel_marker = _is_cancel_or_return_rr_row(row, payload)
+        row_for_pay = _extract_wb_for_pay_from_raw(payload)
         doc_type = (row.doc_type_name or "").strip().lower()
         bonus_type = (row.bonus_type_name or "").strip().lower()
-        op_name = (row.supplier_oper_name or "").strip().lower()
-        is_buyout = ("продаж" in doc_type) or ("при продаже" in bonus_type) or (row_for_pay > 0)
+        is_buyout = (not is_cancel_marker) and (("продаж" in doc_type) or ("при продаже" in bonus_type) or (row_for_pay > 0))
 
         srid = (row.srid or "").strip()
-        is_cancel_marker = _is_cancel_or_return_marker(
-            payload=payload,
-            doc_name=doc_type,
-            op_name=op_name,
-            bonus_name=bonus_type,
-        )
         row_cache.append((row, payload, is_buyout, srid, is_cancel_marker))
 
         if is_cancel_marker:
@@ -423,9 +482,25 @@ def _build_fact_profit_metrics_for_product(
             else:
                 cancel_return_rows_without_srid += 1
 
-        if is_buyout:
+    for row, _payload, is_buyout, srid, is_cancel_marker in row_cache:
+        row_for_pay = _extract_wb_for_pay_from_raw(_payload)
+        row_acquiring = _extract_acquiring_fee_from_raw(_payload)
+        row_sale_price_withdisc = _extract_retail_price_withdisc_from_raw(_payload)
+        row_retail_amount = _extract_retail_amount_from_raw(_payload)
+        row_spp = _to_float_or_default(_payload.get("spp", _payload.get("SPP")), 0.0)
+        row_has_spp = ("spp" in _payload) or ("SPP" in _payload)
+        srid_marked_cancel_or_return = bool(srid and (srid in cancel_return_srids))
+        effective_cancel_or_return = is_cancel_marker or srid_marked_cancel_or_return
+        effective_buyout = is_buyout and not effective_cancel_or_return
+
+        if not effective_cancel_or_return:
+            wb_transfer_sum += row_for_pay
+            acquiring_sum += max(row_acquiring, 0.0)
+
+        if effective_buyout:
             if srid:
-                buyout_srids.add(srid)
+                if srid not in buyout_srids:
+                    buyout_srids.add(srid)
                 if row_sale_price_withdisc > 0 and srid not in buyout_sale_price_by_srid:
                     buyout_sale_price_by_srid[srid] = row_sale_price_withdisc
                 if row_retail_amount > 0 and srid not in buyout_retail_amount_by_srid:
@@ -442,8 +517,6 @@ def _build_fact_profit_metrics_for_product(
                 if row_has_spp and row_spp > 0:
                     buyout_spp_without_srid.append(row_spp)
 
-    for row, _payload, is_buyout, srid, is_cancel_marker in row_cache:
-        storage_direct_sum += _to_float_or_default(row.storage_fee, 0.0)
         row_deduction = _to_float_or_default(row.deduction, 0.0)
         bonus_name = (row.bonus_type_name or "").strip().lower()
         if "джем" in bonus_name:
@@ -462,7 +535,7 @@ def _build_fact_profit_metrics_for_product(
         row_logistics_cost = max(delivery_val, 0.0) + max(rebill_val, 0.0)
         if row_logistics_cost <= 0:
             continue
-        if is_buyout:
+        if effective_buyout:
             logistics_buyout_sum += row_logistics_cost
             continue
         # Для отмен/возвратов относим ВСЮ логистику srid (и прямую, и обратную),
@@ -505,6 +578,14 @@ def _build_fact_profit_metrics_for_product(
         rr_dt__gte=date_from,
         rr_dt__lte=date_to,
     )
+    cancel_return_srids_all: set[str] = set()
+    for row in all_rows_qs.iterator(chunk_size=2000):
+        payload = row.raw_payload or {}
+        if _is_cancel_or_return_rr_row(row, payload):
+            row_srid = (row.srid or "").strip()
+            if row_srid:
+                cancel_return_srids_all.add(row_srid)
+
     for row in all_rows_qs.iterator(chunk_size=2000):
         payload = row.raw_payload or {}
         penalty_total_period += max(_extract_penalty_from_raw(payload), 0.0)
@@ -515,7 +596,8 @@ def _build_fact_profit_metrics_for_product(
         row_for_pay = _extract_wb_for_pay_from_raw(payload)
         doc_type = (row.doc_type_name or "").strip().lower()
         bonus_type = (row.bonus_type_name or "").strip().lower()
-        is_buyout = ("продаж" in doc_type) or ("при продаже" in bonus_type) or (row_for_pay > 0)
+        is_cancel_marker = _is_cancel_or_return_rr_row(row, payload)
+        is_buyout = (not is_cancel_marker) and (("продаж" in doc_type) or ("при продаже" in bonus_type) or (row_for_pay > 0))
         if not is_buyout:
             continue
 
@@ -525,6 +607,8 @@ def _build_fact_profit_metrics_for_product(
 
         row_srid = (row.srid or "").strip()
         if row_srid:
+            if row_srid in cancel_return_srids_all:
+                continue
             if row_srid in seen_buyout_srids_all:
                 continue
             seen_buyout_srids_all.add(row_srid)
@@ -586,8 +670,8 @@ def _build_fact_profit_metrics_for_product(
             ad_spend_is_approx = True
 
     # Хранение WB часто приходит агрегированными строками (nm_id=0) без привязки к артикулу.
-    # В таком случае распределяем его приближенно по доле (выкупы * объем артикула).
-    storage_sum = storage_direct_sum
+    # В таком случае распределяем его приближенно по доле (общие FBO-остатки * объем артикула).
+    storage_sum = 0.0
     storage_is_approx = False
     storage_total_nm0 = _to_float_or_default(
         RealizationReportDetail.objects.filter(
@@ -599,38 +683,17 @@ def _build_fact_profit_metrics_for_product(
         0.0,
     )
     if storage_total_nm0 > 0:
-        buyouts_all_rows = (
-            Order.objects
-            .filter(
-                seller=seller,
-                is_cancel=False,
-                warehouse_type__iexact="Склад WB",
-                order_date__date__gte=date_from,
-                order_date__date__lte=date_to,
+        fbo_stock_by_nm = {
+            int(r["nm_id"]): int(r.get("total_qty") or 0)
+            for r in (
+                WarehouseStockDetailed.objects
+                .filter(seller=seller)
+                .values("nm_id")
+                .annotate(total_qty=Sum("quantity"))
             )
-            .values("nm_id")
-            .annotate(cnt=Count("id"))
-        )
-        buyouts_by_nm = {int(r["nm_id"]): int(r["cnt"] or 0) for r in buyouts_all_rows if r.get("nm_id") is not None}
-        all_nm_ids = list(buyouts_by_nm.keys())
-        if all_nm_ids:
-            fbo_stock_by_nm = {
-                int(r["nm_id"]): int(r.get("total_qty") or 0)
-                for r in (
-                    WarehouseStockDetailed.objects
-                    .filter(seller=seller, nm_id__in=all_nm_ids)
-                    .values("nm_id")
-                    .annotate(total_qty=Sum("quantity"))
-                )
-            }
-            has_fbo_stock_data = bool(fbo_stock_by_nm)
-            if has_fbo_stock_data:
-                buyouts_by_nm = {
-                    article_nm_id: cnt
-                    for article_nm_id, cnt in buyouts_by_nm.items()
-                    if int(fbo_stock_by_nm.get(article_nm_id, 0)) >= FBO_STORAGE_ALLOCATION_MIN_STOCK_QTY
-                }
-            all_nm_ids = list(buyouts_by_nm.keys())
+            if r.get("nm_id") is not None
+        }
+        all_nm_ids = list(fbo_stock_by_nm.keys())
         if all_nm_ids:
             volumes_by_nm = {
                 int(r["nm_id"]): (
@@ -641,12 +704,12 @@ def _build_fact_profit_metrics_for_product(
                 for r in Product.objects.filter(seller=seller, nm_id__in=all_nm_ids).values("nm_id", "volume_liters")
             }
             total_weight = 0.0
-            for article_nm_id, cnt in buyouts_by_nm.items():
-                total_weight += cnt * _to_float_or_default(volumes_by_nm.get(article_nm_id), DEFAULT_LOGISTICS_VOLUME_LITERS)
+            for article_nm_id, stock_qty in fbo_stock_by_nm.items():
+                total_weight += stock_qty * _to_float_or_default(volumes_by_nm.get(article_nm_id), DEFAULT_LOGISTICS_VOLUME_LITERS)
 
-            article_buyouts = int(buyouts_by_nm.get(int(nm_id), 0))
+            article_stock_qty = int(fbo_stock_by_nm.get(int(nm_id), 0))
             article_volume = _to_float_or_default(volumes_by_nm.get(int(nm_id)), DEFAULT_LOGISTICS_VOLUME_LITERS)
-            article_weight = article_buyouts * article_volume
+            article_weight = article_stock_qty * article_volume
 
             if total_weight > 0 and article_weight >= 0:
                 storage_share = article_weight / total_weight
@@ -685,6 +748,17 @@ def _build_fact_profit_metrics_for_product(
         - fulfillment_sum
         - taxes_vat_sum
     )
+    sales_margin_percent = (
+        (net_profit_sum / sale_base_sum) * 100.0
+        if sale_base_sum > 0
+        else 0.0
+    )
+    roi_base_sum = purchase_sum + fulfillment_sum + defect_sum
+    roi_percent = (
+        (net_profit_sum / roi_base_sum) * 100.0
+        if roi_base_sum > 0
+        else 0.0
+    )
     avg_profit_per_buyout = (net_profit_sum / buyouts_count) if buyouts_count > 0 else 0.0
     avg_logistics_buyout_per_buyout = (logistics_buyout_sum / buyouts_count) if buyouts_count > 0 else 0.0
     avg_logistics_total_per_buyout = (logistics_sum / buyouts_count) if buyouts_count > 0 else 0.0
@@ -711,6 +785,7 @@ def _build_fact_profit_metrics_for_product(
                 seller=seller,
                 srid__in=list(buyout_srids),
                 is_cancel=False,
+                is_return=False,
             )
             .exclude(order_price__isnull=True)
             .exclude(finished_price__isnull=True)
@@ -782,6 +857,8 @@ def _build_fact_profit_metrics_for_product(
         "vat_sum": round(vat_sum, 2),
         "taxes_vat_sum": round(taxes_vat_sum, 2),
         "net_profit_sum": round(net_profit_sum, 2),
+        "sales_margin_percent": round(sales_margin_percent, 2),
+        "roi_percent": round(roi_percent, 2),
         "avg_profit_per_buyout": round(avg_profit_per_buyout, 2),
     }
 
@@ -870,6 +947,104 @@ def _mark_stage_success(seller: SellerAccount, stage_key: str, dt=None) -> None:
     meta["stage_success_at"] = stage_map
     seller.sync_meta = meta
     _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
+
+
+def _parse_hhmm(raw_value: str | None):
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+    parts = value.split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hh = int(parts[0])
+        mm = int(parts[1])
+    except (TypeError, ValueError):
+        return None
+    if hh < 0 or hh > 23 or mm < 0 or mm > 59:
+        return None
+    return dt_time(hour=hh, minute=mm)
+
+
+def _get_auto_sync_config(seller: SellerAccount) -> dict:
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    auto = meta.get("auto_sync")
+    if not isinstance(auto, dict):
+        auto = {}
+    enabled = bool(auto.get("enabled", False))
+    run_time = str(auto.get("time") or "").strip()
+    last_run_date = str(auto.get("last_run_date") or "").strip()
+    return {
+        "enabled": enabled,
+        "time": run_time,
+        "last_run_date": last_run_date,
+    }
+
+
+def _save_auto_sync_config(seller: SellerAccount, *, enabled: bool, run_time: str, last_run_date: str | None = None) -> None:
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    auto = meta.get("auto_sync")
+    if not isinstance(auto, dict):
+        auto = {}
+    auto["enabled"] = bool(enabled)
+    auto["time"] = run_time
+    if last_run_date is not None:
+        auto["last_run_date"] = str(last_run_date)
+    meta["auto_sync"] = auto
+    seller.sync_meta = meta
+    _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
+
+
+def _maybe_start_scheduled_sync_for_user(user, seller: SellerAccount | None) -> None:
+    if not user or not getattr(user, "is_authenticated", False):
+        return
+    if not seller or not seller.has_api_token:
+        return
+    cfg = _get_auto_sync_config(seller)
+    if not cfg.get("enabled"):
+        return
+    run_time_raw = str(cfg.get("time") or "").strip()
+    run_time_obj = _parse_hhmm(run_time_raw)
+    if run_time_obj is None:
+        return
+    now_local = timezone.localtime()
+    today = now_local.date()
+    if now_local.time() < run_time_obj:
+        return
+    if str(cfg.get("last_run_date") or "") == today.isoformat():
+        return
+    running_task = _get_running_sync_task_for_user(user)
+    if running_task:
+        return
+
+    task_id = uuid.uuid4().hex
+    _set_sync_task(
+        task_id,
+        {
+            "task_id": task_id,
+            "status": "running",
+            "progress": 0,
+            "step": "Инициализация",
+            "message": "Авто-синхронизация запущена по расписанию...",
+            "finished_at": None,
+            "result": {},
+            "user_id": user.id,
+            "seller_id": seller.id,
+        },
+    )
+
+    worker = threading.Thread(
+        target=_run_sync_orders_task,
+        args=(task_id, seller.id, user.id),
+        daemon=True,
+    )
+    worker.start()
+    _save_auto_sync_config(
+        seller,
+        enabled=True,
+        run_time=run_time_raw,
+        last_run_date=today.isoformat(),
+    )
 
 
 def _should_skip_stage_by_ttl(seller: SellerAccount, stage_key: str, ttl_hours: int = SYNC_STAGE_TTL_HOURS) -> bool:
@@ -1116,8 +1291,8 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         skipped_steps = []
         today = timezone.localdate()
         ads_date_from = _recommended_ads_date_from(seller=seller, fallback_days=30, overlap_days=7)
-        orders_days_back = _recommended_orders_days_back(seller=seller, fallback_days=175, overlap_days=3)
-        realization_date_from = _recommended_realization_date_from(seller=seller, fallback_days=175, overlap_days=14)
+        orders_days_back = _recommended_orders_days_back(seller=seller, fallback_days=INITIAL_SYNC_DAYS, overlap_days=3)
+        realization_date_from = _recommended_realization_date_from(seller=seller, fallback_days=INITIAL_SYNC_DAYS, overlap_days=14)
         steps = [
             ("Карточки товаров", "products", sync_products_content, {"seller": seller}),
             ("Цены и скидки", "prices", sync_product_size_prices, {"seller": seller}),
@@ -1138,7 +1313,9 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             ("Склады продавца", "seller_warehouses", sync_seller_warehouses, {"seller": seller}),
             ("Транзитные направления", "transit", sync_transit_direction_tariffs, {"seller": seller}),
             ("Заказы", "orders", sync_fbw_orders, {"seller": seller, "days_back": orders_days_back}),
+            ("Продажи/возвраты WB", "sales", sync_sales_buyout_flags, {"seller": seller}),
             ("Остатки", "stocks", sync_supplier_stocks, {"seller": seller}),
+            ("Остатки FBS", "fbs_stocks", sync_seller_fbs_stocks, {"seller": seller, "sync_card_sizes": False}),
         ]
 
         total_steps = len(steps) + 1  # + отчеты реализации
@@ -1213,7 +1390,9 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             f"транзитных направлений {result.get('transit', 0)}, "
             f"складов WB {result.get('offices', 0)}, складов продавца {result.get('seller_warehouses', 0)}, "
             f"заказов {result.get('orders', 0)}, "
+            f"строк продаж/возвратов WB {((result.get('sales') or {}).get('rows', 0) if isinstance(result.get('sales'), dict) else result.get('sales', 0))}, "
             f"остатков {result.get('stocks', 0)}, "
+            f"строк FBS-остатков {((result.get('fbs_stocks') or {}).get('stocks_rows', 0) if isinstance(result.get('fbs_stocks'), dict) else result.get('fbs_stocks', 0))}, "
             f"строк отчёта реализации {result.get('realization_rows', 0)}."
         )
         if realization_warning:
@@ -1272,6 +1451,7 @@ def home(request):
         return render(request, "home_landing.html")
 
     seller = _get_or_create_seller_for_user(request.user)
+    _maybe_start_scheduled_sync_for_user(request.user, seller)
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     missing_api_token = not seller or not seller.has_api_token
     running_sync_task = _get_running_sync_task_for_user(request.user)
@@ -1295,18 +1475,19 @@ def home(request):
     )
     orders_30_stats = orders_30_qs.aggregate(
         total_orders=Count("id"),
-        buyouts=Count("id", filter=Q(is_cancel=False)),
-        revenue=Sum("finished_price", filter=Q(is_cancel=False, finished_price__isnull=False)),
-        local_buyouts=Count("id", filter=Q(is_cancel=False, is_local=True)),
+        buyouts=Count("id", filter=Q(is_buyout=True)),
+        revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
+        local_orders=Count("id", filter=Q(is_local=True)),
+        local_buyouts=Count("id", filter=Q(is_buyout=True, is_local=True)),
     )
 
     total_orders_30d = int(orders_30_stats.get("total_orders") or 0)
     buyouts_30d = int(orders_30_stats.get("buyouts") or 0)
     revenue_30d = float(orders_30_stats.get("revenue") or 0.0)
-    local_buyouts_30d = int(orders_30_stats.get("local_buyouts") or 0)
+    local_orders_30d = int(orders_30_stats.get("local_orders") or 0)
     buyout_rate_30d = round((buyouts_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
     avg_check_30d = round(revenue_30d / buyouts_30d, 2) if buyouts_30d > 0 else 0.0
-    local_share_buyouts_30d = round((local_buyouts_30d / buyouts_30d) * 100.0, 2) if buyouts_30d > 0 else 0.0
+    local_share_orders_30d = round((local_orders_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
 
     products_count = Product.objects.filter(seller=seller).count()
     fbo_stock_total = int(
@@ -1331,8 +1512,8 @@ def home(request):
         .values("day")
         .annotate(
             total=Count("id"),
-            buyouts=Count("id", filter=Q(is_cancel=False)),
-            revenue=Sum("finished_price", filter=Q(is_cancel=False, finished_price__isnull=False)),
+            buyouts=Count("id", filter=Q(is_buyout=True)),
+            revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
         )
         .order_by("day")
     )
@@ -1373,7 +1554,7 @@ def home(request):
             "buyout_rate_30d": buyout_rate_30d,
             "revenue_30d": round(revenue_30d, 2),
             "avg_check_30d": avg_check_30d,
-            "local_share_buyouts_30d": local_share_buyouts_30d,
+            "local_share_orders_30d": local_share_orders_30d,
             "fbo_stock_total": fbo_stock_total,
             "fbs_stock_total": fbs_stock_total,
             "ad_spend_30d": round(ad_spend_30d, 2),
@@ -1384,133 +1565,161 @@ def home(request):
     )
 
 
+@login_required
+@require_GET
+def dashboard_trend_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    period = (request.GET.get("period") or "14d").strip().lower()
+    metric = (request.GET.get("metric") or "orders").strip().lower()
+    if period not in {"today", "7d", "14d", "28d"}:
+        period = "14d"
+    if metric not in {"orders", "buyouts"}:
+        metric = "orders"
+
+    now_local = timezone.localtime()
+    today = now_local.date()
+    tz = timezone.get_current_timezone()
+
+    if period == "today":
+        current_start_dt = timezone.make_aware(datetime.combine(today, dt_time.min), timezone=tz)
+        current_end_dt = current_start_dt + timedelta(days=1)
+        previous_start_dt = current_start_dt - timedelta(days=1)
+        previous_end_dt = current_start_dt
+        labels = [f"{hour:02d}:00" for hour in range(24)]
+
+        if metric == "buyouts":
+            current_qs = (
+                Order.objects
+                .filter(seller=seller, is_buyout=True, buyout_date__gte=current_start_dt, buyout_date__lt=current_end_dt)
+                .annotate(bucket=TruncHour("buyout_date", tzinfo=tz))
+                .values("bucket")
+            )
+            previous_qs = (
+                Order.objects
+                .filter(seller=seller, is_buyout=True, buyout_date__gte=previous_start_dt, buyout_date__lt=previous_end_dt)
+                .annotate(bucket=TruncHour("buyout_date", tzinfo=tz))
+                .values("bucket")
+            )
+        else:
+            current_qs = (
+                Order.objects
+                .filter(seller=seller, order_date__gte=current_start_dt, order_date__lt=current_end_dt)
+                .annotate(bucket=TruncHour("order_date", tzinfo=tz))
+                .values("bucket")
+            )
+            previous_qs = (
+                Order.objects
+                .filter(seller=seller, order_date__gte=previous_start_dt, order_date__lt=previous_end_dt)
+                .annotate(bucket=TruncHour("order_date", tzinfo=tz))
+                .values("bucket")
+            )
+
+        current_rows = current_qs.annotate(cnt=Count("id"))
+        previous_rows = previous_qs.annotate(cnt=Count("id"))
+
+        current_map = {int(timezone.localtime(r["bucket"]).hour): int(r.get("cnt") or 0) for r in current_rows if r.get("bucket")}
+        previous_map = {int(timezone.localtime(r["bucket"]).hour): int(r.get("cnt") or 0) for r in previous_rows if r.get("bucket")}
+
+        current_values = [int(current_map.get(hour, 0)) for hour in range(24)]
+        previous_values = [int(previous_map.get(hour, 0)) for hour in range(24)]
+    else:
+        window_days = {"7d": 7, "14d": 14, "28d": 28}[period]
+        current_start_date = today - timedelta(days=window_days - 1)
+        current_end_date = today
+        previous_end_date = current_start_date - timedelta(days=1)
+        previous_start_date = previous_end_date - timedelta(days=window_days - 1)
+
+        labels = []
+        day = current_start_date
+        while day <= current_end_date:
+            labels.append(day.strftime("%d.%m"))
+            day += timedelta(days=1)
+
+        if metric == "buyouts":
+            current_qs = (
+                Order.objects
+                .filter(
+                    seller=seller,
+                    is_buyout=True,
+                    buyout_date__date__gte=current_start_date,
+                    buyout_date__date__lte=current_end_date,
+                )
+                .annotate(bucket=TruncDate("buyout_date"))
+                .values("bucket")
+            )
+            previous_qs = (
+                Order.objects
+                .filter(
+                    seller=seller,
+                    is_buyout=True,
+                    buyout_date__date__gte=previous_start_date,
+                    buyout_date__date__lte=previous_end_date,
+                )
+                .annotate(bucket=TruncDate("buyout_date"))
+                .values("bucket")
+            )
+        else:
+            current_qs = (
+                Order.objects
+                .filter(
+                    seller=seller,
+                    order_date__date__gte=current_start_date,
+                    order_date__date__lte=current_end_date,
+                )
+                .annotate(bucket=TruncDate("order_date"))
+                .values("bucket")
+            )
+            previous_qs = (
+                Order.objects
+                .filter(
+                    seller=seller,
+                    order_date__date__gte=previous_start_date,
+                    order_date__date__lte=previous_end_date,
+                )
+                .annotate(bucket=TruncDate("order_date"))
+                .values("bucket")
+            )
+
+        current_rows = current_qs.annotate(cnt=Count("id"))
+        previous_rows = previous_qs.annotate(cnt=Count("id"))
+
+        current_map = {r["bucket"]: int(r.get("cnt") or 0) for r in current_rows if r.get("bucket")}
+        previous_map = {r["bucket"]: int(r.get("cnt") or 0) for r in previous_rows if r.get("bucket")}
+
+        current_values = []
+        previous_values = []
+        for i in range(window_days):
+            current_day = current_start_date + timedelta(days=i)
+            previous_day = previous_start_date + timedelta(days=i)
+            current_values.append(int(current_map.get(current_day, 0)))
+            previous_values.append(int(previous_map.get(previous_day, 0)))
+
+    current_total = int(sum(current_values))
+    previous_total = int(sum(previous_values))
+    delta_abs = int(current_total - previous_total)
+    delta_percent = round((delta_abs / previous_total) * 100.0, 2) if previous_total > 0 else None
+
+    return JsonResponse(
+        {
+            "labels": labels,
+            "current_values": current_values,
+            "previous_values": previous_values,
+            "current_total": current_total,
+            "previous_total": previous_total,
+            "delta_abs": delta_abs,
+            "delta_percent": delta_percent,
+            "updated_at": now_local.isoformat(),
+        },
+        status=200,
+    )
+
+
 def analytics_logistics(request):
     if not request.user.is_authenticated:
         return render(request, "home_landing.html")
 
     seller = _get_or_create_seller_for_user(request.user)
-
-    if request.method == "POST" and request.POST.get("action") == "sync_orders":
-        if not seller.has_api_token:
-            messages.error(request, "Сначала добавьте API-ключ в настройках аккаунта.")
-            return redirect("analytics_logistics")
-        try:
-            skipped_steps = []
-
-            if _should_skip_stage_by_ttl(seller, "products"):
-                products_count = 0
-                skipped_steps.append("Карточки товаров")
-            else:
-                products_count = sync_products_content(seller)
-                _mark_stage_success(seller, "products")
-
-            prices_count = sync_product_size_prices(seller)
-            _mark_stage_success(seller, "prices")
-
-            if _should_skip_stage_by_ttl(seller, "commissions"):
-                commissions_count = 0
-                skipped_steps.append("Комиссии категорий")
-            else:
-                commissions_count = sync_category_commissions(seller)
-                _mark_stage_success(seller, "commissions")
-
-            ads_result = sync_ad_campaigns_and_stats(
-                seller=seller,
-                date_from=_recommended_ads_date_from(seller=seller, fallback_days=30, overlap_days=7),
-                date_to=timezone.localdate(),
-            )
-            _mark_stage_success(seller, "ads")
-
-            if _should_skip_stage_by_ttl(seller, "tariffs"):
-                tariffs_count = 0
-                skipped_steps.append("Тарифы коробов")
-            else:
-                tariffs_count = sync_warehouse_tariffs(seller)
-                _mark_stage_success(seller, "tariffs")
-
-            if _should_skip_stage_by_ttl(seller, "acceptance"):
-                acceptance_coeffs_count = 0
-                skipped_steps.append("Тарифы приемки")
-            else:
-                acceptance_coeffs_count = sync_acceptance_coefficients(seller)
-                _mark_stage_success(seller, "acceptance")
-
-            if _should_skip_stage_by_ttl(seller, "offices"):
-                offices_count = 0
-                skipped_steps.append("Склады WB")
-            else:
-                offices_count = sync_wb_offices(seller)
-                _mark_stage_success(seller, "offices")
-
-            if _should_skip_stage_by_ttl(seller, "seller_warehouses"):
-                seller_warehouses_count = 0
-                skipped_steps.append("Склады продавца")
-            else:
-                seller_warehouses_count = sync_seller_warehouses(seller)
-                _mark_stage_success(seller, "seller_warehouses")
-
-            if _should_skip_stage_by_ttl(seller, "transit"):
-                transit_tariffs_count = 0
-                skipped_steps.append("Транзитные направления")
-            else:
-                transit_tariffs_count = sync_transit_direction_tariffs(seller)
-                _mark_stage_success(seller, "transit")
-
-            orders_count = sync_fbw_orders(
-                seller,
-                days_back=_recommended_orders_days_back(seller=seller, fallback_days=175, overlap_days=3),
-            )
-            _mark_stage_success(seller, "orders")
-            stocks_count = sync_supplier_stocks(seller)
-            _mark_stage_success(seller, "stocks")
-            realization_upserted_rows = 0
-            realization_sync_error = None
-            try:
-                today = timezone.localdate()
-                realization_result = sync_realization_report_detail(
-                    seller=seller,
-                    date_from=_recommended_realization_date_from(seller=seller, fallback_days=175, overlap_days=14),
-                    date_to=today,
-                    period="weekly",
-                    limit=10000,
-                    respect_rate_limit=False,
-                )
-                realization_upserted_rows = int(realization_result.get("upserted_rows") or 0)
-                _mark_stage_success(seller, "realization")
-            except Exception as exc:
-                realization_sync_error = str(exc)
-            messages.success(
-                request,
-                (
-                    f"Синхронизация завершена: карточек {products_count}, ценовых строк {prices_count}, комиссий {commissions_count}, тарифов коробов {tariffs_count}, "
-                    f"рекламных кампаний {int((ads_result or {}).get('campaigns_synced') or 0)}, "
-                    f"строк рекламной статистики {int((ads_result or {}).get('stats_rows_upserted') or 0)}, "
-                    f"тарифов приемки {acceptance_coeffs_count}, "
-                    f"транзитных направлений {transit_tariffs_count}, складов WB {offices_count}, "
-                    f"складов продавца {seller_warehouses_count}, заказов {orders_count}, "
-                    f"остатков {stocks_count}, "
-                    f"строк отчета реализации {realization_upserted_rows}."
-                ),
-            )
-            if skipped_steps:
-                messages.info(
-                    request,
-                    f"Пропущены по лимиту 1/день: {', '.join(skipped_steps)}.",
-                )
-            if realization_sync_error:
-                messages.warning(
-                    request,
-                    _ui_error_message("Синхронизация отчетов реализации пропущена", realization_sync_error),
-                )
-            ads_sync_error = (ads_result or {}).get("error") if isinstance(ads_result, dict) else None
-            if ads_sync_error:
-                messages.warning(
-                    request,
-                    _ui_error_message("Синхронизация рекламной статистики пропущена", ads_sync_error),
-                )
-        except Exception as exc:
-            messages.error(request, _ui_error_message("Ошибка синхронизации", exc))
-        return redirect("analytics_logistics")
+    _maybe_start_scheduled_sync_for_user(request.user, seller)
 
     missing_api_token = not seller or not seller.has_api_token
 
@@ -1716,9 +1925,32 @@ def replenishment_report(request):
 @login_required
 def account_settings(request):
     seller = _get_or_create_seller_for_user(request.user)
+    auto_sync_cfg = _get_auto_sync_config(seller)
 
     if request.method == "POST":
         action = (request.POST.get("action") or "").strip()
+        if action == "save_auto_sync":
+            enabled = (request.POST.get("auto_sync_enabled") or "").strip() in {"1", "true", "on", "yes"}
+            run_time_raw = (request.POST.get("auto_sync_time") or "").strip()
+            run_time_obj = _parse_hhmm(run_time_raw)
+            if enabled and run_time_obj is None:
+                messages.error(request, "Укажите корректное время автосинхронизации в формате ЧЧ:ММ.")
+                return redirect(reverse("account_settings"))
+            normalized_time = run_time_obj.strftime("%H:%M") if run_time_obj else "09:00"
+            _save_auto_sync_config(
+                seller,
+                enabled=enabled,
+                run_time=normalized_time,
+                last_run_date=auto_sync_cfg.get("last_run_date") or "",
+            )
+            messages.success(
+                request,
+                "Настройки авто-синхронизации сохранены."
+                if enabled
+                else "Авто-синхронизация отключена.",
+            )
+            return redirect(reverse("account_settings"))
+
         if action == "purge_seller_data":
             confirmed = (request.POST.get("confirm_purge_seller_data") or "").strip() == "1"
             if not confirmed:
@@ -1761,40 +1993,6 @@ def account_settings(request):
             user.delete()
             return redirect(reverse("home"))
 
-        if action == "import_orders_excel":
-            excel_file = request.FILES.get("orders_excel")
-            if not excel_file:
-                messages.error(request, "Выберите Excel-файл для импорта.")
-                return redirect(reverse("account_settings"))
-
-            if not excel_file.name.lower().endswith(".xlsx"):
-                messages.error(request, "Поддерживается только формат .xlsx")
-                return redirect(reverse("account_settings"))
-
-            try:
-                result = import_orders_from_excel(seller=seller, file_obj=excel_file)
-                messages.success(
-                    request,
-                    (
-                        "Импорт завершен: "
-                        f"добавлено {result.get('created', 0)}, "
-                        f"обновлено {result.get('updated', 0)}, "
-                        f"пропущено {result.get('skipped', 0)}."
-                    ),
-                )
-            except Exception as exc:
-                _log_app_error(
-                    source="account.import_orders_excel",
-                    message=f"Ошибка импорта Excel: {exc}",
-                    user=request.user,
-                    seller=seller,
-                    path=request.path,
-                    traceback_text=traceback.format_exc(),
-                )
-                messages.error(request, _ui_error_message("Ошибка импорта Excel", exc))
-
-            return redirect(reverse("account_settings"))
-
         token_input = (request.POST.get("api_token") or "").strip()
         if token_input:
             seller.set_api_token(token_input)
@@ -1809,6 +2007,9 @@ def account_settings(request):
         {
             "seller": seller,
             "saved": request.GET.get("saved") == "1",
+            "auto_sync_enabled": bool(auto_sync_cfg.get("enabled", False)),
+            "auto_sync_time": str(auto_sync_cfg.get("time") or "09:00"),
+            "auto_sync_last_run_date": str(auto_sync_cfg.get("last_run_date") or ""),
         },
     )
 
@@ -1821,20 +2022,6 @@ def supply_recommendations_report(request):
     current_month_start = today.replace(day=1)
     default_date_to = current_month_start - timedelta(days=1)
     default_date_from = default_date_to.replace(day=1)
-
-    # Для демо-пользователей без API-ключа (обычно с Excel-импортом за месяц)
-    # дефолтный диапазон берем из фактически загруженных заказов.
-    if seller and not seller.has_api_token:
-        bounds = (
-            Order.objects
-            .filter(seller=seller)
-            .aggregate(min_dt=Min("order_date"), max_dt=Max("order_date"))
-        )
-        min_dt = bounds.get("min_dt")
-        max_dt = bounds.get("max_dt")
-        if min_dt and max_dt:
-            default_date_from = min_dt.date()
-            default_date_to = max_dt.date()
 
     transit_warehouses = list_available_transit_warehouses(seller=seller)
     main_warehouses = list_regular_warehouses(seller=seller)
@@ -2351,6 +2538,7 @@ def product_cards_report(request):
             {
                 "id": product.id,
                 "nm_id": product.nm_id,
+                "imt_id": product.imt_id,
                 "vendor_code": product.vendor_code,
                 "title": product.title or "",
                 "brand": product.brand or "",
@@ -2373,6 +2561,187 @@ def product_cards_report(request):
             "query": query,
             "page_obj": page_obj,
             "total_cards_count": paginator.count,
+        },
+    )
+
+
+@login_required
+def product_glues_report(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    query = (request.GET.get("q") or "").strip()
+
+    base_products_qs = Product.objects.filter(seller=seller, imt_id__isnull=False)
+    filtered_imt_ids: list[int] | None = None
+    if query:
+        if query.isdigit():
+            filtered_imt_ids = [int(query)]
+        else:
+            filtered_imt_ids = list(
+                base_products_qs.filter(
+                    Q(title__icontains=query)
+                    | Q(vendor_code__icontains=query)
+                    | Q(brand__icontains=query)
+                )
+                .exclude(imt_id__isnull=True)
+                .values_list("imt_id", flat=True)
+                .distinct()
+            )
+
+    grouped_qs = (
+        base_products_qs
+        .values("imt_id")
+        .annotate(items_count=Count("id"))
+        .filter(items_count__gt=1)
+        .order_by("-items_count", "imt_id")
+    )
+    if filtered_imt_ids is not None:
+        grouped_qs = grouped_qs.filter(imt_id__in=filtered_imt_ids)
+
+    grouped_rows = list(grouped_qs)
+    imt_ids = [row["imt_id"] for row in grouped_rows if row.get("imt_id") is not None]
+
+    products = list(
+        Product.objects
+        .filter(seller=seller, imt_id__in=imt_ids)
+        .order_by("imt_id", F("wb_updated_at").desc(nulls_last=True), "-id")
+    )
+    nm_ids = [int(p.nm_id) for p in products]
+
+    today = timezone.localdate()
+    last_30_from = today - timedelta(days=29)
+
+    orders_by_nm = {
+        int(row["nm_id"]): {
+            "orders": int(row.get("orders") or 0),
+            "buyouts": int(row.get("buyouts") or 0),
+            "revenue": float(row.get("revenue") or 0.0),
+        }
+        for row in (
+            Order.objects
+            .filter(seller=seller, nm_id__in=nm_ids, order_date__date__gte=last_30_from, order_date__date__lte=today)
+            .values("nm_id")
+            .annotate(
+                orders=Count("id"),
+                buyouts=Count("id", filter=Q(is_buyout=True)),
+                revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
+            )
+        )
+    }
+    ad_by_nm = {
+        int(row["nm_id"]): {
+            "ad_spend": float(row.get("ad_spend") or 0.0),
+            "ad_orders": int(row.get("ad_orders") or 0),
+        }
+        for row in (
+            WbAdvertStatDaily.objects
+            .filter(seller=seller, nm_id__in=nm_ids, stat_date__gte=last_30_from, stat_date__lte=today)
+            .values("nm_id")
+            .annotate(ad_spend=Sum("spend"), ad_orders=Sum("orders"))
+        )
+    }
+    fbo_stock_by_nm = {
+        int(row["nm_id"]): int(row.get("qty") or 0)
+        for row in (
+            WarehouseStockDetailed.objects
+            .filter(seller=seller, nm_id__in=nm_ids)
+            .values("nm_id")
+            .annotate(qty=Sum("quantity"))
+        )
+    }
+    chrt_to_nm_map = {
+        int(row["chrt_id"]): int(row["nm_id"])
+        for row in (
+            ProductCardSize.objects
+            .filter(seller=seller)
+            .exclude(nm_id__isnull=True)
+            .values("chrt_id", "nm_id")
+        )
+        if row.get("chrt_id") is not None and row.get("nm_id") is not None
+    }
+    fbs_stock_by_nm: dict[int, int] = {}
+    for row in (
+        SellerFbsStock.objects
+        .filter(seller=seller)
+        .values("chrt_id")
+        .annotate(total_qty=Sum("amount"))
+    ):
+        chrt_id = row.get("chrt_id")
+        if chrt_id is None:
+            continue
+        nm_id = chrt_to_nm_map.get(int(chrt_id))
+        if nm_id is None:
+            continue
+        fbs_stock_by_nm[nm_id] = int(fbs_stock_by_nm.get(nm_id, 0) + int(row.get("total_qty") or 0))
+
+    products_by_imt: dict[int, list[dict]] = {}
+    for p in products:
+        nm_id_int = int(p.nm_id)
+        item_orders = orders_by_nm.get(nm_id_int, {})
+        item_ad = ad_by_nm.get(nm_id_int, {})
+        products_by_imt.setdefault(int(p.imt_id), []).append(
+            {
+                "id": p.id,
+                "nm_id": p.nm_id,
+                "vendor_code": p.vendor_code,
+                "title": p.title or "",
+                "brand": p.brand or "",
+                "photo_url": p.photo_url or "",
+                "orders_30d": int(item_orders.get("orders") or 0),
+                "buyouts_30d": int(item_orders.get("buyouts") or 0),
+                "revenue_30d": round(float(item_orders.get("revenue") or 0.0), 2),
+                "ad_spend_30d": round(float(item_ad.get("ad_spend") or 0.0), 2),
+                "fbo_stock_qty": int(fbo_stock_by_nm.get(nm_id_int, 0)),
+                "fbs_stock_qty": int(fbs_stock_by_nm.get(nm_id_int, 0)),
+            }
+        )
+
+    glue_rows = []
+    for grouped in grouped_rows:
+        imt_id = int(grouped["imt_id"])
+        items = products_by_imt.get(imt_id, [])
+        if not items:
+            continue
+        orders_30d = sum(item["orders_30d"] for item in items)
+        buyouts_30d = sum(item["buyouts_30d"] for item in items)
+        ad_spend_30d = round(sum(item["ad_spend_30d"] for item in items), 2)
+        revenue_30d = round(sum(item["revenue_30d"] for item in items), 2)
+        fbo_stock_qty = sum(item["fbo_stock_qty"] for item in items)
+        fbs_stock_qty = sum(item["fbs_stock_qty"] for item in items)
+        buyout_rate_30d = round((buyouts_30d / orders_30d) * 100.0, 2) if orders_30d > 0 else 0.0
+        ad_share_30d = round((ad_spend_30d / revenue_30d) * 100.0, 2) if revenue_30d > 0 else 0.0
+        glue_rows.append(
+            {
+                "imt_id": imt_id,
+                "items_count": len(items),
+                "items": items,
+                "orders_30d": orders_30d,
+                "buyouts_30d": buyouts_30d,
+                "buyout_rate_30d": buyout_rate_30d,
+                "ad_spend_30d": ad_spend_30d,
+                "revenue_30d": revenue_30d,
+                "ad_share_30d": ad_share_30d,
+                "fbo_stock_qty": fbo_stock_qty,
+                "fbs_stock_qty": fbs_stock_qty,
+            }
+        )
+
+    glue_rows.sort(key=lambda row: (row["orders_30d"], row["buyouts_30d"], row["items_count"]), reverse=True)
+
+    paginator = Paginator(glue_rows, 20)
+    page_obj = paginator.get_page(request.GET.get("page") or 1)
+
+    return render(
+        request,
+        "products/glues.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+            "query": query,
+            "page_obj": page_obj,
+            "total_glues_count": len(glue_rows),
+            "last_30_from": last_30_from,
+            "last_30_to": today,
         },
     )
 
@@ -2596,8 +2965,9 @@ def product_card_detail(request, product_id: int):
     nm_id = product.nm_id
 
     product_orders_qs = Order.objects.filter(seller=seller, nm_id=nm_id)
-    max_order_dt = product_orders_qs.aggregate(max_dt=Max("order_date")).get("max_dt")
-    chart_end = (max_order_dt.date() if max_order_dt else timezone.localdate())
+    # Для детализации карточки и рекламного блока используем "сегодня" как правую границу периода.
+    # Иначе при отсутствии новых заказов за последние дни реклама визуально "обрезается" по max(order_date).
+    chart_end = timezone.localdate()
     chart_start = chart_end - timedelta(days=13)
 
     daily_rows = (
@@ -2607,8 +2977,8 @@ def product_card_detail(request, product_id: int):
         .values("day")
         .annotate(
             total_count=Count("id"),
-            sold_count=Count("id", filter=Q(is_cancel=False)),
-            canceled_count=Count("id", filter=Q(is_cancel=True)),
+            sold_count=Count("id", filter=Q(is_buyout=True)),
+            canceled_count=Count("id", filter=Q(is_cancel=True) | Q(is_return=True)),
         )
         .order_by("day")
     )
@@ -2672,7 +3042,7 @@ def product_card_detail(request, product_id: int):
     )
     monthly_stats = monthly_orders_qs.aggregate(
         total_orders=Count("id"),
-        sold_orders=Count("id", filter=Q(is_cancel=False)),
+        sold_orders=Count("id", filter=Q(is_buyout=True)),
     )
     monthly_total_orders = int(monthly_stats.get("total_orders") or 0)
     monthly_sold_orders = int(monthly_stats.get("sold_orders") or 0)
@@ -2681,7 +3051,7 @@ def product_card_detail(request, product_id: int):
 
     all_time_stats = product_orders_qs.aggregate(
         total_orders=Count("id"),
-        sold_orders=Count("id", filter=Q(is_cancel=False)),
+        sold_orders=Count("id", filter=Q(is_buyout=True)),
     )
     all_time_total_orders = int(all_time_stats.get("total_orders") or 0)
     all_time_sold_orders = int(all_time_stats.get("sold_orders") or 0)
@@ -2783,33 +3153,98 @@ def product_card_detail(request, product_id: int):
     if irp_trend.get("points"):
         latest_theoretical_irp_percent = float(irp_trend["points"][-1].get("theoretical_irp_percent") or 0.0)
 
-    commission_percent = 0.0
-    if product.subject_id is not None:
-        commission_row = (
-            WbCategoryCommission.objects
-            .filter(seller=seller, locale="ru", subject_id=product.subject_id)
-            .order_by("-updated_at", "-id")
-            .first()
+    commission_percent_fbo = _resolve_model_commission_percent(
+        seller=seller,
+        product=product,
+        model_type=UNIT_MODEL_FBO,
+    )
+    commission_percent_fbs = _resolve_model_commission_percent(
+        seller=seller,
+        product=product,
+        model_type=UNIT_MODEL_FBS,
+    )
+
+    marketplace_region_options = []
+    marketplace_tariffs = list(
+        WbWarehouseTariff.objects
+        .filter(seller=seller, warehouse_name__startswith="Маркетплейс:")
+        .exclude(Q(warehouse_name__icontains="СГТ") | Q(warehouse_name__icontains="SGT"))
+        .order_by("-tariff_date", "-updated_at")
+    )
+    region_rows: dict[str, list[WbWarehouseTariff]] = {}
+    for row in marketplace_tariffs:
+        region_name = (row.geo_name or "").strip()
+        if not region_name:
+            region_name = (row.warehouse_name or "").replace("Маркетплейс:", "").strip()
+        if not region_name:
+            continue
+        region_name_lc = region_name.lower()
+        if "сгт" in region_name_lc or "sgt" in region_name_lc:
+            continue
+        region_rows.setdefault(region_name.lower(), []).append(row)
+
+    for region_key, rows in region_rows.items():
+        chosen = None
+        for row in rows:
+            coef = _to_float_or_default(
+                row.box_delivery_marketplace_coef_expr,
+                _to_float_or_default(row.box_delivery_coef_expr, 0.0),
+            )
+            if coef > 0:
+                chosen = row
+                break
+        if chosen is None and rows:
+            chosen = rows[0]
+        if chosen is None:
+            continue
+        region_name = (chosen.geo_name or "").strip() or (chosen.warehouse_name or "").replace("Маркетплейс:", "").strip()
+        marketplace_region_options.append(
+            {
+                "region_name": region_name or region_key,
+                "delivery_coef": _to_float_or_default(
+                    chosen.box_delivery_marketplace_coef_expr,
+                    _to_float_or_default(chosen.box_delivery_coef_expr, 0.0),
+                ),
+                "delivery_base_liter": _to_float_or_default(
+                    chosen.box_delivery_marketplace_base,
+                    _to_float_or_default(chosen.box_delivery_base, 0.0),
+                ),
+                "delivery_additional_liter": _to_float_or_default(
+                    chosen.box_delivery_marketplace_liter,
+                    _to_float_or_default(chosen.box_delivery_liter, 0.0),
+                ),
+                "tariff_date": chosen.tariff_date.isoformat() if chosen.tariff_date else None,
+            }
         )
-        if commission_row and commission_row.paid_storage_kgvp is not None:
-            commission_percent = round(float(commission_row.paid_storage_kgvp), 2)
+    marketplace_region_options.sort(key=lambda x: x.get("region_name") or "")
 
     default_days_to_sell_batch = 30
     if avg_sales_per_day_14d > 0:
         default_days_to_sell_batch = max(1, round(100 / avg_sales_per_day_14d))
 
-    saved_unit_calc = (
+    saved_unit_calcs_qs = (
         ProductUnitEconomicsCalculation.objects
         .filter(seller=seller, product=product)
-        .first()
+        .order_by("-calculated_at")
     )
     saved_unit_calc_payload = {}
-    if saved_unit_calc and isinstance(saved_unit_calc.result_data, dict):
-        saved_unit_calc_payload = {
-            "result": saved_unit_calc.result_data,
-            "input_data": saved_unit_calc.input_data if isinstance(saved_unit_calc.input_data, dict) else {},
-            "calculated_at": saved_unit_calc.calculated_at.isoformat() if saved_unit_calc.calculated_at else None,
+    saved_unit_calcs_payload: dict[str, dict] = {}
+    for row in saved_unit_calcs_qs:
+        if not isinstance(row.result_data, dict):
+            continue
+        model_type = _normalize_unit_model_type(
+            row.model_type
+            or (row.input_data.get("model_type") if isinstance(row.input_data, dict) else None)
+        )
+        payload = {
+            "result": row.result_data,
+            "input_data": row.input_data if isinstance(row.input_data, dict) else {},
+            "calculated_at": row.calculated_at.isoformat() if row.calculated_at else None,
         }
+        if not saved_unit_calc_payload:
+            saved_unit_calc_payload = payload
+        if model_type not in saved_unit_calcs_payload:
+            saved_unit_calcs_payload[model_type] = payload
 
     return render(
         request,
@@ -2836,11 +3271,14 @@ def product_card_detail(request, product_id: int):
             "unit_avg_sales_per_day_14d": avg_sales_per_day_14d,
             "unit_latest_theoretical_il": latest_theoretical_il,
             "unit_latest_theoretical_irp_percent": latest_theoretical_irp_percent,
-            "unit_default_commission_percent": commission_percent,
+            "unit_default_commission_percent_fbo": commission_percent_fbo,
+            "unit_default_commission_percent_fbs": commission_percent_fbs,
             "unit_default_days_to_sell_batch": default_days_to_sell_batch,
             "unit_warehouse_coeff_options_json": warehouse_coeff_options,
+            "unit_marketplace_region_options_json": marketplace_region_options,
             "unit_saved_calc_json": saved_unit_calc_payload,
-            "unit_has_saved_calc": bool(saved_unit_calc_payload),
+            "unit_saved_calcs_json": saved_unit_calcs_payload,
+            "unit_has_saved_calc": bool(saved_unit_calcs_payload),
         },
     )
 
@@ -2855,8 +3293,7 @@ def product_card_detail_heavy_api(request, product_id: int):
 
     nm_id = int(product.nm_id)
     product_orders_qs = Order.objects.filter(seller=seller, nm_id=nm_id)
-    max_order_dt = product_orders_qs.aggregate(max_dt=Max("order_date")).get("max_dt")
-    chart_end = (max_order_dt.date() if max_order_dt else timezone.localdate())
+    chart_end = timezone.localdate()
     month_start = chart_end - timedelta(days=29)
 
     discounted_price_from_prices = (
@@ -2916,6 +3353,20 @@ def product_unit_economics_settings_api(request, product_id: int):
         _to_float_or_default(request.POST.get("acceptance_cost_per_liter"), settings_obj.acceptance_cost_per_liter),
     )
     settings_obj.fulfillment_cost_per_order = max(0.0, _to_float_or_default(request.POST.get("fulfillment_cost_per_order"), settings_obj.fulfillment_cost_per_order))
+    settings_obj.fbo_fulfillment_cost_per_order = max(
+        0.0,
+        _to_float_or_default(
+            request.POST.get("fbo_fulfillment_cost_per_order"),
+            _to_float_or_default(settings_obj.fbo_fulfillment_cost_per_order, settings_obj.fulfillment_cost_per_order),
+        ),
+    )
+    settings_obj.fbs_fulfillment_cost_per_order = max(
+        0.0,
+        _to_float_or_default(
+            request.POST.get("fbs_fulfillment_cost_per_order"),
+            _to_float_or_default(settings_obj.fbs_fulfillment_cost_per_order, settings_obj.fulfillment_cost_per_order),
+        ),
+    )
     settings_obj.usn_percent = _safe_percent(request.POST.get("usn_percent"), settings_obj.usn_percent)
     settings_obj.vat_percent = _safe_percent(request.POST.get("vat_percent"), settings_obj.vat_percent)
     settings_obj.save()
@@ -2930,6 +3381,8 @@ def product_unit_economics_settings_api(request, product_id: int):
                 "acquiring_percent": settings_obj.acquiring_percent,
                 "acceptance_cost_per_liter": settings_obj.acceptance_cost_per_liter,
                 "fulfillment_cost_per_order": settings_obj.fulfillment_cost_per_order,
+                "fbo_fulfillment_cost_per_order": settings_obj.fbo_fulfillment_cost_per_order,
+                "fbs_fulfillment_cost_per_order": settings_obj.fbs_fulfillment_cost_per_order,
                 "usn_percent": settings_obj.usn_percent,
                 "vat_percent": settings_obj.vat_percent,
             },
@@ -2946,6 +3399,14 @@ def product_unit_economics_calculate_api(request, product_id: int):
         return JsonResponse({"error": "Карточка товара не найдена."}, status=404)
     settings_obj = _get_or_create_unit_economics_settings(seller)
     preview_mode = (request.POST.get("preview") or "").strip().lower() in {"1", "true", "yes", "on"}
+    model_type = _normalize_unit_model_type(request.POST.get("model_type"))
+    model_labels = _unit_model_labels(model_type)
+    default_commission_percent = _resolve_model_commission_percent(
+        seller=seller,
+        product=product,
+        model_type=model_type,
+    )
+    default_fulfillment_cost = _resolve_model_fulfillment_cost(settings_obj, model_type)
 
     sale_price = max(0.0, _to_float_or_default(request.POST.get("sale_price"), 0.0))
     purchase_price = max(0.0, _to_float_or_default(request.POST.get("purchase_price"), 0.0))
@@ -2953,12 +3414,12 @@ def product_unit_economics_calculate_api(request, product_id: int):
     defect_percent = _safe_percent(request.POST.get("defect_percent"), 1.0)
     buyout_percent = _safe_percent(request.POST.get("buyout_percent"), 100.0)
     drr_percent = _safe_percent(request.POST.get("drr_percent"), 10.0)
-    fulfillment_cost = max(0.0, _to_float_or_default(request.POST.get("fulfillment_cost"), 0.0))
+    fulfillment_cost = max(0.0, _to_float_or_default(request.POST.get("fulfillment_cost"), default_fulfillment_cost))
     usn_percent = _safe_percent(request.POST.get("usn_percent"), 6.0)
     vat_percent = _safe_percent(request.POST.get("vat_percent"), 0.0)
     acquiring_percent = _safe_percent(request.POST.get("acquiring_percent"), 0.0)
     batch_qty = max(1.0, _to_float_or_default(request.POST.get("batch_qty"), 1.0))
-    commission_percent = _safe_percent(request.POST.get("commission_percent"), 0.0)
+    commission_percent = _safe_percent(request.POST.get("commission_percent"), default_commission_percent)
     delivery_coef_expr = max(0.0, _to_float_or_default(request.POST.get("delivery_coef_expr"), 0.0))
     extra_cost = max(0.0, _to_float_or_default(request.POST.get("extra_cost"), 0.0))
     days_to_sell = max(1.0, _to_float_or_default(request.POST.get("days_to_sell"), 30.0))
@@ -2969,6 +3430,13 @@ def product_unit_economics_calculate_api(request, product_id: int):
     storage_base_liter = max(0.0, _to_float_or_default(request.POST.get("storage_base_liter"), 0.0))
     storage_additional_liter = max(0.0, _to_float_or_default(request.POST.get("storage_additional_liter"), 0.0))
     warehouse_name = (request.POST.get("warehouse_name") or "").strip()
+    region_name = (request.POST.get("region_name") or "").strip()
+    if model_type == UNIT_MODEL_FBS and region_name:
+        warehouse_name = region_name
+    if model_type == UNIT_MODEL_FBS:
+        # Для FBS ИЛ/ИРП в юнитке не участвуют в расчете.
+        localization_index = 1.0
+        irp_percent = 0.0
 
     volume = max(0.0, _to_float_or_default(request.POST.get("volume_liters"), product.volume_liters or DEFAULT_LOGISTICS_VOLUME_LITERS))
     if volume <= 0:
@@ -3003,11 +3471,16 @@ def product_unit_economics_calculate_api(request, product_id: int):
     buyout_fraction = max(0.0001, buyout_percent / 100.0)
     non_buyout_logistics_cost = delivery_cost * ((1.0 - buyout_fraction) / buyout_fraction)
 
-    if box_type == "mono":
-        storage_per_day = storage_base_liter
+    if model_type == UNIT_MODEL_FBS:
+        storage_base_liter = 0.0
+        storage_additional_liter = 0.0
+        storage_cost = 0.0
     else:
-        storage_per_day = storage_base_liter + storage_additional_liter * max(volume - 1.0, 0.0)
-    storage_cost = storage_per_day * days_to_sell
+        if box_type == "mono":
+            storage_per_day = storage_base_liter
+        else:
+            storage_per_day = storage_base_liter + storage_additional_liter * max(volume - 1.0, 0.0)
+        storage_cost = storage_per_day * days_to_sell
 
     acceptance_cost_per_liter = max(
         0.0,
@@ -3018,7 +3491,7 @@ def product_unit_economics_calculate_api(request, product_id: int):
     )
     acceptance_cost = acceptance_cost_per_liter * volume * max(0.0, acceptance_coef)
     acceptance_note = (
-        f"Приемка: {acceptance_cost_per_liter:.2f} ₽/л × объем {volume:.3f} л × коэффициент {max(0.0, acceptance_coef):.2f}."
+        f"{model_labels['acceptance']}: {acceptance_cost_per_liter:.2f} ₽/л × объем {volume:.3f} л × коэффициент {max(0.0, acceptance_coef):.2f}."
     )
     _ = batch_qty  # batch_qty хранится для будущего расширения формулы.
     _ = acceptance_coef
@@ -3045,15 +3518,15 @@ def product_unit_economics_calculate_api(request, product_id: int):
         {"key": "drr", "label": "ДРР", "value": round(drr_cost, 2), "kind": "expense"},
         {"key": "defect", "label": "Брак", "value": round(defect_cost, 2), "kind": "expense"},
         {"key": "acquiring", "label": "Эквайринг", "value": round(acquiring_cost, 2), "kind": "expense"},
-        {"key": "fulfillment", "label": "Фулфилмент", "value": round(fulfillment_cost, 2), "kind": "expense"},
+        {"key": "fulfillment", "label": model_labels["fulfillment"], "value": round(fulfillment_cost, 2), "kind": "expense"},
         {"key": "extra", "label": "Доп. расходы", "value": round(extra_cost, 2), "kind": "expense"},
-        {"key": "delivery", "label": "Логистика", "value": round(delivery_cost, 2), "kind": "expense"},
-        {"key": "non_buyout", "label": "Логистика невыкупов", "value": round(non_buyout_logistics_cost, 2), "kind": "expense"},
+        {"key": "delivery", "label": model_labels["delivery"], "value": round(delivery_cost, 2), "kind": "expense"},
+        {"key": "non_buyout", "label": model_labels["non_buyout"], "value": round(non_buyout_logistics_cost, 2), "kind": "expense"},
         {"key": "commission", "label": "Комиссия WB", "value": round(commission_cost, 2), "kind": "expense"},
         {"key": "usn", "label": "Налог УСН", "value": round(usn_cost, 2), "kind": "expense"},
         {"key": "vat", "label": "НДС", "value": round(vat_cost, 2), "kind": "expense"},
-        {"key": "storage", "label": "Хранение", "value": round(storage_cost, 2), "kind": "expense"},
-        {"key": "acceptance", "label": "Приемка", "value": round(acceptance_cost, 2), "kind": "expense"},
+        {"key": "storage", "label": model_labels["storage"], "value": round(storage_cost, 2), "kind": "expense"},
+        {"key": "acceptance", "label": model_labels["acceptance"], "value": round(acceptance_cost, 2), "kind": "expense"},
         {"key": "net_profit", "label": "Чистая прибыль", "value": round(net_profit, 2), "kind": ("profit" if net_profit >= 0 else "loss")},
     ]
 
@@ -3061,6 +3534,8 @@ def product_unit_economics_calculate_api(request, product_id: int):
         "net_profit": round(net_profit, 2),
         "segments": segments,
         "breakdown": {
+            "model_type": model_type,
+            "model_labels": model_labels,
             "sale_price": round(sale_price, 2),
             "spp_percent": round(spp_percent, 4),
             "purchase_price": round(purchase_price, 2),
@@ -3081,6 +3556,7 @@ def product_unit_economics_calculate_api(request, product_id: int):
             "irp_percent": round(irp_percent, 4),
             "acceptance_note": acceptance_note,
             "warehouse_name": warehouse_name,
+            "region_name": region_name,
             "delivery_coef_expr": round(delivery_coef_expr, 4),
             "storage_base_liter": round(storage_base_liter, 4),
             "storage_additional_liter": round(storage_additional_liter, 4),
@@ -3088,6 +3564,7 @@ def product_unit_economics_calculate_api(request, product_id: int):
     }
 
     input_payload = {
+        "model_type": model_type,
         "sale_price": round(sale_price, 2),
         "purchase_price": round(purchase_price, 2),
         "spp_percent": round(spp_percent, 4),
@@ -3102,6 +3579,7 @@ def product_unit_economics_calculate_api(request, product_id: int):
         "commission_percent": round(commission_percent, 4),
         "delivery_coef_expr": round(delivery_coef_expr, 4),
         "warehouse_name": warehouse_name,
+        "region_name": region_name,
         "extra_cost": round(extra_cost, 2),
         "days_to_sell": round(days_to_sell, 2),
         "localization_index": round(localization_index, 6),
@@ -3118,7 +3596,9 @@ def product_unit_economics_calculate_api(request, product_id: int):
         ProductUnitEconomicsCalculation.objects.update_or_create(
             seller=seller,
             product=product,
+            model_type=model_type,
             defaults={
+                "model_type": model_type,
                 "input_data": input_payload,
                 "result_data": result_payload,
                 "net_profit": result_payload["net_profit"],
@@ -3193,3 +3673,320 @@ def create_feedback_api(request):
             traceback_text=traceback.format_exc(),
         )
         return JsonResponse({"error": "Не удалось сохранить сообщение. Попробуйте ещё раз."}, status=500)
+
+
+SUPPORT_STATUS_META = {
+    SupportThread.STATUS_OPEN: {"label": "Открыт", "color": "neutral"},
+    SupportThread.STATUS_WAITING_USER: {"label": "Ждет пользователя", "color": "warn"},
+    SupportThread.STATUS_WAITING_SUPPORT: {"label": "Ждет поддержки", "color": "info"},
+    SupportThread.STATUS_CLOSED: {"label": "Закрыт", "color": "muted"},
+}
+
+
+def _is_support_user(user) -> bool:
+    return bool(user and user.is_authenticated and user.is_superuser)
+
+
+def _support_users_qs():
+    return User.objects.filter(is_superuser=True, is_active=True)
+
+
+def _thread_status_payload(status: str) -> dict:
+    meta = SUPPORT_STATUS_META.get(status, SUPPORT_STATUS_META[SupportThread.STATUS_OPEN])
+    return {"code": status, "label": meta["label"], "color": meta["color"]}
+
+
+def _touch_thread_status_on_message(thread: SupportThread, author_role: str) -> None:
+    if thread.status == SupportThread.STATUS_CLOSED:
+        thread.status = SupportThread.STATUS_WAITING_USER if author_role == SupportMessage.ROLE_SUPPORT else SupportThread.STATUS_WAITING_SUPPORT
+        thread.closed_at = None
+    else:
+        thread.status = SupportThread.STATUS_WAITING_USER if author_role == SupportMessage.ROLE_SUPPORT else SupportThread.STATUS_WAITING_SUPPORT
+    thread.save(update_fields=["status", "closed_at", "updated_at"])
+
+
+def _increment_thread_unread(thread: SupportThread, from_role: str) -> None:
+    if from_role == SupportMessage.ROLE_SUPPORT:
+        targets = [thread.user]
+    else:
+        targets = list(_support_users_qs())
+    now_dt = timezone.now()
+    for target in targets:
+        state, _ = SupportThreadParticipantState.objects.get_or_create(
+            thread=thread,
+            user=target,
+            defaults={"unread_count": 0, "last_read_at": now_dt},
+        )
+        state.unread_count = int(state.unread_count or 0) + 1
+        state.save(update_fields=["unread_count"])
+
+
+def _mark_thread_read(thread: SupportThread, user) -> None:
+    now_dt = timezone.now()
+    state, _ = SupportThreadParticipantState.objects.get_or_create(
+        thread=thread,
+        user=user,
+        defaults={"unread_count": 0, "last_read_at": now_dt},
+    )
+    state.unread_count = 0
+    state.last_read_at = now_dt
+    state.save(update_fields=["unread_count", "last_read_at"])
+
+
+def _can_access_thread(user, thread: SupportThread) -> bool:
+    if _is_support_user(user):
+        return True
+    return thread.user_id == user.id
+
+
+def _serialize_thread_for_list(thread: SupportThread, unread_count: int, last_message: SupportMessage | None) -> dict:
+    last_body = (last_message.body if last_message else "").strip()
+    preview = (last_body[:120] + "...") if len(last_body) > 120 else last_body
+    last_author_role = last_message.author_role if last_message else ""
+    return {
+        "id": thread.id,
+        "subject": thread.subject,
+        "status": _thread_status_payload(thread.status),
+        "owner": {
+            "id": thread.user_id,
+            "username": thread.user.username,
+        },
+        "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+        "created_at": thread.created_at.isoformat() if thread.created_at else None,
+        "unread_count": int(unread_count or 0),
+        "last_message_preview": preview,
+        "last_message_author_role": last_author_role,
+    }
+
+
+@login_required
+def support_chat(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    return render(
+        request,
+        "support/chat.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+        },
+    )
+
+
+@login_required
+def support_chat_admin(request):
+    if not _is_support_user(request.user):
+        return redirect("support_chat")
+    seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    return render(
+        request,
+        "support/chat_admin.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+        },
+    )
+
+
+@login_required
+def support_threads_api(request):
+    if request.method == "GET":
+        is_support = _is_support_user(request.user)
+        qs = SupportThread.objects.select_related("user").order_by("-updated_at")
+        if not is_support:
+            qs = qs.filter(user=request.user)
+        else:
+            status_filter = (request.GET.get("status") or "").strip()
+            query = (request.GET.get("q") or "").strip()
+            if status_filter in {code for code, _label in SupportThread.STATUS_CHOICES}:
+                qs = qs.filter(status=status_filter)
+            if query:
+                qs = qs.filter(Q(subject__icontains=query) | Q(user__username__icontains=query))
+
+        thread_ids = [row.id for row in qs[:200]]
+        unread_map = {
+            row["thread_id"]: int(row.get("unread_count") or 0)
+            for row in (
+                SupportThreadParticipantState.objects
+                .filter(user=request.user, thread_id__in=thread_ids)
+                .values("thread_id", "unread_count")
+            )
+        }
+        last_messages = list(
+            SupportMessage.objects
+            .filter(thread_id__in=thread_ids)
+            .select_related("author_user")
+            .order_by("thread_id", "-created_at")
+        )
+        last_message_map: dict[int, SupportMessage] = {}
+        for msg in last_messages:
+            if msg.thread_id not in last_message_map and (is_support or not msg.is_internal):
+                last_message_map[msg.thread_id] = msg
+
+        payload = [
+            _serialize_thread_for_list(
+                thread,
+                unread_map.get(thread.id, 0),
+                last_message_map.get(thread.id),
+            )
+            for thread in qs[:200]
+        ]
+        return JsonResponse({"ok": True, "threads": payload}, status=200)
+
+    if request.method == "POST":
+        subject = (request.POST.get("subject") or "").strip()
+        body = (request.POST.get("body") or "").strip()
+        if len(subject) < 3:
+            return JsonResponse({"error": "Тема слишком короткая (минимум 3 символа)."}, status=400)
+        if len(body) < 3:
+            return JsonResponse({"error": "Сообщение слишком короткое (минимум 3 символа)."}, status=400)
+
+        thread = SupportThread.objects.create(
+            user=request.user,
+            subject=subject[:255],
+            status=SupportThread.STATUS_WAITING_SUPPORT,
+        )
+        SupportMessage.objects.create(
+            thread=thread,
+            author_user=request.user,
+            author_role=SupportMessage.ROLE_USER,
+            body=body,
+        )
+        _increment_thread_unread(thread, from_role=SupportMessage.ROLE_USER)
+        _mark_thread_read(thread, request.user)
+        return JsonResponse({"ok": True, "thread_id": thread.id}, status=201)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@login_required
+def support_thread_messages_api(request, thread_id: int):
+    try:
+        thread = SupportThread.objects.select_related("user").get(id=thread_id)
+    except SupportThread.DoesNotExist:
+        return JsonResponse({"error": "Диалог не найден."}, status=404)
+
+    if not _can_access_thread(request.user, thread):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    is_support = _is_support_user(request.user)
+    if request.method == "GET":
+        messages_qs = (
+            SupportMessage.objects
+            .filter(thread=thread)
+            .select_related("author_user")
+            .order_by("created_at", "id")
+        )
+        if not is_support:
+            messages_qs = messages_qs.filter(is_internal=False)
+        messages_payload = [
+            {
+                "id": msg.id,
+                "thread_id": msg.thread_id,
+                "body": msg.body,
+                "author_role": msg.author_role,
+                "author_username": msg.author_user.username,
+                "is_mine": msg.author_user_id == request.user.id,
+                "is_internal": bool(msg.is_internal),
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+            for msg in messages_qs
+        ]
+        return JsonResponse(
+            {
+                "ok": True,
+                "thread": {
+                    "id": thread.id,
+                    "subject": thread.subject,
+                    "status": _thread_status_payload(thread.status),
+                    "owner": {"id": thread.user_id, "username": thread.user.username},
+                    "updated_at": thread.updated_at.isoformat() if thread.updated_at else None,
+                },
+                "messages": messages_payload,
+            },
+            status=200,
+        )
+
+    if request.method == "POST":
+        body = (request.POST.get("body") or "").strip()
+        if len(body) < 1:
+            return JsonResponse({"error": "Пустое сообщение."}, status=400)
+        is_internal = (request.POST.get("is_internal") or "0").strip() in {"1", "true", "on"}
+        if is_internal and not is_support:
+            return JsonResponse({"error": "forbidden"}, status=403)
+        role = SupportMessage.ROLE_SUPPORT if is_support else SupportMessage.ROLE_USER
+        msg = SupportMessage.objects.create(
+            thread=thread,
+            author_user=request.user,
+            author_role=role,
+            body=body,
+            is_internal=is_internal,
+        )
+        _touch_thread_status_on_message(thread, role)
+        if not is_internal:
+            _increment_thread_unread(thread, from_role=role)
+        _mark_thread_read(thread, request.user)
+        return JsonResponse(
+            {
+                "ok": True,
+                "message": {
+                    "id": msg.id,
+                    "thread_id": msg.thread_id,
+                    "body": msg.body,
+                    "author_role": msg.author_role,
+                    "author_username": msg.author_user.username,
+                    "is_mine": True,
+                    "is_internal": bool(msg.is_internal),
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                },
+                "thread_status": _thread_status_payload(thread.status),
+            },
+            status=201,
+        )
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@login_required
+@require_POST
+def support_thread_read_api(request, thread_id: int):
+    try:
+        thread = SupportThread.objects.get(id=thread_id)
+    except SupportThread.DoesNotExist:
+        return JsonResponse({"error": "Диалог не найден."}, status=404)
+    if not _can_access_thread(request.user, thread):
+        return JsonResponse({"error": "forbidden"}, status=403)
+    _mark_thread_read(thread, request.user)
+    return JsonResponse({"ok": True}, status=200)
+
+
+@login_required
+@require_POST
+def support_thread_status_api(request, thread_id: int):
+    if not _is_support_user(request.user):
+        return JsonResponse({"error": "forbidden"}, status=403)
+    try:
+        thread = SupportThread.objects.get(id=thread_id)
+    except SupportThread.DoesNotExist:
+        return JsonResponse({"error": "Диалог не найден."}, status=404)
+    new_status = (request.POST.get("status") or "").strip()
+    valid_statuses = {code for code, _label in SupportThread.STATUS_CHOICES}
+    if new_status not in valid_statuses:
+        return JsonResponse({"error": "Некорректный статус."}, status=400)
+    thread.status = new_status
+    thread.closed_at = timezone.now() if new_status == SupportThread.STATUS_CLOSED else None
+    thread.save(update_fields=["status", "closed_at", "updated_at"])
+    return JsonResponse({"ok": True, "status": _thread_status_payload(thread.status)}, status=200)
+
+
+@login_required
+@require_GET
+def support_unread_count_api(request):
+    unread = (
+        SupportThreadParticipantState.objects
+        .filter(user=request.user)
+        .aggregate(total=Coalesce(Sum("unread_count"), Value(0)))
+        .get("total")
+    )
+    return JsonResponse({"ok": True, "unread_count": int(unread or 0)}, status=200)

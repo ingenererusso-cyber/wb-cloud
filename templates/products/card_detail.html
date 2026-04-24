@@ -289,6 +289,13 @@
             gap: 10px;
             margin-bottom: 10px;
         }
+        .unit-head-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
         .btn {
             border: 1px solid #cdd9e6;
             background: #fff;
@@ -329,6 +336,79 @@
             display: flex;
             flex-direction: column;
             gap: 6px;
+        }
+        .unit-field-wide {
+            grid-column: 1 / -1;
+        }
+        .model-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: #eef2f7;
+            border: 1px solid #d7e0ea;
+            border-radius: 999px;
+            padding: 3px;
+            width: fit-content;
+        }
+        .model-toggle label {
+            margin: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 58px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: transparent;
+            color: #334155;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 700;
+            border: 1px solid transparent;
+            transition: all .16s ease;
+        }
+        .model-toggle input[type="radio"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+        .model-toggle input[type="radio"]:checked + span {
+            background: #ffffff;
+            border-color: #cbd5e1;
+            color: #0f172a;
+            box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+        }
+        .model-toggle label span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+        }
+        .unit-calc-alert {
+            margin-top: 10px;
+            border-radius: 10px;
+            border: 1px solid #fcd34d;
+            background: #fffbeb;
+            color: #92400e;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+        .unit-model-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #0f172a;
+            background: #e2e8f0;
+            padding: 2px 10px;
+            margin-left: 8px;
         }
         .unit-field label {
             font-size: 13px;
@@ -421,6 +501,11 @@
         .unit-hidden {
             display: none;
         }
+        .unit-readonly {
+            background: #f3f4f6;
+            color: #6b7280;
+            cursor: not-allowed;
+        }
         .unit-note {
             margin: 8px 0 0;
             color: #64748b;
@@ -429,6 +514,28 @@
         .unit-note-error {
             color: #b91c1c;
             font-weight: 700;
+        }
+        .strategy-placeholder {
+            border: 1px dashed #c9d7e6;
+            border-radius: 12px;
+            background: #f8fbff;
+            padding: 12px;
+        }
+        .strategy-placeholder h3 {
+            margin: 0 0 8px;
+            font-size: 16px;
+            color: #1f2f46;
+        }
+        .strategy-placeholder p {
+            margin: 0 0 10px;
+            font-size: 13px;
+            color: #5f6f82;
+            line-height: 1.45;
+        }
+        .strategy-placeholder .muted-inline {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #7a8798;
         }
         .unit-result {
             border: 1px solid #dbe7f3;
@@ -606,6 +713,11 @@
             padding: 14px;
             box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
         }
+        #ue-playground-modal .modal-card {
+            width: min(1120px, 96vw);
+            max-height: 92vh;
+            overflow: auto;
+        }
         .modal-head {
             display: flex;
             justify-content: space-between;
@@ -771,7 +883,13 @@
     <section class="section">
         <div class="unit-head">
             <h2>Юнит-экономика</h2>
-            <button class="btn btn-secondary" type="button" id="ue-open-settings">Настройки</button>
+            <div class="unit-head-controls">
+                <div class="model-toggle" id="ue-model-toggle">
+                    <label><input type="radio" name="ue-model-type" value="fbo" checked><span>FBO</span></label>
+                    <label><input type="radio" name="ue-model-type" value="fbs"><span>FBS</span></label>
+                </div>
+                <button class="btn btn-secondary" type="button" id="ue-open-settings">Настройки</button>
+            </div>
         </div>
 
         <div id="ue-step-0" class="unit-step">
@@ -785,7 +903,7 @@
             </p>
             <div class="unit-actions unit-actions-left">
                 <button type="button" class="btn btn-primary" id="ue-recalc-btn">
-                    {% if unit_has_saved_calc %}Пересчитать{% else %}Начать расчет{% endif %}
+                    {% if unit_has_saved_calc %}Пересчитать FBO{% else %}Начать расчет FBO{% endif %}
                 </button>
             </div>
         </div>
@@ -843,7 +961,7 @@
                     <input type="number" step="0.01" id="ue-defect-2" value="{{ unit_settings.defect_percent|default_if_none:1 }}">
                 </div>
                 <div class="unit-field">
-                    <label>Фулфилмент на 1 заказ, ₽</label>
+                    <label id="ue-fulfillment-label">Фулфилмент продавца, ₽</label>
                     <input type="number" step="0.01" id="ue-fulfillment" value="{{ unit_settings.fulfillment_cost_per_order|default_if_none:0 }}">
                 </div>
                 <div class="unit-field">
@@ -868,30 +986,31 @@
         <div id="ue-step-3" class="unit-step unit-hidden">
             <h4>Шаг 3/4. Поставка и склад</h4>
             <div class="unit-grid">
-                <div class="unit-field">
+                <div class="unit-field" id="ue-batch-wrap">
                     <label>Кол-во штук в поставке</label>
                     <input type="number" step="1" id="ue-batch-qty" value="100">
                 </div>
                 <div class="unit-field">
                     <label>Комиссия WB, %</label>
-                    <input type="number" step="0.01" id="ue-commission" value="{{ unit_default_commission_percent|default:0 }}">
+                    <input type="number" step="0.01" id="ue-commission" value="{{ unit_default_commission_percent_fbo|default:0 }}">
                 </div>
                 <div class="unit-field">
-                    <label>Склад отгрузки</label>
-                    <div class="searchable-select">
+                    <label id="ue-shipping-point-label">Склад отгрузки</label>
+                    <div class="searchable-select" id="ue-warehouse-wrap">
                         <input type="text" id="ue-warehouse-search" placeholder="Начните вводить название склада">
                         <input type="hidden" id="ue-warehouse" value="">
                         <div id="ue-warehouse-options" class="searchable-options"></div>
                     </div>
+                    <select id="ue-region" class="unit-hidden"></select>
                 </div>
-                <div class="unit-field">
+                <div class="unit-field" id="ue-box-type-wrap">
                     <label>Тип отгрузки</label>
                     <select id="ue-box-type">
                         <option value="box">Короб</option>
                         <option value="mono">Монопаллета</option>
                     </select>
                 </div>
-                <div class="unit-field">
+                <div class="unit-field" id="ue-acceptance-wrap">
                     <label>Коэффициент приемки</label>
                     <input type="number" step="0.01" id="ue-acceptance-coef" value="0">
                 </div>
@@ -948,6 +1067,25 @@
             <div class="skeleton-line"></div>
         </section>
     </div>
+
+    <section class="section">
+        <div class="strategy-placeholder">
+            <h3>Стратегия продаж</h3>
+            <p>
+                Будущий блок для настройки стратегии репрайсера. Здесь можно будет выбрать режим
+                управления ценой под текущую задачу продаж.
+            </p>
+            <div class="unit-field" style="max-width: 520px;">
+                <label for="sales-strategy-placeholder">Выберите стратегию</label>
+                <select id="sales-strategy-placeholder">
+                    <option value="liquidation">Слив остатков (репрайсер держит низкую цену)</option>
+                    <option value="preserve">Сохранение остатков (репрайсер завышает цену)</option>
+                    <option value="unit_follow">Следование юнитке (факт ~= юнитка)</option>
+                </select>
+            </div>
+            <div class="muted-inline">Заглушка: настройки пока не применяются к расчетам и ценам.</div>
+        </div>
+    </section>
 </div>
 
 <div class="modal-overlay" id="ue-settings-modal" aria-hidden="true">
@@ -978,8 +1116,12 @@
                 <input type="number" step="0.01" id="ue-settings-acceptance-cost-per-liter" value="{{ unit_settings.acceptance_cost_per_liter|default_if_none:1.7 }}">
             </div>
             <div class="unit-field">
-                <label>Фулфилмент на 1 заказ, ₽</label>
-                <input type="number" step="0.01" id="ue-settings-fulfillment" value="{{ unit_settings.fulfillment_cost_per_order|default_if_none:0 }}">
+                <label>Фулфилмент FBO, ₽</label>
+                <input type="number" step="0.01" id="ue-settings-fulfillment-fbo" value="{{ unit_settings.fbo_fulfillment_cost_per_order|default_if_none:unit_settings.fulfillment_cost_per_order|default_if_none:0 }}">
+            </div>
+            <div class="unit-field">
+                <label>Фулфилмент FBS, ₽</label>
+                <input type="number" step="0.01" id="ue-settings-fulfillment-fbs" value="{{ unit_settings.fbs_fulfillment_cost_per_order|default_if_none:unit_settings.fulfillment_cost_per_order|default_if_none:0 }}">
             </div>
             <div class="unit-field">
                 <label>Налог УСН, %</label>
@@ -1020,15 +1162,14 @@
             <div class="unit-field"><label>Комиссия WB, %</label><input type="number" step="0.01" id="pg-commission"></div>
             <div class="unit-field"><label>Коэф. логистики, %</label><input type="number" step="0.01" id="pg-delivery-coef"></div>
             <div class="unit-field"><label>Доп. расходы, ₽</label><input type="number" step="0.01" id="pg-extra"></div>
-            <div class="unit-field"><label>Дней продажи партии</label><input type="number" step="1" id="pg-days"></div>
+            <div class="unit-field" id="pg-days-wrap"><label>Дней для продажи партии</label><input type="number" step="1" id="pg-days"></div>
             <div class="unit-field"><label>Индекс локализации</label><input type="number" step="0.0001" id="pg-il"></div>
             <div class="unit-field"><label>ИРП, %</label><input type="number" step="0.0001" id="pg-irp"></div>
-            <div class="unit-field"><label>Коэф. приемки</label><input type="number" step="0.01" id="pg-acceptance-coef"></div>
-            <div class="unit-field"><label>Приемка за 1 л, ₽</label><input type="number" step="0.01" id="pg-acceptance-cost-per-liter"></div>
-            <div class="unit-field"><label>Тип отгрузки</label><select id="pg-box-type"><option value="box">Короб</option><option value="mono">Монопаллета</option></select></div>
-            <div class="unit-field"><label>Хранение база, ₽/л/день</label><input type="number" step="0.0001" id="pg-storage-base"></div>
-            <div class="unit-field"><label>Хранение доп, ₽/л/день</label><input type="number" step="0.0001" id="pg-storage-additional"></div>
-            <div class="unit-field"><label>Склад (подпись)</label><input type="text" id="pg-warehouse-name"></div>
+            <div class="unit-field" id="pg-acceptance-coef-wrap"><label>Коэф. приемки</label><input type="number" step="0.01" id="pg-acceptance-coef"></div>
+            <div class="unit-field" id="pg-acceptance-cost-wrap"><label>Приемка за 1 л, ₽</label><input type="number" step="0.01" id="pg-acceptance-cost-per-liter"></div>
+            <div class="unit-field" id="pg-box-type-wrap"><label>Тип отгрузки</label><select id="pg-box-type"><option value="box">Короб</option><option value="mono">Монопаллета</option></select></div>
+            <div class="unit-field" id="pg-storage-base-wrap"><label>Хранение база, ₽/л/день</label><input type="number" step="0.0001" id="pg-storage-base"></div>
+            <div class="unit-field" id="pg-storage-additional-wrap"><label>Хранение доп, ₽/л/день</label><input type="number" step="0.0001" id="pg-storage-additional"></div>
         </div>
         <div id="ue-playground-result" class="playground-result"></div>
         <div id="ue-playground-status" class="playground-status"></div>
@@ -1037,7 +1178,9 @@
 
 {{ sales_points_json|json_script:"card-detail-sales-points-data" }}
 {{ unit_warehouse_coeff_options_json|json_script:"card-detail-warehouse-options-data" }}
+{{ unit_marketplace_region_options_json|json_script:"card-detail-marketplace-region-options-data" }}
 {{ unit_saved_calc_json|json_script:"card-detail-saved-calc-data" }}
+{{ unit_saved_calcs_json|json_script:"card-detail-saved-calcs-data" }}
 
 <script>
     function parseScriptJson(id, fallback) {
@@ -1169,9 +1312,15 @@
 
     (function () {
         const warehouseOptions = parseScriptJson("card-detail-warehouse-options-data", []);
+        const marketplaceRegionOptions = parseScriptJson("card-detail-marketplace-region-options-data", []);
         const savedUnitCalc = parseScriptJson("card-detail-saved-calc-data", null);
+        const savedUnitCalcs = parseScriptJson("card-detail-saved-calcs-data", {});
+        const unitCalcByModel = {};
+        let cachedFboIlValue = null;
+        let cachedFboIrpValue = null;
         let factProfitMonth = {};
-        const categoryCommissionPercent = Number({{ unit_default_commission_percent|default:0 }});
+        const categoryCommissionPercentFbo = Number({{ unit_default_commission_percent_fbo|default:0 }});
+        const categoryCommissionPercentFbs = Number({{ unit_default_commission_percent_fbs|default:0 }});
         const resultEl = document.getElementById("ue-result");
         const compareEl = document.getElementById("ue-compare");
         const heavySectionsEl = document.getElementById("product-heavy-sections");
@@ -1252,6 +1401,72 @@
             if (el) el.value = value;
         }
 
+        function currentModelType() {
+            const selected = document.querySelector("input[name='ue-model-type']:checked");
+            const value = (selected?.value || "fbo").toLowerCase();
+            return value === "fbs" ? "fbs" : "fbo";
+        }
+
+        function setModelType(modelType) {
+            const normalized = (modelType || "fbo").toLowerCase() === "fbs" ? "fbs" : "fbo";
+            document.querySelectorAll("input[name='ue-model-type']").forEach((input) => {
+                input.checked = input.value === normalized;
+            });
+        }
+
+        function rememberUnitCalc(payload) {
+            if (!payload || typeof payload !== "object") return;
+            const result = payload.result && typeof payload.result === "object" ? payload.result : payload;
+            const input = payload.input_data && typeof payload.input_data === "object" ? payload.input_data : {};
+            const breakdown = result.breakdown && typeof result.breakdown === "object" ? result.breakdown : {};
+            const modelType = String(breakdown.model_type || input.model_type || "fbo").toLowerCase() === "fbs" ? "fbs" : "fbo";
+            unitCalcByModel[modelType] = {
+                result,
+                input_data: {
+                    ...input,
+                    model_type: modelType,
+                },
+            };
+        }
+
+        function updateRecalcButtonLabel(modelType) {
+            const btn = document.getElementById("ue-recalc-btn");
+            if (!btn) return;
+            const normalized = String(modelType || "fbo").toLowerCase() === "fbs" ? "fbs" : "fbo";
+            const suffix = normalized.toUpperCase();
+            const hasCalcForModel = Boolean(unitCalcByModel[normalized] && unitCalcByModel[normalized].result);
+            btn.textContent = hasCalcForModel ? `Пересчитать ${suffix}` : `Начать расчет ${suffix}`;
+        }
+
+        function renderMissingModelCalcMessage(modelType) {
+            updateRecalcButtonLabel(modelType);
+            if (resultEl) {
+                resultEl.classList.remove("unit-hidden");
+                resultEl.innerHTML = `
+                    <div class="unit-calc-alert">
+                        Для режима ${modelType.toUpperCase()} еще нет сохраненного расчета.
+                        Нажмите кнопку "${document.getElementById("ue-recalc-btn")?.textContent || "Начать расчет"}"
+                        и выполните расчет для этого режима.
+                    </div>
+                `;
+            }
+            if (compareEl) {
+                compareEl.classList.add("unit-hidden");
+                compareEl.innerHTML = "";
+            }
+        }
+
+        function renderCurrentModelCalcOrHint() {
+            const modelType = currentModelType();
+            const calcPayload = unitCalcByModel[modelType];
+            updateRecalcButtonLabel(modelType);
+            if (calcPayload && calcPayload.result) {
+                renderUnitEconomicsResult(calcPayload);
+                return;
+            }
+            renderMissingModelCalcMessage(modelType);
+        }
+
         function populateWarehouseSelect() {
             const hiddenInput = document.getElementById("ue-warehouse");
             const searchInput = document.getElementById("ue-warehouse-search");
@@ -1264,6 +1479,32 @@
             searchInput.value = hasSavedWarehouse ? savedWarehouse : "";
             renderWarehouseOptions(searchInput.value);
             updateWarehouseInfo();
+        }
+
+        function populateMarketplaceRegionSelect() {
+            const regionSelect = document.getElementById("ue-region");
+            if (!regionSelect) return;
+            const savedModelType = String(savedUnitCalc?.input_data?.model_type || "").toLowerCase();
+            const savedRegion = String(
+                savedUnitCalc?.input_data?.region_name
+                || (savedModelType === "fbs" ? savedUnitCalc?.input_data?.warehouse_name : "")
+                || ""
+            ).trim();
+            regionSelect.textContent = "";
+            const placeholder = document.createElement("option");
+            placeholder.value = "";
+            placeholder.textContent = "Выберите регион";
+            regionSelect.appendChild(placeholder);
+            marketplaceRegionOptions.forEach((item) => {
+                const regionName = String(item.region_name || "").trim();
+                if (!regionName) return;
+                const opt = document.createElement("option");
+                opt.value = regionName;
+                opt.textContent = regionName;
+                regionSelect.appendChild(opt);
+            });
+            const hasSaved = Boolean(savedRegion) && marketplaceRegionOptions.some((x) => (x.region_name || "") === savedRegion);
+            regionSelect.value = hasSaved ? savedRegion : "";
         }
 
         function renderWarehouseOptions(filterText = "") {
@@ -1307,46 +1548,83 @@
             });
         }
 
-        function currentWarehousePayload() {
+        function currentShippingPayload() {
+            if (currentModelType() === "fbs") {
+                const selectedRegion = (document.getElementById("ue-region")?.value || "").trim();
+                const regionRow = marketplaceRegionOptions.find((x) => (x.region_name || "") === selectedRegion);
+                return {
+                    mode: "fbs",
+                    label: selectedRegion,
+                    delivery_coef: Number(regionRow?.delivery_coef || 0),
+                    delivery_base_liter: Number(regionRow?.delivery_base_liter || 0),
+                    delivery_additional_liter: Number(regionRow?.delivery_additional_liter || 0),
+                    storage_base_liter: 0,
+                    storage_additional_liter: 0,
+                    acceptance_coef: 0,
+                    coeff_date: regionRow?.tariff_date || null,
+                    is_available: Boolean(regionRow),
+                    next_available_date: null,
+                };
+            }
             const hiddenInput = document.getElementById("ue-warehouse");
             const boxType = (document.getElementById("ue-box-type")?.value || "box");
             const wh = warehouseOptions.find((x) => x.warehouse_name === (hiddenInput?.value || ""));
             if (!wh) {
                 return {
+                    mode: "fbo",
+                    label: "",
                     delivery_coef: 0,
                     storage_base_liter: 0,
                     storage_additional_liter: 0,
                     acceptance_coef: 0,
                     coeff_date: null,
+                    is_available: false,
+                    next_available_date: null,
                 };
             }
-            return boxType === "mono" ? (wh.mono || {}) : (wh.box || {});
+            const src = boxType === "mono" ? (wh.mono || {}) : (wh.box || {});
+            return {
+                mode: "fbo",
+                label: (hiddenInput?.value || "").trim(),
+                delivery_coef: Number(src.delivery_coef || 0),
+                storage_base_liter: Number(src.storage_base_liter || 0),
+                storage_additional_liter: Number(src.storage_additional_liter || 0),
+                acceptance_coef: Number(src.acceptance_coef || 0),
+                coeff_date: src.coeff_date || null,
+                is_available: Boolean(src.is_available),
+                next_available_date: src.next_available_date || null,
+            };
         }
 
         function updateWarehouseInfo() {
-            const info = currentWarehousePayload();
+            const info = currentShippingPayload();
             const note = document.getElementById("ue-warehouse-note");
             const nextBtn = document.getElementById("ue-next-3");
             const coefDate = info.coeff_date || "-";
-            const nextAvailableDate = info.next_available_date || null;
-            const warehouseSelected = Boolean((document.getElementById("ue-warehouse")?.value || "").trim());
-            const acceptanceCoef = Number(info.acceptance_coef || 0);
+            const shippingPointSelected = info.mode === "fbs"
+                ? Boolean((document.getElementById("ue-region")?.value || "").trim())
+                : Boolean((document.getElementById("ue-warehouse")?.value || "").trim());
             const isAvailable = Boolean(info.is_available);
             if (note) {
                 note.classList.remove("unit-note-error");
-                if (!warehouseSelected) {
-                    note.textContent = "Выберите склад отгрузки, чтобы продолжить.";
+                if (!shippingPointSelected) {
+                    note.textContent = info.mode === "fbs"
+                        ? "Выберите регион отгрузки, чтобы продолжить."
+                        : "Выберите склад отгрузки, чтобы продолжить.";
                     note.classList.add("unit-note-error");
                     if (nextBtn) nextBtn.disabled = true;
                 } else if (!isAvailable) {
-                    const dateHint = nextAvailableDate
-                        ? ` Ближайшая доступная дата: ${nextAvailableDate}.`
-                        : "";
-                    note.textContent = `Поставка сейчас недоступна для выбранного склада/типа отгрузки.${dateHint} Выберите другой склад или тип отгрузки.`;
+                    const nextAvailableDate = info.next_available_date || null;
+                    const dateHint = nextAvailableDate ? ` Ближайшая доступная дата: ${nextAvailableDate}.` : "";
+                    note.textContent = info.mode === "fbs"
+                        ? `Для выбранного региона нет тарифа логистики.${dateHint}`
+                        : `Поставка сейчас недоступна для выбранного склада/типа отгрузки.${dateHint} Выберите другой склад или тип отгрузки.`;
                     note.classList.add("unit-note-error");
                     if (nextBtn) nextBtn.disabled = true;
                 } else {
-                    note.textContent = `Коэф. логистики: ${Number(info.delivery_coef || 0).toFixed(2)}%, хранение: ${Number(info.storage_base_liter || 0).toFixed(2)} / ${Number(info.storage_additional_liter || 0).toFixed(2)}, дата: ${coefDate}`;
+                    note.textContent = info.mode === "fbs"
+                        ? `Коэф. логистики региона: ${Number(info.delivery_coef || 0).toFixed(2)}%, дата тарифа: ${coefDate}`
+                        : `Коэф. логистики: ${Number(info.delivery_coef || 0).toFixed(2)}%, хранение: ${Number(info.storage_base_liter || 0).toFixed(2)} / ${Number(info.storage_additional_liter || 0).toFixed(2)}, дата: ${coefDate}`;
                     if (nextBtn) nextBtn.disabled = false;
                 }
             }
@@ -1360,9 +1638,87 @@
             setVal("ue-drr", num("ue-settings-drr", 10));
             setVal("ue-defect-2", num("ue-settings-defect", 1));
             setVal("ue-acquiring", num("ue-settings-acquiring", 2.5));
-            setVal("ue-fulfillment", num("ue-settings-fulfillment", 0));
+            if (currentModelType() === "fbs") {
+                setVal("ue-fulfillment", num("ue-settings-fulfillment-fbs", 0));
+            } else {
+                setVal("ue-fulfillment", num("ue-settings-fulfillment-fbo", 0));
+            }
             setVal("ue-usn", num("ue-settings-usn", 6));
             setVal("ue-vat", num("ue-settings-vat", 0));
+        }
+
+        function applyModelUi(modelType) {
+            const isFbs = modelType === "fbs";
+            const warehouseWrap = document.getElementById("ue-warehouse-wrap");
+            const regionSelect = document.getElementById("ue-region");
+            const batchWrap = document.getElementById("ue-batch-wrap");
+            const boxTypeWrap = document.getElementById("ue-box-type-wrap");
+            const acceptanceWrap = document.getElementById("ue-acceptance-wrap");
+            const shippingLabel = document.getElementById("ue-shipping-point-label");
+            const fulfillmentLabel = document.getElementById("ue-fulfillment-label");
+            const ilInput = document.getElementById("ue-il");
+            const irpInput = document.getElementById("ue-irp");
+            if (warehouseWrap) warehouseWrap.classList.toggle("unit-hidden", isFbs);
+            if (regionSelect) regionSelect.classList.toggle("unit-hidden", !isFbs);
+            if (batchWrap) batchWrap.classList.toggle("unit-hidden", isFbs);
+            if (boxTypeWrap) boxTypeWrap.classList.toggle("unit-hidden", isFbs);
+            if (acceptanceWrap) acceptanceWrap.classList.toggle("unit-hidden", isFbs);
+            if (shippingLabel) shippingLabel.textContent = isFbs ? "Регион отгрузки" : "Склад отгрузки";
+            if (fulfillmentLabel) fulfillmentLabel.textContent = isFbs ? "Фулфилмент продавца, ₽" : "Фулфилмент продавца, ₽";
+            if (isFbs) setVal("ue-box-type", "box");
+            if (ilInput) {
+                ilInput.readOnly = isFbs;
+                ilInput.classList.toggle("unit-readonly", isFbs);
+                if (isFbs) {
+                    cachedFboIlValue = ilInput.value;
+                    setVal("ue-il", 1);
+                } else if (cachedFboIlValue !== null) {
+                    setVal("ue-il", cachedFboIlValue);
+                }
+            }
+            if (irpInput) {
+                irpInput.readOnly = isFbs;
+                irpInput.classList.toggle("unit-readonly", isFbs);
+                if (isFbs) {
+                    cachedFboIrpValue = irpInput.value;
+                    setVal("ue-irp", 0);
+                } else if (cachedFboIrpValue !== null) {
+                    setVal("ue-irp", cachedFboIrpValue);
+                }
+            }
+            setVal("ue-commission", isFbs ? categoryCommissionPercentFbs : categoryCommissionPercentFbo);
+            syncDefaultsFromSettings();
+            updateWarehouseInfo();
+            renderCurrentModelCalcOrHint();
+        }
+
+        function applyPlaygroundModelUi() {
+            const isFbs = (currentModelType() === "fbs");
+            const boxTypeWrap = document.getElementById("pg-box-type-wrap");
+            const daysWrap = document.getElementById("pg-days-wrap");
+            const acceptanceCoefWrap = document.getElementById("pg-acceptance-coef-wrap");
+            const acceptanceCostWrap = document.getElementById("pg-acceptance-cost-wrap");
+            const storageBaseWrap = document.getElementById("pg-storage-base-wrap");
+            const storageAdditionalWrap = document.getElementById("pg-storage-additional-wrap");
+            const ilInput = document.getElementById("pg-il");
+            const irpInput = document.getElementById("pg-irp");
+            if (boxTypeWrap) boxTypeWrap.classList.toggle("unit-hidden", isFbs);
+            if (daysWrap) daysWrap.classList.toggle("unit-hidden", isFbs);
+            if (acceptanceCoefWrap) acceptanceCoefWrap.classList.toggle("unit-hidden", isFbs);
+            if (acceptanceCostWrap) acceptanceCostWrap.classList.toggle("unit-hidden", isFbs);
+            if (storageBaseWrap) storageBaseWrap.classList.toggle("unit-hidden", isFbs);
+            if (storageAdditionalWrap) storageAdditionalWrap.classList.toggle("unit-hidden", isFbs);
+            if (isFbs) setPg("box-type", "box");
+            if (ilInput) {
+                ilInput.readOnly = isFbs;
+                ilInput.classList.toggle("unit-readonly", isFbs);
+                if (isFbs) setPg("il", 1);
+            }
+            if (irpInput) {
+                irpInput.readOnly = isFbs;
+                irpInput.classList.toggle("unit-readonly", isFbs);
+                if (isFbs) setPg("irp", 0);
+            }
         }
 
         function ensureUnitTooltip() {
@@ -1438,6 +1794,10 @@
             const result = payload?.result || payload || {};
             const inputData = payload?.input_data || {};
             const breakdown = result?.breakdown || {};
+            const modelType = String(breakdown.model_type || inputData.model_type || "fbo").toLowerCase() === "fbs" ? "fbs" : "fbo";
+            const categoryCommissionPercent = modelType === "fbs"
+                ? categoryCommissionPercentFbs
+                : categoryCommissionPercentFbo;
             const buyouts = Number(factProfitMonth.buyouts_count || 0);
             if (!buyouts) {
                 compareEl.classList.remove("unit-hidden");
@@ -1482,6 +1842,16 @@
                 breakdown.spp_percent ?? inputData.spp_percent ?? 0
             );
             const factSppPercent = Number(factProfitMonth.spp_percent_fact || 0);
+            const unitSalesMarginPercent = Number(breakdown.sale_price || 0) > 0
+                ? (Number(unitNet || 0) / Number(breakdown.sale_price || 0)) * 100.0
+                : 0;
+            const factSalesMarginPercent = factSalePrice > 0
+                ? (Number(factNet || 0) / factSalePrice) * 100.0
+                : 0;
+            const unitRoiBase = Number(unitPurchase || 0) + Number(unitFulfillment || 0) + Number(unitDefect || 0);
+            const factRoiBase = Number(factPurchase || 0) + Number(factFulfillment || 0) + Number(factDefect || 0);
+            const unitRoiPercent = unitRoiBase > 0 ? (Number(unitNet || 0) / unitRoiBase) * 100.0 : 0;
+            const factRoiPercent = factRoiBase > 0 ? (Number(factNet || 0) / factRoiBase) * 100.0 : 0;
             const unitDrrPercent = Number(breakdown.sale_price || 0) > 0
                 ? (Number(breakdown.drr_cost || 0) / Number(breakdown.sale_price || 0)) * 100.0
                 : 0;
@@ -1509,6 +1879,8 @@
                 { label: "Подписка Джем (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factJam },
                 { label: "Штрафы WB (факт: распределено по сумме продаж, приближенно)", unit: null, fact: factPenalty },
                 { label: "Платная приемка FBS в ПВЗ", unit: Number(breakdown.acceptance_cost || 0), fact: factAcceptance },
+                { label: "Маржинальность продаж, %", unit: unitSalesMarginPercent, fact: factSalesMarginPercent, format: "percent" },
+                { label: "ROI, %", unit: unitRoiPercent, fact: factRoiPercent, format: "percent" },
                 { label: "Чистая прибыль", unit: unitNet, fact: factNet },
             ];
 
@@ -1521,7 +1893,18 @@
                     Number.isFinite(Number(row.unit)) &&
                     Number.isFinite(Number(row.fact));
                 const delta = hasDelta ? (Number(row.fact) - Number(row.unit)) : null;
-                const deltaCls = (delta !== null && delta >= 0) ? "delta-neg" : "delta-pos";
+                const metricHasDirectGoodDirection = (
+                    row.label === "Чистая прибыль"
+                    || row.label === "Маржинальность продаж, %"
+                    || row.label === "ROI, %"
+                );
+                const deltaCls = delta !== null
+                    ? (
+                        metricHasDirectGoodDirection
+                            ? (delta >= 0 ? "delta-pos" : "delta-neg")
+                            : (delta >= 0 ? "delta-neg" : "delta-pos")
+                    )
+                    : "";
                 const isPercent = row.format === "percent";
                 const unitRendered = isPercent ? percentOrNA(row.unit) : moneyOrNA(row.unit);
                 const factRendered = isPercent ? percentOrNA(row.fact) : moneyOrNA(row.fact);
@@ -1561,7 +1944,7 @@
             `;
         }
 
-        async function loadHeavySections() {
+        async function loadHeavySections(rerenderUnitBlock = true) {
             if (!heavySectionsEl) return;
             try {
                 const res = await fetch("{% url 'product_card_detail_heavy_api' product.id %}", {
@@ -1577,8 +1960,8 @@
                     ? data.fact_profit_month
                     : {};
                 initInfoTipBubbles();
-                if (savedUnitCalc && savedUnitCalc.result) {
-                    renderUnitEconomicsResult(savedUnitCalc);
+                if (rerenderUnitBlock) {
+                    renderCurrentModelCalcOrHint();
                 }
             } catch (_error) {
                 heavySectionsEl.innerHTML = `
@@ -1603,21 +1986,29 @@
             const net = Number(result.net_profit || 0);
             const breakdown = result.breakdown || {};
             const salePrice = Math.max(1, Number(breakdown.sale_price || 0));
+            const modelType = String(breakdown.model_type || payload?.input_data?.model_type || "fbo").toLowerCase() === "fbs" ? "fbs" : "fbo";
+            const modelLabels = breakdown.model_labels || {};
+            const deliveryLabel = modelLabels.delivery || (modelType === "fbs" ? "Логистика FBS" : "Логистика FBO");
+            const nonBuyoutLabel = modelLabels.non_buyout || (modelType === "fbs" ? "Логистика невыкупов FBS" : "Логистика невыкупов FBO");
+            const fulfillmentLabel = modelLabels.fulfillment || "Фулфилмент продавца";
+            const storageLabel = modelLabels.storage || "Хранение WB";
+            const acceptanceLabel = modelLabels.acceptance || (modelType === "fbs" ? "Приемка/обработка FBS" : "Приемка WB");
+            const modelBadge = modelLabels.model_badge || modelType.toUpperCase();
 
             const segments = [
                 { key: "purchase", label: "Закупочная цена", value: Number(breakdown.purchase_price || 0), color: "#334155" },
                 { key: "drr", label: "ДРР", value: Number(breakdown.drr_cost || 0), color: "#dc2626" },
                 { key: "defect", label: "Брак", value: Number(breakdown.defect_cost || 0), color: "#ea580c" },
                 { key: "acquiring", label: "Эквайринг", value: Number(breakdown.acquiring_cost || 0), color: "#a855f7" },
-                { key: "fulfillment", label: "Фулфилмент", value: Number(breakdown.fulfillment_cost || 0), color: "#2563eb" },
+                { key: "fulfillment", label: fulfillmentLabel, value: Number(breakdown.fulfillment_cost || 0), color: "#2563eb" },
                 { key: "extra", label: "Доп. расходы", value: Number(breakdown.extra_cost || 0), color: "#14b8a6" },
-                { key: "delivery", label: "Логистика", value: Number(breakdown.delivery_cost || 0), color: "#f59e0b" },
-                { key: "non_buyout", label: "Логистика невыкупов", value: Number(breakdown.non_buyout_logistics_cost || 0), color: "#ef4444" },
+                { key: "delivery", label: deliveryLabel, value: Number(breakdown.delivery_cost || 0), color: "#f59e0b" },
+                { key: "non_buyout", label: nonBuyoutLabel, value: Number(breakdown.non_buyout_logistics_cost || 0), color: "#ef4444" },
                 { key: "commission", label: "Комиссия WB", value: Number(breakdown.commission_cost || 0), color: "#0284c7" },
                 { key: "usn", label: "Налог УСН", value: Number(breakdown.usn_cost || 0), color: "#7c3aed" },
                 { key: "vat", label: "НДС", value: Number(breakdown.vat_cost || 0), color: "#059669" },
-                { key: "storage", label: "Хранение", value: Number(breakdown.storage_cost || 0), color: "#b91c1c" },
-                { key: "acceptance", label: "Приемка", value: Number(breakdown.acceptance_cost || 0), color: "#64748b" },
+                { key: "storage", label: storageLabel, value: Number(breakdown.storage_cost || 0), color: "#b91c1c" },
+                { key: "acceptance", label: acceptanceLabel, value: Number(breakdown.acceptance_cost || 0), color: "#64748b" },
             ];
             if (net >= 0) {
                 segments.push({ key: "net_profit", label: "Чистая прибыль", value: net, color: "#16a34a" });
@@ -1649,18 +2040,29 @@
             const storageBase = Number(breakdown.storage_base_liter || 0);
             const storageAdditional = Number(breakdown.storage_additional_liter || 0);
             const warehouseNote = warehouseName
-                ? `Рассчитано для склада: ${escapeHtml(warehouseName)}. Коэф. логистики: ${deliveryCoef.toFixed(2)}%, хранение: ${storageBase.toFixed(2)} / ${storageAdditional.toFixed(2)} ₽/л в день.`
+                ? (modelType === "fbs"
+                    ? `Рассчитано для региона: ${escapeHtml(warehouseName)}. Коэф. логистики: ${deliveryCoef.toFixed(2)}%.`
+                    : `Рассчитано для склада: ${escapeHtml(warehouseName)}. Коэф. логистики: ${deliveryCoef.toFixed(2)}%, хранение: ${storageBase.toFixed(2)} / ${storageAdditional.toFixed(2)} ₽/л в день.`)
                 : "";
+            const saleMarginPercent = salePrice > 0
+                ? (net / salePrice) * 100.0
+                : 0;
+            const roiBase = Number(breakdown.purchase_price || 0) + Number(breakdown.fulfillment_cost || 0) + Number(breakdown.defect_cost || 0);
+            const roiPercent = roiBase > 0
+                ? (net / roiBase) * 100.0
+                : 0;
 
             targetEl.classList.remove("unit-hidden");
             targetEl.innerHTML = `
-                <div class="unit-profit ${net >= 0 ? "positive" : "negative"}">Чистая прибыль: ${net.toFixed(2)} ₽</div>
+                <div class="unit-profit ${net >= 0 ? "positive" : "negative"}">Чистая прибыль: ${net.toFixed(2)} ₽ <span class="unit-model-badge">${escapeHtml(modelBadge)}</span></div>
                 <div class="stacked-bar-shell">
                     <div class="stacked-bar">${segmentsHtml}</div>
                 </div>
                 <div class="segment-legend">${legendHtml}</div>
                 <p class="unit-note">${escapeHtml(breakdown.acceptance_note || "")}</p>
                 <p class="unit-note">Цена продажи: ${money(breakdown.sale_price || 0)}</p>
+                <p class="unit-note">Маржинальность продаж: ${saleMarginPercent.toFixed(2)}%</p>
+                <p class="unit-note">ROI: ${roiPercent.toFixed(2)}%</p>
                 ${warehouseNote ? `<p class="unit-note">${warehouseNote}</p>` : ""}
                 ${withPlayButton ? `<div class="unit-actions"><button type="button" class="btn btn-secondary" id="ue-open-playground">Поиграться</button></div>` : ""}
             `;
@@ -1690,8 +2092,10 @@
         function buildFormDataFromFields(prefix = "ue") {
             const get = (name, fallback = 0) => num(`${prefix}-${name}`, fallback);
             const fd = new FormData();
+            const modelType = currentModelType();
             fd.set("sale_price", get("sale-price", 0));
             fd.set("purchase_price", get("purchase-price", 0));
+            fd.set("model_type", modelType);
             fd.set("spp_percent", get("spp", 25));
             fd.set("volume_liters", get("volume", {{ product.volume_liters|default:4 }}));
             fd.set("buyout_percent", get("buyout", 100));
@@ -1704,14 +2108,20 @@
             fd.set("batch_qty", get("batch", 1));
             fd.set("commission_percent", get("commission", 0));
             fd.set("delivery_coef_expr", get("delivery-coef", 0));
-            fd.set("warehouse_name", (document.getElementById(`${prefix}-warehouse-name`)?.value || "").trim());
+            if (modelType === "fbs") {
+                fd.set("warehouse_name", (document.getElementById("ue-region")?.value || "").trim());
+                fd.set("region_name", (document.getElementById("ue-region")?.value || "").trim());
+            } else {
+                fd.set("warehouse_name", (document.getElementById("ue-warehouse")?.value || "").trim());
+            }
             fd.set("extra_cost", get("extra", 0));
             fd.set("days_to_sell", get("days", 30));
             fd.set("localization_index", get("il", 1));
             fd.set("irp_percent", get("irp", 0));
             fd.set("acceptance_coef", get("acceptance-coef", 0));
             fd.set("acceptance_cost_per_liter", get("acceptance-cost-per-liter", 1.7));
-            fd.set("box_type", document.getElementById(`${prefix}-box-type`)?.value || "box");
+            const selectedBoxType = (document.getElementById(`${prefix}-box-type`)?.value || "box");
+            fd.set("box_type", modelType === "fbs" ? "box" : selectedBoxType);
             fd.set("storage_base_liter", get("storage-base", 0));
             fd.set("storage_additional_liter", get("storage-additional", 0));
             return fd;
@@ -1725,7 +2135,9 @@
             fd.set("defect_percent", num("ue-settings-defect", 1));
             fd.set("acquiring_percent", num("ue-settings-acquiring", 2.5));
             fd.set("acceptance_cost_per_liter", num("ue-settings-acceptance-cost-per-liter", 1.7));
-            fd.set("fulfillment_cost_per_order", num("ue-settings-fulfillment", 0));
+            fd.set("fulfillment_cost_per_order", num("ue-settings-fulfillment-fbo", 0));
+            fd.set("fbo_fulfillment_cost_per_order", num("ue-settings-fulfillment-fbo", 0));
+            fd.set("fbs_fulfillment_cost_per_order", num("ue-settings-fulfillment-fbs", 0));
             fd.set("usn_percent", num("ue-settings-usn", 6));
             fd.set("vat_percent", num("ue-settings-vat", 0));
 
@@ -1745,8 +2157,10 @@
         }
 
         async function calculateUnitEconomics() {
-            const whPayload = currentWarehousePayload();
+            const whPayload = currentShippingPayload();
+            const modelType = currentModelType();
             const fd = new FormData();
+            fd.set("model_type", modelType);
             fd.set("sale_price", num("ue-sale-price", 0));
             fd.set("purchase_price", num("ue-purchase-price", 0));
             fd.set("spp_percent", num("ue-spp", 25));
@@ -1761,13 +2175,19 @@
             fd.set("batch_qty", num("ue-batch-qty", 1));
             fd.set("commission_percent", num("ue-commission", 0));
             fd.set("delivery_coef_expr", Number(whPayload.delivery_coef || 0));
-            fd.set("warehouse_name", document.getElementById("ue-warehouse")?.value || "");
+            if (modelType === "fbs") {
+                fd.set("warehouse_name", document.getElementById("ue-region")?.value || "");
+                fd.set("region_name", document.getElementById("ue-region")?.value || "");
+            } else {
+                fd.set("warehouse_name", document.getElementById("ue-warehouse")?.value || "");
+            }
             fd.set("extra_cost", num("ue-extra", 0));
             fd.set("days_to_sell", num("ue-days", 30));
             fd.set("localization_index", num("ue-il", 1));
             fd.set("irp_percent", num("ue-irp", 0));
             fd.set("acceptance_coef", num("ue-acceptance-coef", 0));
-            fd.set("box_type", document.getElementById("ue-box-type")?.value || "box");
+            const selectedBoxType = (document.getElementById("ue-box-type")?.value || "box");
+            fd.set("box_type", modelType === "fbs" ? "box" : selectedBoxType);
             fd.set("storage_base_liter", Number(whPayload.storage_base_liter || 0));
             fd.set("storage_additional_liter", Number(whPayload.storage_additional_liter || 0));
 
@@ -1780,7 +2200,9 @@
             if (!res.ok) {
                 throw new Error(data.error || "Ошибка расчета");
             }
-            renderUnitEconomicsResult(data);
+            rememberUnitCalc(data);
+            await loadHeavySections(false);
+            renderCurrentModelCalcOrHint();
         }
 
         async function calculatePlaygroundUnitEconomics() {
@@ -1798,7 +2220,7 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Ошибка расчета");
                 renderUnitResultToTarget(targetEl, data, { withCompare: false, withPlayButton: false });
-                if (statusEl) statusEl.textContent = "Готово";
+                if (statusEl) statusEl.textContent = "";
             } catch (e) {
                 if (statusEl) statusEl.textContent = `Ошибка: ${e}`;
             }
@@ -1810,15 +2232,22 @@
         document.getElementById("ue-next-2")?.addEventListener("click", () => showStep(3));
         document.getElementById("ue-back-3")?.addEventListener("click", () => showStep(2));
         document.getElementById("ue-next-3")?.addEventListener("click", () => {
-            const selectedWarehouse = (document.getElementById("ue-warehouse")?.value || "").trim();
-            const info = currentWarehousePayload();
+            const modelType = currentModelType();
+            const selectedWarehouse = modelType === "fbs"
+                ? (document.getElementById("ue-region")?.value || "").trim()
+                : (document.getElementById("ue-warehouse")?.value || "").trim();
+            const info = currentShippingPayload();
             if (!selectedWarehouse) {
-                alert("Выберите склад отгрузки.");
+                alert(modelType === "fbs" ? "Выберите регион отгрузки." : "Выберите склад отгрузки.");
                 updateWarehouseInfo();
                 return;
             }
             if (!Boolean(info.is_available)) {
-                alert("Для выбранного склада и типа отгрузки поставка сейчас недоступна. Выберите другой вариант.");
+                alert(
+                    modelType === "fbs"
+                        ? "Для выбранного региона нет тарифа логистики. Выберите другой регион."
+                        : "Для выбранного склада и типа отгрузки поставка сейчас недоступна. Выберите другой вариант."
+                );
                 updateWarehouseInfo();
                 return;
             }
@@ -1845,7 +2274,7 @@
             const ids = [
                 "sale-price", "purchase-price", "spp", "volume", "buyout", "drr", "defect", "acquiring",
                 "fulfillment", "usn", "vat", "batch", "commission", "delivery-coef", "extra", "days",
-                "il", "irp", "acceptance-coef", "acceptance-cost-per-liter", "box-type", "storage-base", "storage-additional", "warehouse-name"
+                "il", "irp", "acceptance-coef", "acceptance-cost-per-liter", "box-type", "storage-base", "storage-additional"
             ];
             ids.forEach((suffix) => {
                 const el = document.getElementById(`pg-${suffix}`);
@@ -1872,7 +2301,7 @@
             el.value = value ?? "";
         };
         const fillPlaygroundFromCurrent = () => {
-            const whPayload = currentWarehousePayload();
+            const whPayload = currentShippingPayload();
             setPg("sale-price", num("ue-sale-price", 0));
             setPg("purchase-price", num("ue-purchase-price", 0));
             setPg("spp", num("ue-spp", 25));
@@ -1896,7 +2325,7 @@
             setPg("box-type", document.getElementById("ue-box-type")?.value || "box");
             setPg("storage-base", Number(whPayload.storage_base_liter || 0));
             setPg("storage-additional", Number(whPayload.storage_additional_liter || 0));
-            setPg("warehouse-name", document.getElementById("ue-warehouse")?.value || "");
+            applyPlaygroundModelUi();
         };
 
         resultEl?.addEventListener("click", (event) => {
@@ -1914,6 +2343,16 @@
         });
 
         document.getElementById("ue-box-type")?.addEventListener("change", updateWarehouseInfo);
+        document.querySelectorAll("input[name='ue-model-type']").forEach((input) => {
+            input.addEventListener("change", () => {
+                applyModelUi(currentModelType());
+                applyPlaygroundModelUi();
+                if (playgroundModal?.classList.contains("open")) {
+                    schedulePlaygroundRecalc();
+                }
+            });
+        });
+        document.getElementById("ue-region")?.addEventListener("change", updateWarehouseInfo);
         document.getElementById("ue-warehouse-search")?.addEventListener("focus", () => {
             const optionsEl = document.getElementById("ue-warehouse-options");
             renderWarehouseOptions(document.getElementById("ue-warehouse-search")?.value || "");
@@ -1960,13 +2399,33 @@
         document.getElementById("ue-settings-save")?.addEventListener("click", saveSettings);
 
         populateWarehouseSelect();
+        populateMarketplaceRegionSelect();
+        const savedModelType = String(
+            savedUnitCalc?.input_data?.model_type
+            || savedUnitCalc?.result?.breakdown?.model_type
+            || "fbo"
+        ).toLowerCase();
+        setModelType(savedModelType === "fbs" ? "fbs" : "fbo");
+        Object.entries(savedUnitCalcs && typeof savedUnitCalcs === "object" ? savedUnitCalcs : {}).forEach(([modelType, payload]) => {
+            if (!payload || typeof payload !== "object") return;
+            const normalized = String(modelType || "").toLowerCase() === "fbs" ? "fbs" : "fbo";
+            const payloadWithModel = {
+                ...payload,
+                input_data: {
+                    ...(payload.input_data && typeof payload.input_data === "object" ? payload.input_data : {}),
+                    model_type: normalized,
+                },
+            };
+            rememberUnitCalc(payloadWithModel);
+        });
+        if (savedUnitCalc && savedUnitCalc.result) {
+            rememberUnitCalc(savedUnitCalc);
+        }
+        applyModelUi(currentModelType());
         initInfoTipBubbles();
-        syncDefaultsFromSettings();
         recalcVolumeFromDimensions();
         loadHeavySections();
-        if (savedUnitCalc && savedUnitCalc.result) {
-            renderUnitEconomicsResult(savedUnitCalc);
-        }
+        renderCurrentModelCalcOrHint();
         showStep(0);
     })();
 </script>

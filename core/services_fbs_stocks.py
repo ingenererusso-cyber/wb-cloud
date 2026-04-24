@@ -53,13 +53,17 @@ def _sync_product_card_sizes(seller: SellerAccount) -> int:
     return synced
 
 
-def sync_seller_fbs_stocks(seller: SellerAccount, batch_size: int = 1000) -> Dict[str, int]:
+def sync_seller_fbs_stocks(
+    seller: SellerAccount,
+    batch_size: int = 1000,
+    sync_card_sizes: bool = True,
+) -> Dict[str, int]:
     """
     Синхронизация FBS-остатков:
     1) обновляем размеры карточек (chrt_id),
     2) для каждого FBS-склада продавца запрашиваем остатки по chrtIds.
     """
-    sizes_synced = _sync_product_card_sizes(seller)
+    sizes_synced = _sync_product_card_sizes(seller) if sync_card_sizes else 0
 
     warehouses = list(
         SellerWarehouse.objects.filter(seller=seller, delivery_type=1).order_by("seller_warehouse_id")
@@ -67,6 +71,11 @@ def sync_seller_fbs_stocks(seller: SellerAccount, batch_size: int = 1000) -> Dic
     chrt_ids = list(
         ProductCardSize.objects.filter(seller=seller).values_list("chrt_id", flat=True).order_by("chrt_id")
     )
+    if not chrt_ids and not sync_card_sizes:
+        sizes_synced = _sync_product_card_sizes(seller)
+        chrt_ids = list(
+            ProductCardSize.objects.filter(seller=seller).values_list("chrt_id", flat=True).order_by("chrt_id")
+        )
     if not warehouses or not chrt_ids:
         SellerFbsStock.objects.filter(seller=seller).delete()
         return {

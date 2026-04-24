@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Чат с поддержкой</title>
+    {% include "partials/top_nav_css.html" %}
+    <style>
+        :root {
+            --bg: #edf3f7;
+            --card: #fff;
+            --line: #dbe3ec;
+            --text: #1f2a37;
+            --muted: #6b7280;
+            --accent: #147a59;
+        }
+        body {
+            margin: 0;
+            padding: 12px 20px 28px !important;
+            font-family: "Inter", "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top left, #d8efe6 0%, #dfe9f5 45%, var(--bg) 100%);
+            color: var(--text);
+        }
+        .page-wrap {
+            max-width: 1480px;
+            margin: 0 auto;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: var(--card);
+            overflow: hidden;
+            height: calc(100vh - 115px);
+            min-height: 620px;
+            display: grid;
+            grid-template-columns: 340px 1fr;
+        }
+        .side {
+            border-right: 1px solid var(--line);
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .head {
+            padding: 12px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .head h3 { margin: 0; font-size: 18px; }
+        .btn {
+            border: 0;
+            background: linear-gradient(135deg, #147a59 0%, #0e9f6e 100%);
+            color: #fff;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-ghost {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #334155;
+        }
+        .thread-list {
+            padding: 8px;
+            overflow: auto;
+            display: grid;
+            gap: 8px;
+        }
+        .thread-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 9px;
+            cursor: pointer;
+            background: #fff;
+        }
+        .thread-card.active { border-color: #86efac; background: #f0fdf4; }
+        .thread-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .thread-subject { font-size: 14px; font-weight: 700; margin: 0; }
+        .thread-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+        .thread-preview { color: #475569; font-size: 12px; margin-top: 6px; }
+        .badge {
+            min-width: 20px; height: 20px; border-radius: 999px;
+            background: #dc2626; color: #fff; font-size: 11px; font-weight: 700;
+            display: inline-flex; align-items: center; justify-content: center; padding: 0 6px;
+        }
+        .status {
+            display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px;
+            font-size: 11px; font-weight: 700; border: 1px solid #cbd5e1; color: #334155;
+            background: #f8fafc;
+        }
+        .status.info { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+        .status.warn { border-color: #fde68a; background: #fefce8; color: #b45309; }
+        .status.muted { border-color: #e5e7eb; background: #f9fafb; color: #6b7280; }
+        .chat-head {
+            border-bottom: 1px solid var(--line);
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .chat-title { margin: 0; font-size: 17px; }
+        .chat-feed {
+            flex: 1;
+            overflow: auto;
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+            align-content: start;
+            background: #f8fbff;
+        }
+        .msg {
+            max-width: min(760px, 85%);
+            border-radius: 14px;
+            padding: 9px 11px;
+            border: 1px solid #dbe7f4;
+            background: #fff;
+        }
+        .msg.mine {
+            margin-left: auto;
+            background: #e8fff5;
+            border-color: #b7f0d4;
+        }
+        .msg-meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+        .chat-form {
+            border-top: 1px solid var(--line);
+            padding: 10px;
+            display: flex;
+            gap: 8px;
+        }
+        .chat-form textarea {
+            flex: 1;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            min-height: 42px;
+            max-height: 140px;
+            resize: vertical;
+            padding: 9px 11px;
+            font-family: inherit;
+        }
+        .empty {
+            margin: auto;
+            text-align: center;
+            color: var(--muted);
+            font-size: 14px;
+            padding: 16px;
+        }
+        .modal {
+            position: fixed; inset: 0; background: rgba(15,23,42,.4);
+            display: none; align-items: center; justify-content: center; padding: 16px; z-index: 1400;
+        }
+        .modal.open { display: flex; }
+        .modal-card {
+            width: min(580px, 100%);
+            background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px;
+        }
+        .field { display: grid; gap: 5px; margin-bottom: 10px; }
+        .field input, .field textarea {
+            border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-family: inherit;
+        }
+        @media (max-width: 980px) {
+            .page-wrap { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 115px); }
+            .side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 46vh; }
+        }
+    </style>
+</head>
+<body>
+    {% include "partials/top_nav.html" %}
+    <div class="page-wrap">
+        <aside class="side">
+            <div class="head">
+                <h3>Диалоги</h3>
+                <button class="btn" id="new-thread-btn" type="button">Новый диалог</button>
+            </div>
+            <div id="thread-list" class="thread-list"></div>
+        </aside>
+        <section class="main">
+            <div class="chat-head">
+                <h3 id="chat-title" class="chat-title">Выберите диалог</h3>
+                <span id="chat-status" class="status">—</span>
+            </div>
+            <div id="chat-feed" class="chat-feed">
+                <div class="empty">Выберите диалог или создайте новый</div>
+            </div>
+            <form id="chat-form" class="chat-form" data-no-nav-loader="1">
+                <textarea id="chat-input" placeholder="Введите сообщение..." disabled></textarea>
+                <button class="btn" id="chat-send-btn" type="submit" disabled>Отправить</button>
+            </form>
+        </section>
+    </div>
+
+    <div class="modal" id="new-thread-modal" aria-hidden="true">
+        <div class="modal-card">
+            <h3 style="margin-top:0;">Новый диалог</h3>
+            <div class="field">
+                <label for="new-thread-subject">Тема</label>
+                <input id="new-thread-subject" type="text" maxlength="255" placeholder="Кратко опишите проблему">
+            </div>
+            <div class="field">
+                <label for="new-thread-message">Сообщение</label>
+                <textarea id="new-thread-message" rows="5" placeholder="Опишите ситуацию подробно"></textarea>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-ghost" id="new-thread-cancel" type="button">Отмена</button>
+                <button class="btn" id="new-thread-submit" type="button">Создать</button>
+            </div>
+            <div id="new-thread-status" style="margin-top:10px; font-size:13px; color:#b91c1c;"></div>
+        </div>
+    </div>
+
+    <script>
+        (function supportChatPage() {
+            const threadListEl = document.getElementById("thread-list");
+            const chatTitleEl = document.getElementById("chat-title");
+            const chatStatusEl = document.getElementById("chat-status");
+            const chatFeedEl = document.getElementById("chat-feed");
+            const chatInputEl = document.getElementById("chat-input");
+            const chatFormEl = document.getElementById("chat-form");
+            const chatSendBtn = document.getElementById("chat-send-btn");
+            const newModal = document.getElementById("new-thread-modal");
+            const newStatus = document.getElementById("new-thread-status");
+            const state = { threads: [], activeThreadId: null };
+
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(";").shift();
+                return "";
+            }
+            function fmt(iso) {
+                if (!iso) return "";
+                const dt = new Date(iso);
+                return dt.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+            }
+            function statusClass(color) {
+                if (color === "info") return "status info";
+                if (color === "warn") return "status warn";
+                if (color === "muted") return "status muted";
+                return "status";
+            }
+            function renderThreads() {
+                if (!state.threads.length) {
+                    threadListEl.innerHTML = '<div class="empty">У вас пока нет диалогов</div>';
+                    return;
+                }
+                threadListEl.innerHTML = state.threads.map((t) => `
+                    <article class="thread-card ${state.activeThreadId === t.id ? "active" : ""}" data-id="${t.id}">
+                        <div class="thread-top">
+                            <p class="thread-subject">${t.subject}</p>
+                            ${t.unread_count > 0 ? `<span class="badge">${t.unread_count > 99 ? "99+" : t.unread_count}</span>` : ""}
+                        </div>
+                        <div class="thread-meta">${fmt(t.updated_at)} · <span class="${statusClass(t.status.color)}">${t.status.label}</span></div>
+                        <div class="thread-preview">${t.last_message_preview || ""}</div>
+                    </article>
+                `).join("");
+            }
+            async function loadThreads() {
+                const res = await fetch("{% url 'support_threads_api' %}", { headers: { "Accept": "application/json" } });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка загрузки диалогов");
+                state.threads = data.threads || [];
+                renderThreads();
+                if (!state.activeThreadId && state.threads.length) {
+                    openThread(state.threads[0].id);
+                }
+            }
+            async function openThread(threadId) {
+                state.activeThreadId = Number(threadId);
+                renderThreads();
+                const res = await fetch(`/api/support/threads/${threadId}/messages/`, { headers: { "Accept": "application/json" } });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка загрузки сообщений");
+                const thread = data.thread;
+                chatTitleEl.textContent = thread.subject;
+                chatStatusEl.className = statusClass(thread.status.color);
+                chatStatusEl.textContent = thread.status.label;
+                const messages = data.messages || [];
+                chatFeedEl.innerHTML = messages.length ? messages.map((m) => `
+                    <article class="msg ${m.is_mine ? "mine" : ""}">
+                        <div>${(m.body || "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</div>
+                        <div class="msg-meta">${m.author_username} · ${fmt(m.created_at)}</div>
+                    </article>
+                `).join("") : '<div class="empty">В этом диалоге пока нет сообщений</div>';
+                chatFeedEl.scrollTop = chatFeedEl.scrollHeight;
+                chatInputEl.disabled = false;
+                chatSendBtn.disabled = false;
+                await fetch(`/api/support/threads/${threadId}/read/`, {
+                    method: "POST",
+                    headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                });
+                await loadThreads();
+            }
+            async function sendMessage() {
+                const body = (chatInputEl.value || "").trim();
+                if (!state.activeThreadId || !body) return;
+                const fd = new FormData();
+                fd.set("body", body);
+                const res = await fetch(`/api/support/threads/${state.activeThreadId}/messages/`, {
+                    method: "POST",
+                    headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка отправки");
+                chatInputEl.value = "";
+                await openThread(state.activeThreadId);
+            }
+            chatFormEl.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                try { await sendMessage(); } catch (err) { alert(String(err)); }
+            });
+            threadListEl.addEventListener("click", (e) => {
+                const card = e.target.closest(".thread-card");
+                if (!card) return;
+                openThread(card.dataset.id).catch((err) => alert(String(err)));
+            });
+
+            document.getElementById("new-thread-btn").addEventListener("click", () => {
+                newModal.classList.add("open");
+                newModal.setAttribute("aria-hidden", "false");
+                newStatus.textContent = "";
+            });
+            document.getElementById("new-thread-cancel").addEventListener("click", () => {
+                newModal.classList.remove("open");
+                newModal.setAttribute("aria-hidden", "true");
+            });
+            newModal.addEventListener("click", (e) => {
+                if (e.target === newModal) {
+                    newModal.classList.remove("open");
+                    newModal.setAttribute("aria-hidden", "true");
+                }
+            });
+            document.getElementById("new-thread-submit").addEventListener("click", async () => {
+                const subject = (document.getElementById("new-thread-subject").value || "").trim();
+                const body = (document.getElementById("new-thread-message").value || "").trim();
+                newStatus.textContent = "";
+                const fd = new FormData();
+                fd.set("subject", subject);
+                fd.set("body", body);
+                const res = await fetch("{% url 'support_threads_api' %}", {
+                    method: "POST",
+                    headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    newStatus.textContent = data.error || "Не удалось создать диалог.";
+                    return;
+                }
+                document.getElementById("new-thread-subject").value = "";
+                document.getElementById("new-thread-message").value = "";
+                newModal.classList.remove("open");
+                newModal.setAttribute("aria-hidden", "true");
+                await loadThreads();
+                await openThread(data.thread_id);
+            });
+
+            loadThreads().catch((err) => {
+                threadListEl.innerHTML = `<div class="empty">${String(err)}</div>`;
+            });
+            window.setInterval(() => {
+                if (!document.hidden) loadThreads().catch(() => {});
+            }, 20000);
+        })();
+    </script>
+</body>
+</html>

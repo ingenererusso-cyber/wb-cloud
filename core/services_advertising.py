@@ -307,6 +307,14 @@ def sync_ad_campaigns_and_stats(
     max_lookback_from = effective_date_to - timedelta(days=31)
     effective_date_from = max(date_from, max_lookback_from)
 
+    def _respect_fullstats_rate_limit() -> None:
+        nonlocal last_fullstats_request_ts
+        if last_fullstats_request_ts is not None:
+            elapsed = time.monotonic() - last_fullstats_request_ts
+            sleep_for = min_fullstats_interval_sec - elapsed
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+
     for ids_chunk in grouped_id_chunks:
         chunk_start_dates = [advert_start_dates.get(int(advert_id)) for advert_id in ids_chunk]
         chunk_start_dates = [d for d in chunk_start_dates if d is not None]
@@ -317,11 +325,7 @@ def sync_ad_campaigns_and_stats(
             continue
 
         try:
-            if last_fullstats_request_ts is not None:
-                elapsed = time.monotonic() - last_fullstats_request_ts
-                sleep_for = min_fullstats_interval_sec - elapsed
-                if sleep_for > 0:
-                    time.sleep(sleep_for)
+            _respect_fullstats_rate_limit()
             stats_rows = client.get_fullstats(
                 ids_chunk,
                 date_from=common_begin.isoformat(),
@@ -330,8 +334,40 @@ def sync_ad_campaigns_and_stats(
             last_fullstats_request_ts = time.monotonic()
         except Exception as exc:
             last_fullstats_request_ts = time.monotonic()
-            partial_errors.append(str(exc))
-            continue
+            # Если чанк не загрузился целиком, пробуем дозагрузить кампании по одной.
+            # Это дольше, но не теряет данные по всему чанку из-за одного проблемного ID.
+            chunk_error = str(exc)
+            recovered_rows: List[Dict] = []
+            fallback_errors = 0
+            for advert_id_single in ids_chunk:
+                single_start = advert_start_dates.get(int(advert_id_single))
+                single_begin = max(effective_date_from, single_start) if single_start else effective_date_from
+                single_end = effective_date_to
+                if single_begin > single_end:
+                    continue
+                try:
+                    _respect_fullstats_rate_limit()
+                    one_rows = client.get_fullstats(
+                        [int(advert_id_single)],
+                        date_from=single_begin.isoformat(),
+                        date_to=single_end.isoformat(),
+                    )
+                    last_fullstats_request_ts = time.monotonic()
+                    if isinstance(one_rows, list):
+                        recovered_rows.extend(one_rows)
+                except Exception as single_exc:
+                    last_fullstats_request_ts = time.monotonic()
+                    fallback_errors += 1
+                    partial_errors.append(
+                        f"campaign {int(advert_id_single)}: {single_exc}"
+                    )
+            if recovered_rows:
+                stats_rows = recovered_rows
+            else:
+                partial_errors.append(
+                    f"chunk {ids_chunk[:1]}..{ids_chunk[-1:]} failed: {chunk_error}; fallback_failed={fallback_errors}"
+                )
+                continue
         if not isinstance(stats_rows, list):
             continue
 

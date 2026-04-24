@@ -128,6 +128,40 @@ class WBOrdersSupplierClient:
 
         return self._handle_response(response)    
 
+
+class WBSalesSupplierClient:
+    BASE_URL = "https://statistics-api.wildberries.ru/api/v1/supplier/sales"
+
+    def __init__(self, api_token: str):
+        self.headers = {
+            "Authorization": api_token,
+            "Accept": "application/json",
+        }
+
+    def _handle_response(self, response: requests.Response):
+        if response.status_code == 200:
+            payload = response.json()
+            if isinstance(payload, list):
+                return payload
+            return []
+        raise Exception(
+            f"WB Sales API Error {response.status_code}:\n{response.text}"
+        )
+
+    def get_sales(self, date_from: str, flag: int = 0):
+        params = {
+            "dateFrom": date_from,
+            "flag": int(flag),
+        }
+        response = _request_with_retry(
+            "GET",
+            self.BASE_URL,
+            headers=self.headers,
+            params=params,
+            timeout=60,
+        )
+        return self._handle_response(response)
+
 class WBMarketplaceClient:
 
     BASE_URL = "https://marketplace-api.wildberries.ru/api/v3"
@@ -299,6 +333,7 @@ class WBContentClient:
         )
         return {
             "nm_id": card.get("nmID"),
+            "imt_id": card.get("imtID") or card.get("imtId"),
             "vendor_code": card.get("vendorCode"),
             "title": card.get("title"),
             "brand": card.get("brand"),
@@ -324,8 +359,14 @@ class WBContentClient:
 
         all_cards: List[Dict] = []
         total = limit
+        seen_cursors: set[tuple] = set()
+        pages = 0
+        max_pages = 5000
 
         while total == limit:
+            pages += 1
+            if pages > max_pages:
+                raise Exception("WB Content API pagination exceeded safe page limit")
             response = _request_with_retry(
                 "POST",
                 self.BASE_URL,
@@ -342,6 +383,10 @@ class WBContentClient:
 
             cursor = data.get("cursor", {}) or {}
             total = cursor.get("total", 0)
+            cursor_key = (cursor.get("updatedAt"), cursor.get("nmID"), total)
+            if cursor_key in seen_cursors:
+                break
+            seen_cursors.add(cursor_key)
 
             if total == limit:
                 payload["settings"]["cursor"] = {

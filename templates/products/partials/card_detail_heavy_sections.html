@@ -53,6 +53,8 @@
                     <p class="muted">Налог <span class="info-tip" tabindex="0">?<span class="info-bubble">Налог УСН по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_all.tax_sum|floatformat:2 }} ₽</p>
                     <p class="muted">НДС <span class="info-tip" tabindex="0">?<span class="info-bubble">НДС по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_all.vat_sum|floatformat:2 }} ₽</p>
                     <p class="muted"><strong>Чистая прибыль суммарно <span class="info-tip" tabindex="0">?<span class="info-bubble">Итог за период: сумма к переводу от ВБ минус все учтенные расходы по артикулу.</span></span>: {{ fact_profit_all.net_profit_sum|floatformat:2 }} ₽</strong></p>
+                    <p class="muted">Маржинальность продаж: {{ fact_profit_all.sales_margin_percent|floatformat:2 }}%</p>
+                    <p class="muted">ROI: {{ fact_profit_all.roi_percent|floatformat:2 }}%</p>
                 {% else %}
                     <p class="muted">{{ fact_profit_all.insufficient_data_message }}</p>
                 {% endif %}
@@ -108,6 +110,8 @@
                     <p class="muted">Налог <span class="info-tip" tabindex="0">?<span class="info-bubble">Налог УСН по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_month.tax_sum|floatformat:2 }} ₽</p>
                     <p class="muted">НДС <span class="info-tip" tabindex="0">?<span class="info-bubble">НДС по ставке из настроек на базу продаж.</span></span>: {{ fact_profit_month.vat_sum|floatformat:2 }} ₽</p>
                     <p class="muted"><strong>Чистая прибыль суммарно <span class="info-tip" tabindex="0">?<span class="info-bubble">Итог за период: сумма к переводу от ВБ минус все учтенные расходы по артикулу.</span></span>: {{ fact_profit_month.net_profit_sum|floatformat:2 }} ₽</strong></p>
+                    <p class="muted">Маржинальность продаж: {{ fact_profit_month.sales_margin_percent|floatformat:2 }}%</p>
+                    <p class="muted">ROI: {{ fact_profit_month.roi_percent|floatformat:2 }}%</p>
                 {% else %}
                     <p class="muted">{{ fact_profit_month.insufficient_data_message }}</p>
                 {% endif %}

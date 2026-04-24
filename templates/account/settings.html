@@ -138,6 +138,12 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        input[type="checkbox"] {
+            display: inline-block;
+            width: auto;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
 
         .actions {
             margin-top: 14px;
@@ -174,6 +180,12 @@
 
         .head-form {
             margin: 0;
+        }
+
+        .bottom-exit {
+            margin-top: 14px;
+            display: flex;
+            justify-content: flex-end;
         }
 
         .modal {
@@ -263,10 +275,7 @@
     <main class="card">
         <div class="head">
             <h1>Настройки аккаунта</h1>
-            <form method="post" action="{% url 'logout' %}" class="head-form">
-                {% csrf_token %}
-                <button class="btn btn-danger" type="submit">Выйти</button>
-            </form>
+            <a class="btn btn-primary" href="{% url 'home' %}">На главную</a>
         </div>
         <p class="muted">Пользователь: {{ request.user.username }}</p>
 
@@ -309,23 +318,28 @@
         </div>
 
         <div class="section-card">
-            <h2 class="section-title">Демо-режим: импорт из Excel</h2>
-            <p class="section-subtitle">Без API-ключа, с частичным заполнением данных.</p>
-            <form method="post" enctype="multipart/form-data">
+            <h2 class="section-title">Настройка авто-синхронизации</h2>
+            <p class="section-subtitle">Ежедневный автозапуск общего синка по выбранному времени.</p>
+            <form method="post">
                 {% csrf_token %}
-                <input type="hidden" name="action" value="import_orders_excel">
+                <input type="hidden" name="action" value="save_auto_sync">
                 <div class="field">
-                    <label for="orders_excel">Импорт заказов из Excel (.xlsx)</label>
-                    <input id="orders_excel" name="orders_excel" type="file" accept=".xlsx">
+                    <label>
+                        <input type="checkbox" name="auto_sync_enabled" value="1" {% if auto_sync_enabled %}checked{% endif %}>
+                        Включить ежедневную авто-синхронизацию
+                    </label>
                 </div>
-                <p class="muted">Можно загрузить выгрузку WB из Аналитика->Лента заказов без API-ключа. Данные будут импортированы частично (лучше загружать заказы за месяц).</p>
+                <div class="field">
+                    <label for="auto_sync_time">Время запуска (по серверному времени)</label>
+                    <input id="auto_sync_time" name="auto_sync_time" type="time" value="{{ auto_sync_time|default:'09:00' }}">
+                </div>
+                {% if auto_sync_last_run_date %}
+                    <p class="muted">Последний автозапуск: {{ auto_sync_last_run_date }}</p>
+                {% endif %}
                 <div class="actions">
-                    <button class="btn btn-primary" type="submit">Импортировать Excel</button>
+                    <button class="btn btn-primary" type="submit">Сохранить</button>
                 </div>
             </form>
-        </div>
-        <div class="actions">
-            <a class="btn btn-primary" href="{% url 'home' %}">На главную</a>
         </div>
 
         <div class="danger-card">
@@ -338,6 +352,11 @@
                 <button id="openDeleteAccount" class="btn btn-danger" type="button">Удалить аккаунт</button>
             </div>
         </div>
+
+        <form method="post" action="{% url 'logout' %}" class="head-form bottom-exit">
+            {% csrf_token %}
+            <button class="btn btn-danger" type="submit">Выйти из аккаунта</button>
+        </form>
     </main>
 
     <div id="apiGuideModal" class="modal" aria-hidden="true">
