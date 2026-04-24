@@ -2628,18 +2628,63 @@ def product_glues_report(request):
             )
         )
     }
-    ad_by_nm = {
-        int(row["nm_id"]): {
-            "ad_spend": float(row.get("ad_spend") or 0.0),
-            "ad_orders": int(row.get("ad_orders") or 0),
+    ad_by_nm: dict[int, dict[str, float | int]] = {}
+    campaigns_for_seller = list(WbAdvertCampaign.objects.filter(seller=seller).order_by("-updated_at"))
+    campaign_nm_ids_map: dict[int, list[int]] = {}
+    related_advert_ids: set[int] = set()
+    nm_ids_set = set(int(nm) for nm in nm_ids)
+    for campaign in campaigns_for_seller:
+        nm_ids_in_campaign = _extract_campaign_nm_ids_from_payload(campaign.raw_payload)
+        if not nm_ids_in_campaign:
+            continue
+        normalized_nm_ids_in_campaign: list[int] = []
+        for nm in nm_ids_in_campaign:
+            try:
+                nm_int = int(nm)
+            except (TypeError, ValueError):
+                continue
+            if nm_int > 0:
+                normalized_nm_ids_in_campaign.append(nm_int)
+        if not normalized_nm_ids_in_campaign:
+            continue
+        try:
+            advert_id_int = int(campaign.advert_id)
+        except (TypeError, ValueError):
+            continue
+        campaign_nm_ids_map[advert_id_int] = normalized_nm_ids_in_campaign
+        if nm_ids_set.intersection(set(normalized_nm_ids_in_campaign)):
+            related_advert_ids.add(advert_id_int)
+
+    spend_by_advert = _build_campaign_spend_totals(
+        seller=seller,
+        advert_ids=sorted(related_advert_ids),
+        date_from=last_30_from,
+        date_to=today,
+    )
+    participant_nm_ids_for_ads: set[int] = set()
+    for advert_id_int in related_advert_ids:
+        participant_nm_ids_for_ads.update(campaign_nm_ids_map.get(advert_id_int, []))
+    sales_base_by_nm_for_ads = _build_sales_base_by_nm(
+        seller=seller,
+        date_from=last_30_from,
+        date_to=today,
+        nm_ids=participant_nm_ids_for_ads,
+    )
+    for target_nm_id in nm_ids_set:
+        ad_spend_sum = 0.0
+        for advert_id_int in related_advert_ids:
+            campaign_total = float(spend_by_advert.get(advert_id_int, 0.0))
+            allocated, _is_approx = _allocate_campaign_spend_for_nm(
+                target_nm_id=int(target_nm_id),
+                campaign_nm_ids=campaign_nm_ids_map.get(advert_id_int, []),
+                campaign_total_spend=campaign_total,
+                sale_base_by_nm=sales_base_by_nm_for_ads,
+            )
+            ad_spend_sum += float(allocated or 0.0)
+        ad_by_nm[int(target_nm_id)] = {
+            "ad_spend": float(ad_spend_sum),
+            "ad_orders": 0,
         }
-        for row in (
-            WbAdvertStatDaily.objects
-            .filter(seller=seller, nm_id__in=nm_ids, stat_date__gte=last_30_from, stat_date__lte=today)
-            .values("nm_id")
-            .annotate(ad_spend=Sum("spend"), ad_orders=Sum("orders"))
-        )
-    }
     fbo_stock_by_nm = {
         int(row["nm_id"]): int(row.get("qty") or 0)
         for row in (
