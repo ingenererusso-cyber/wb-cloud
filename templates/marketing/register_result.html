@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация — Vendra</title>
+    <style>
+        body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;font-family:"Trebuchet MS","Segoe UI",sans-serif}
+        .card{width:min(560px,calc(100% - 24px));border:1px solid #dbe3ec;border-radius:14px;background:#fff;padding:18px}
+        .ok{border:1px solid #bbf7d0;background:#dcfce7;color:#166534;padding:10px 12px;border-radius:10px}
+        .err{border:1px solid #fecaca;background:#fee2e2;color:#991b1b;padding:10px 12px;border-radius:10px}
+        a{display:inline-block;margin-top:12px;color:#0f172a}
+    </style>
+</head>
+<body>
+<main class="card">
+    {% if ok %}
+        <h1>Почти готово</h1>
+        <div class="ok">Мы отправили письмо на {{ email }}. Подтвердите e-mail, чтобы активировать бесплатный полный доступ на 3 дня.</div>
+    {% else %}
+        <h1>Не удалось завершить регистрацию</h1>
+        <div class="err">{{ error }}</div>
+    {% endif %}
+    <a href="{% url 'home' %}">Вернуться на лендинг</a>
+</main>
+</body>
+</html>

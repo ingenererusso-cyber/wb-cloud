@@ -112,6 +112,9 @@
             <button class="btn" type="submit">Войти</button>
             <input type="hidden" name="next" value="{{ next|default:'/' }}">
         </form>
+        <p style="margin-top:12px;">
+            Нет аккаунта? <a href="{% url 'home' %}#signup">Начать 3 дня бесплатно</a>
+        </p>
     </main>
 </body>
 </html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendra — тарифы</title>
+    <style>
+        :root{--ink:#132033;--muted:#5a6778;--line:rgba(19,32,51,.14);--surface:rgba(255,255,255,.9);--accent:#14532d}
+        *{box-sizing:border-box} body{margin:0;font-family:"Trebuchet MS","Segoe UI",sans-serif;color:var(--ink);background:linear-gradient(135deg,#eff7ff 0%,#f7fdf5 55%,#eef6ff 100%)}
+        .wrap{width:min(1080px,calc(100% - 32px));margin:18px auto}
+        .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+        .btn{display:inline-flex;text-decoration:none;border-radius:10px;padding:10px 14px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+        .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+        .card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px}
+        .price{font-size:34px;font-weight:800;margin:8px 0 2px}.muted{color:var(--muted);font-size:13px}
+        .ok{margin-top:10px;border:1px solid #bfdbfe;background:#dbeafe;color:#1e3a8a;padding:8px 10px;border-radius:10px;font-size:13px}
+        @media (max-width:960px){.grid{grid-template-columns:1fr}}
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="top">
+        <h1 style="margin:0;">Тарифы</h1>
+        <a class="btn" href="{% url 'home' %}">Назад</a>
+    </div>
+    {% if payment_stub %}
+    <div class="ok">Платежный сценарий пока в тестовом режиме. Реальная интеграция Т-Кассы будет добавлена позже.</div>
+    {% endif %}
+    {% if subscription %}
+    <div class="ok">Ваш статус: {{ subscription.status_label }} · План: {{ subscription.plan_label }}{% if subscription.access_expires_at %} · Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}</div>
+    {% endif %}
+    <div class="grid" style="margin-top:12px;">
+        {% for plan in plans %}
+        <article class="card">
+            <h2 style="margin:0;">{{ plan.label }}</h2>
+            <p class="price">{{ plan.price_total }} ₽</p>
+            <p class="muted">{{ plan.price_monthly }} ₽ / мес.</p>
+            <p class="muted">Оплата позже (после бесплатного полного доступа), сейчас тестовый запуск.</p>
+            {% if request.user.is_authenticated %}
+            <button class="btn" type="button" data-plan="{{ plan.code }}" style="margin-top:10px;">Выбрать тариф</button>
+            {% else %}
+            <a class="btn" href="{% url 'home' %}#signup" style="margin-top:10px;">Зарегистрироваться и получить бесплатный полный доступ</a>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+</div>
+{% if request.user.is_authenticated %}
+<script>
+    (function () {
+        function getCookie(name){const value=`; ${document.cookie}`;const parts=value.split(`; ${name}=`);if(parts.length===2){return parts.pop().split(";").shift()}return"";}
+        document.querySelectorAll("button[data-plan]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+                const fd = new FormData();
+                fd.set("plan_code", btn.dataset.plan || "");
+                const res = await fetch("{% url 'billing_init_payment_api' %}", {
+                    method: "POST",
+                    headers: {"X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json"},
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) { alert(data.error || "Ошибка"); return; }
+                window.location.href = data.payment_url || "{% url 'pricing_page' %}?payment_stub=1";
+            });
+        });
+    })();
+</script>
+{% endif %}
+</body>
+</html>

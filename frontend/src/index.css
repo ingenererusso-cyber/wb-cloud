@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Vendra — см. ../DESIGN.md */
+    --background: 210 20% 98%;
+    --foreground: 221 39% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 221 39% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 221 39% 11%;
+    --primary: 142 64% 24%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 222 47% 15%;
+    --muted: 210 20% 94%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 210 20% 94%;
+    --accent-foreground: 222 47% 15%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 20% 90%;
+    --input: 214 20% 90%;
+    --ring: 142 50% 30%;
+    --radius: 1rem;
+    --chart-1: 142 64% 32%;
+    --chart-2: 161 64% 38%;
+    --chart-3: 200 70% 45%;
+    --chart-4: 221 50% 45%;
+    --chart-5: 25 80% 48%;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 20% 98%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 20% 98%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 142 55% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 32% 16%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 222 32% 16%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 32% 16%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 32% 18%;
+    --input: 222 32% 18%;
+    --ring: 142 45% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply min-h-svh bg-background text-foreground antialiased;
+  }
+}

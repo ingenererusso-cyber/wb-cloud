@@ -9,3 +9,5 @@ venv/
 logs/
 exports/
 staticfiles/
+frontend/node_modules
+static/frontend

@@ -5,10 +5,13 @@ import threading
 import traceback
 import uuid
 
-from django.contrib.auth import logout
+from django.contrib.auth import login as django_login, logout
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import F
 from django.db.models import Count
@@ -26,6 +29,8 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.crypto import get_random_string
+from django.core.validators import validate_email
 from django.views.decorators.http import require_GET, require_POST
 import time
 from app.services.supply_recommendations.loaders import list_available_transit_warehouses, list_regular_warehouses
@@ -41,6 +46,7 @@ from core.models import (
     ProductCardSize,
     ProductUnitEconomicsCalculation,
     SellerWarehouse,
+    SignupLead,
     SupportMessage,
     SupportThread,
     SupportThreadParticipantState,
@@ -54,6 +60,7 @@ from core.models import (
     WbAdvertStatDaily,
     WbCategoryCommission,
     WbWarehouseTariff,
+    UserSubscription,
 )
 from core.logistics import (
     DEFAULT_LOGISTICS_VOLUME_LITERS,
@@ -76,6 +83,13 @@ from core.services_stocks import sync_supplier_stocks
 from core.services_seller_warehouses import sync_seller_warehouses
 from core.services_fbs_stocks import sync_seller_fbs_stocks
 from core.services_fbs_stocks import apply_fbs_stock_updates
+from core.subscriptions import (
+    PLAN_LABELS,
+    PLAN_PRICES,
+    build_subscription_summary,
+    get_or_create_subscription,
+    pricing_cards,
+)
 from core.services_tariffs import (
     sync_acceptance_coefficients,
     sync_transit_direction_tariffs,
@@ -91,6 +105,8 @@ from core.services.localization import (
 
 SYNC_TASK_STALE_MINUTES = 8
 SYNC_STAGE_TTL_HOURS = 24
+HOME_REMINDERS_META_KEY = "home_reminders"
+GLUE_DRR_REMINDER_THRESHOLD = 20.0
 DAILY_SYNC_STAGES = {
     "products",
     "commissions",
@@ -995,6 +1011,425 @@ def _save_auto_sync_config(seller: SellerAccount, *, enabled: bool, run_time: st
     _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
 
 
+def _get_home_reminders_state(seller: SellerAccount | None) -> dict:
+    if not seller:
+        return {"dismissed": {}, "snoozed": {}}
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    state = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(state, dict):
+        return {"dismissed": {}, "snoozed": {}}
+    dismissed = state.get("dismissed")
+    snoozed = state.get("snoozed")
+    return {
+        "dismissed": dismissed if isinstance(dismissed, dict) else {},
+        "snoozed": snoozed if isinstance(snoozed, dict) else {},
+    }
+
+
+def _save_home_reminders_state(seller: SellerAccount, state: dict) -> None:
+    meta = dict(seller.sync_meta) if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        reminders_meta = {}
+    reminders_meta["dismissed"] = state.get("dismissed") if isinstance(state.get("dismissed"), dict) else {}
+    reminders_meta["snoozed"] = state.get("snoozed") if isinstance(state.get("snoozed"), dict) else {}
+    meta[HOME_REMINDERS_META_KEY] = reminders_meta
+    seller.sync_meta = meta
+    _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
+
+
+def _save_home_reminders_snapshot(seller: SellerAccount, groups: list[dict], *, generated_at=None) -> None:
+    meta = dict(seller.sync_meta) if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        reminders_meta = {}
+    reminders_meta["groups"] = groups if isinstance(groups, list) else []
+    reminders_meta["generated_at"] = (generated_at or timezone.now()).isoformat()
+    meta[HOME_REMINDERS_META_KEY] = reminders_meta
+    seller.sync_meta = meta
+    _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
+
+
+def _get_home_reminders_snapshot(seller: SellerAccount | None) -> list[dict]:
+    if not seller:
+        return []
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        return []
+    groups = reminders_meta.get("groups")
+    return groups if isinstance(groups, list) else []
+
+
+def _apply_home_reminder_state(groups: list[dict], seller: SellerAccount | None) -> list[dict]:
+    if not seller:
+        return []
+    reminder_state = _get_home_reminders_state(seller)
+    dismissed_ids = set(reminder_state.get("dismissed", {}).keys())
+    snoozed_at_map = reminder_state.get("snoozed", {})
+    prepared_groups: list[dict] = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        cards = group.get("cards")
+        if not isinstance(cards, list):
+            continue
+        visible_cards: list[dict] = []
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            reminder_id = str(card.get("reminder_id") or "").strip()
+            if not reminder_id or reminder_id in dismissed_ids:
+                continue
+            prepared = dict(card)
+            prepared["snoozed_at"] = str(snoozed_at_map.get(reminder_id) or "")
+            visible_cards.append(prepared)
+        visible_cards.sort(key=lambda item: (1 if item.get("snoozed_at") else 0, item.get("sort_key", 0)))
+        prepared_group = dict(group)
+        prepared_group["cards"] = visible_cards
+        prepared_groups.append(prepared_group)
+    return prepared_groups
+
+
+def _refresh_home_reminders_snapshot(seller_id: int) -> None:
+    close_old_connections()
+    try:
+        seller = SellerAccount.objects.filter(id=seller_id).first()
+        if not seller:
+            return
+        groups = _build_home_reminder_groups(seller)
+        _save_home_reminders_snapshot(seller, groups, generated_at=timezone.now())
+    except Exception:
+        traceback.print_exc()
+    finally:
+        close_old_connections()
+
+
+def _build_fbs_stock_by_nm(
+    *,
+    seller: SellerAccount,
+    nm_ids: set[int] | None = None,
+) -> dict[int, int]:
+    size_qs = ProductCardSize.objects.filter(seller=seller).exclude(nm_id__isnull=True)
+    if nm_ids:
+        size_qs = size_qs.filter(nm_id__in=list(nm_ids))
+    chrt_to_nm_map = {
+        int(row["chrt_id"]): int(row["nm_id"])
+        for row in size_qs.values("chrt_id", "nm_id")
+        if row.get("chrt_id") is not None and row.get("nm_id") is not None
+    }
+    if not chrt_to_nm_map:
+        return {}
+
+    fbs_stock_by_nm: dict[int, int] = {}
+    for row in (
+        SellerFbsStock.objects
+        .filter(seller=seller, chrt_id__in=list(chrt_to_nm_map.keys()))
+        .values("chrt_id")
+        .annotate(total_qty=Sum("amount"))
+    ):
+        chrt_id = row.get("chrt_id")
+        if chrt_id is None:
+            continue
+        nm_id = chrt_to_nm_map.get(int(chrt_id))
+        if nm_id is None:
+            continue
+        fbs_stock_by_nm[nm_id] = int(fbs_stock_by_nm.get(nm_id, 0) + int(row.get("total_qty") or 0))
+    return fbs_stock_by_nm
+
+
+def _build_ad_spend_by_nm(
+    *,
+    seller: SellerAccount,
+    nm_ids: set[int],
+    date_from: date,
+    date_to: date,
+) -> dict[int, float]:
+    if not nm_ids:
+        return {}
+
+    campaigns_for_seller = list(WbAdvertCampaign.objects.filter(seller=seller).order_by("-updated_at"))
+    campaign_nm_ids_map: dict[int, list[int]] = {}
+    related_advert_ids: set[int] = set()
+    for campaign in campaigns_for_seller:
+        participant_nm_ids = _extract_campaign_nm_ids_from_payload(campaign.raw_payload)
+        if not participant_nm_ids:
+            continue
+        normalized_nm_ids: list[int] = []
+        for raw_nm_id in participant_nm_ids:
+            try:
+                nm_id_int = int(raw_nm_id)
+            except (TypeError, ValueError):
+                continue
+            if nm_id_int > 0:
+                normalized_nm_ids.append(nm_id_int)
+        if not normalized_nm_ids:
+            continue
+        try:
+            advert_id_int = int(campaign.advert_id)
+        except (TypeError, ValueError):
+            continue
+        campaign_nm_ids_map[advert_id_int] = normalized_nm_ids
+        if nm_ids.intersection(set(normalized_nm_ids)):
+            related_advert_ids.add(advert_id_int)
+
+    if not related_advert_ids:
+        return {}
+
+    spend_by_advert = _build_campaign_spend_totals(
+        seller=seller,
+        advert_ids=sorted(related_advert_ids),
+        date_from=date_from,
+        date_to=date_to,
+    )
+    participant_nm_ids_for_ads: set[int] = set()
+    for advert_id_int in related_advert_ids:
+        participant_nm_ids_for_ads.update(campaign_nm_ids_map.get(advert_id_int, []))
+
+    sales_base_by_nm_for_ads = _build_sales_base_by_nm(
+        seller=seller,
+        date_from=date_from,
+        date_to=date_to,
+        nm_ids=participant_nm_ids_for_ads,
+    )
+
+    ad_spend_by_nm: dict[int, float] = {}
+    for target_nm_id in nm_ids:
+        ad_spend_sum = 0.0
+        for advert_id_int in related_advert_ids:
+            campaign_total = float(spend_by_advert.get(advert_id_int, 0.0))
+            allocated, _is_approx = _allocate_campaign_spend_for_nm(
+                target_nm_id=int(target_nm_id),
+                campaign_nm_ids=campaign_nm_ids_map.get(advert_id_int, []),
+                campaign_total_spend=campaign_total,
+                sale_base_by_nm=sales_base_by_nm_for_ads,
+            )
+            ad_spend_sum += float(allocated or 0.0)
+        ad_spend_by_nm[int(target_nm_id)] = round(ad_spend_sum, 2)
+    return ad_spend_by_nm
+
+
+def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
+    if not seller:
+        return []
+
+    today = timezone.localdate()
+    period_from = today - timedelta(days=29)
+
+    groups: list[dict] = []
+
+    sold_rows = list(
+        Order.objects
+        .filter(seller=seller, order_date__date__gte=period_from, order_date__date__lte=today)
+        .values("nm_id")
+        .annotate(
+            orders_30d=Count("id", filter=Q(is_cancel=False)),
+            buyouts_30d=Count("id", filter=Q(is_buyout=True)),
+            last_order_date=Max("order_date"),
+        )
+    )
+    sold_by_nm = {
+        int(row["nm_id"]): {
+            "orders_30d": int(row.get("orders_30d") or 0),
+            "buyouts_30d": int(row.get("buyouts_30d") or 0),
+            "last_order_date": row.get("last_order_date"),
+        }
+        for row in sold_rows
+        if row.get("nm_id") is not None and int(row.get("orders_30d") or 0) > 0
+    }
+    sold_nm_ids = set(sold_by_nm.keys())
+    latest_products_by_nm: dict[int, Product] = {}
+    if sold_nm_ids:
+        for product in (
+            Product.objects
+            .filter(seller=seller, nm_id__in=list(sold_nm_ids))
+            .order_by("nm_id", F("wb_updated_at").desc(nulls_last=True), "-id")
+        ):
+            nm_id_int = int(product.nm_id)
+            if nm_id_int not in latest_products_by_nm:
+                latest_products_by_nm[nm_id_int] = product
+
+    fbo_stock_by_nm = (
+        {
+            int(row["nm_id"]): int(row.get("qty") or 0)
+            for row in (
+                WarehouseStockDetailed.objects
+                .filter(seller=seller, nm_id__in=list(sold_nm_ids))
+                .values("nm_id")
+                .annotate(qty=Sum("quantity"))
+            )
+            if row.get("nm_id") is not None
+        }
+        if sold_nm_ids else {}
+    )
+    fbs_stock_by_nm = _build_fbs_stock_by_nm(seller=seller, nm_ids=sold_nm_ids) if sold_nm_ids else {}
+
+    sold_out_cards: list[dict] = []
+    for nm_id, stats in sold_by_nm.items():
+        current_stock = int(fbo_stock_by_nm.get(nm_id, 0)) + int(fbs_stock_by_nm.get(nm_id, 0))
+        if current_stock > 0:
+            continue
+        product = latest_products_by_nm.get(nm_id)
+        title = ""
+        vendor_code = ""
+        photo_url = ""
+        link = ""
+        if product:
+            title = (product.title or "").strip()
+            vendor_code = (product.vendor_code or "").strip()
+            photo_url = (product.photo_url or "").strip()
+            link = reverse("product_card_detail", args=[product.id])
+        last_order_date = stats.get("last_order_date")
+        last_order_label = (
+            timezone.localtime(last_order_date).strftime("%d.%m %H:%M")
+            if last_order_date
+            else "нет данных"
+        )
+        sold_out_cards.append(
+            {
+                "reminder_id": f"sold_out:{nm_id}",
+                "title": title or f"Товар WB {nm_id}",
+                "subtitle": f"WB {nm_id} · {vendor_code or 'артикул не указан'}",
+                "meta": f"Заказы за 30 дней: {stats['orders_30d']} · Выкупы: {stats['buyouts_30d']}",
+                "footnote": f"Последний заказ: {last_order_label}. Остаток FBO/FBS: 0 / 0.",
+                "badge": "Нужна поставка",
+                "badge_tone": "danger",
+                "link": link,
+                "photo_url": photo_url,
+                "sort_key": -int(stats["orders_30d"]),
+            }
+        )
+    sold_out_cards.sort(key=lambda item: item.get("sort_key", 0))
+    if sold_out_cards:
+        groups.append(
+            {
+                "group_id": "sold_out",
+                "title": "Товар закончился",
+                "description": "Карточки с продажами за последние 30 дней и нулевым остатком сейчас.",
+                "empty_text": "Нет товаров, которые продавались и полностью закончились.",
+                "cards": sold_out_cards[:18],
+            }
+        )
+
+    glue_groups = list(
+        Product.objects
+        .filter(seller=seller, imt_id__isnull=False)
+        .values("imt_id")
+        .annotate(items_count=Count("id"))
+        .filter(items_count__gt=1)
+    )
+    imt_ids = [int(row["imt_id"]) for row in glue_groups if row.get("imt_id") is not None]
+    if imt_ids:
+        products = list(
+            Product.objects
+            .filter(seller=seller, imt_id__in=imt_ids)
+            .order_by("imt_id", F("wb_updated_at").desc(nulls_last=True), "-id")
+        )
+        nm_ids = {int(product.nm_id) for product in products}
+        orders_by_nm = {
+            int(row["nm_id"]): {
+                "orders": int(row.get("orders") or 0),
+                "buyouts": int(row.get("buyouts") or 0),
+                "revenue": float(row.get("revenue") or 0.0),
+            }
+            for row in (
+                Order.objects
+                .filter(seller=seller, nm_id__in=list(nm_ids), order_date__date__gte=period_from, order_date__date__lte=today)
+                .values("nm_id")
+                .annotate(
+                    orders=Count("id"),
+                    buyouts=Count("id", filter=Q(is_buyout=True)),
+                    revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
+                )
+            )
+            if row.get("nm_id") is not None
+        }
+        ad_by_nm = _build_ad_spend_by_nm(
+            seller=seller,
+            nm_ids=nm_ids,
+            date_from=period_from,
+            date_to=today,
+        )
+        fbo_by_nm = {
+            int(row["nm_id"]): int(row.get("qty") or 0)
+            for row in (
+                WarehouseStockDetailed.objects
+                .filter(seller=seller, nm_id__in=list(nm_ids))
+                .values("nm_id")
+                .annotate(qty=Sum("quantity"))
+            )
+            if row.get("nm_id") is not None
+        }
+        fbs_by_nm = _build_fbs_stock_by_nm(seller=seller, nm_ids=nm_ids)
+
+        products_by_imt: dict[int, list[dict]] = {}
+        for product in products:
+            nm_id_int = int(product.nm_id)
+            order_stats = orders_by_nm.get(nm_id_int, {})
+            products_by_imt.setdefault(int(product.imt_id), []).append(
+                {
+                    "id": product.id,
+                    "nm_id": nm_id_int,
+                    "title": (product.title or "").strip(),
+                    "vendor_code": (product.vendor_code or "").strip(),
+                    "photo_url": (product.photo_url or "").strip(),
+                    "orders_30d": int(order_stats.get("orders") or 0),
+                    "buyouts_30d": int(order_stats.get("buyouts") or 0),
+                    "revenue_30d": round(float(order_stats.get("revenue") or 0.0), 2),
+                    "ad_spend_30d": round(float(ad_by_nm.get(nm_id_int) or 0.0), 2),
+                    "fbo_stock_qty": int(fbo_by_nm.get(nm_id_int, 0)),
+                    "fbs_stock_qty": int(fbs_by_nm.get(nm_id_int, 0)),
+                }
+            )
+
+        glue_cards: list[dict] = []
+        for grouped in glue_groups:
+            imt_id = grouped.get("imt_id")
+            if imt_id is None:
+                continue
+            imt_id_int = int(imt_id)
+            items = products_by_imt.get(imt_id_int, [])
+            if not items:
+                continue
+            ad_spend_30d = round(sum(item["ad_spend_30d"] for item in items), 2)
+            revenue_30d = round(sum(item["revenue_30d"] for item in items), 2)
+            if revenue_30d <= 0:
+                continue
+            drr_30d = round((ad_spend_30d / revenue_30d) * 100.0, 2)
+            if drr_30d <= GLUE_DRR_REMINDER_THRESHOLD:
+                continue
+            buyouts_30d = sum(item["buyouts_30d"] for item in items)
+            orders_30d = sum(item["orders_30d"] for item in items)
+            item_titles = [item["title"] or item["vendor_code"] or f"WB {item['nm_id']}" for item in items[:3]]
+            glue_cards.append(
+                {
+                    "reminder_id": f"glue_drr:{imt_id_int}",
+                    "title": f"Склейка #{imt_id_int}",
+                    "subtitle": f"Товаров в склейке: {len(items)} · Заказы: {orders_30d} · Выкупы: {buyouts_30d}",
+                    "meta": f"ДРР: {drr_30d:.2f}% · Реклама: {ad_spend_30d:.2f} ₽ · Выручка: {revenue_30d:.2f} ₽",
+                    "footnote": "Внутри: " + ", ".join(item_titles),
+                    "badge": f"ДРР > {GLUE_DRR_REMINDER_THRESHOLD:.0f}%",
+                    "badge_tone": "warn",
+                    "link": f"{reverse('product_glues_report')}?q={imt_id_int}",
+                    "photo_url": next((item["photo_url"] for item in items if item["photo_url"]), ""),
+                    "sort_key": -int(round(drr_30d * 100)),
+                }
+            )
+        glue_cards.sort(key=lambda item: item.get("sort_key", 0))
+        if glue_cards:
+            groups.append(
+                {
+                    "group_id": "glue_drr",
+                    "title": "ДРР склейки вырос",
+                    "description": "Склейки, у которых рекламные расходы за 30 дней превысили 20% от выручки.",
+                    "empty_text": "Нет склеек с ДРР выше порога.",
+                    "cards": glue_cards[:12],
+                }
+            )
+
+    return groups
+
+
 def _maybe_start_scheduled_sync_for_user(user, seller: SellerAccount | None) -> None:
     if not user or not getattr(user, "is_authenticated", False):
         return
@@ -1414,6 +1849,11 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                 "result": result,
             },
         )
+        threading.Thread(
+            target=_refresh_home_reminders_snapshot,
+            args=(seller.id,),
+            daemon=True,
+        ).start()
     except Exception as exc:
         log_user = None
         log_seller = None
@@ -1446,9 +1886,142 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         close_old_connections()
 
 
+def _generate_unique_username_from_email(email: str) -> str:
+    base = (email.split("@")[0] or "user").strip().lower()
+    safe = "".join(ch for ch in base if ch.isalnum() or ch in {"_", "."})[:24] or "user"
+    candidate = safe
+    idx = 1
+    while User.objects.filter(username=candidate).exists():
+        suffix = f"_{idx}"
+        candidate = f"{safe[: max(1, 24 - len(suffix))]}{suffix}"
+        idx += 1
+    return candidate
+
+
+def _build_pricing_context(user=None) -> dict:
+    sub_summary = build_subscription_summary(get_or_create_subscription(user)) if user and user.is_authenticated else None
+    return {
+        "plans": pricing_cards(),
+        "subscription": sub_summary,
+    }
+
+
+def promo_landing(request):
+    """Старый URL /promo/ — редирект на главную (лендинг для гостей, дашборд для авторизованных)."""
+    return redirect("home")
+
+
+def pricing_page(request):
+    ctx = _build_pricing_context(request.user)
+    ctx["payment_stub"] = (request.GET.get("payment_stub") or "").strip() in {"1", "true", "yes"}
+    return render(request, "marketing/pricing.html", ctx)
+
+
+@require_POST
+def register_trial(request):
+    full_name = (request.POST.get("full_name") or "").strip()
+    email = (request.POST.get("email") or "").strip().lower()
+    password = (request.POST.get("password") or "").strip()
+    password_confirm = (request.POST.get("password_confirm") or "").strip()
+
+    if len(full_name) < 2:
+        return render(request, "marketing/register_result.html", {"ok": False, "error": "Укажите имя (минимум 2 символа)."}, status=400)
+    try:
+        validate_email(email)
+    except ValidationError:
+        return render(request, "marketing/register_result.html", {"ok": False, "error": "Укажите корректный e-mail."}, status=400)
+    if len(password) < 8:
+        return render(request, "marketing/register_result.html", {"ok": False, "error": "Пароль должен быть не короче 8 символов."}, status=400)
+    if password != password_confirm:
+        return render(request, "marketing/register_result.html", {"ok": False, "error": "Пароли не совпадают."}, status=400)
+    if User.objects.filter(email__iexact=email).exists():
+        return render(request, "marketing/register_result.html", {"ok": False, "error": "Пользователь с таким e-mail уже зарегистрирован."}, status=400)
+
+    token = get_random_string(48)
+    now_dt = timezone.now()
+    lead, _ = SignupLead.objects.update_or_create(
+        email=email,
+        defaults={
+            "full_name": full_name,
+            "password_hash": make_password(password),
+            "confirm_token": token,
+            "expires_at": now_dt + timedelta(hours=24),
+            "confirmed_at": None,
+        },
+    )
+    confirm_url = request.build_absolute_uri(reverse("signup_confirm", kwargs={"token": lead.confirm_token}))
+    mail_subject = "Подтвердите регистрацию в Vendra"
+    mail_body = (
+        f"{full_name}, здравствуйте!\n\n"
+        "Спасибо за регистрацию. Подтвердите e-mail, чтобы активировать бесплатный полный доступ на 3 дня:\n"
+        f"{confirm_url}\n\n"
+        "Ссылка действует 24 часа."
+    )
+    send_mail(mail_subject, mail_body, None, [email], fail_silently=False)
+    return render(request, "marketing/register_result.html", {"ok": True, "email": email}, status=200)
+
+
+def signup_confirm(request, token: str):
+    lead = SignupLead.objects.filter(confirm_token=token).first()
+    if not lead:
+        return render(request, "marketing/confirm_result.html", {"ok": False, "error": "Ссылка подтверждения недействительна."}, status=404)
+    if lead.confirmed_at is not None:
+        user = User.objects.filter(email__iexact=lead.email).first()
+        if user:
+            django_login(request, user)
+            get_or_create_subscription(user)
+        return render(request, "marketing/confirm_result.html", {"ok": True, "already_confirmed": True}, status=200)
+    if lead.expires_at and lead.expires_at < timezone.now():
+        return render(
+            request,
+            "marketing/confirm_result.html",
+            {"ok": False, "error": "Срок действия ссылки истек. Зарегистрируйтесь повторно."},
+            status=400,
+        )
+
+    username = _generate_unique_username_from_email(lead.email)
+    user = User.objects.create(
+        username=username,
+        email=lead.email,
+        first_name=(lead.full_name or "").strip()[:150],
+        password=lead.password_hash,
+    )
+    _get_or_create_seller_for_user(user)
+    get_or_create_subscription(user)
+    lead.confirmed_at = timezone.now()
+    lead.save(update_fields=["confirmed_at", "updated_at"])
+    django_login(request, user)
+    return render(request, "marketing/confirm_result.html", {"ok": True, "already_confirmed": False}, status=200)
+
+
+@login_required
+@require_POST
+def billing_init_payment_api(request):
+    plan_code = (request.POST.get("plan_code") or "").strip()
+    if plan_code not in PLAN_PRICES:
+        return JsonResponse({"ok": False, "error": "Некорректный тариф."}, status=400)
+    sub = get_or_create_subscription(request.user)
+    sub.plan_code = plan_code
+    sub.status = UserSubscription.STATUS_PAST_DUE
+    sub.save(update_fields=["plan_code", "status", "updated_at"])
+    return JsonResponse(
+        {
+            "ok": True,
+            "payment_url": reverse("pricing_page") + f"?payment_stub=1&plan={plan_code}",
+            "message": "Заглушка платежа создана. Интеграция с Т-Кассой будет добавлена позже.",
+        },
+        status=200,
+    )
+
+
+@login_required
+def billing_paywall(request):
+    return render(request, "marketing/paywall.html", _build_pricing_context(request.user))
+
+
 def home(request):
     if not request.user.is_authenticated:
-        return render(request, "home_landing.html")
+        return render(request, "marketing/promo_landing.html", _build_pricing_context())
 
     seller = _get_or_create_seller_for_user(request.user)
     _maybe_start_scheduled_sync_for_user(request.user, seller)
@@ -1540,6 +2113,7 @@ def home(request):
                 "revenue": data["revenue"],
             }
         )
+    reminder_groups = _apply_home_reminder_state(_get_home_reminders_snapshot(seller), seller)
 
     return render(
         request,
@@ -1561,8 +2135,33 @@ def home(request):
             "active_ads_count": active_ads_count,
             "daily_points_json": daily_points,
             "running_sync_task": running_sync_task_payload,
+            "reminder_groups": reminder_groups,
         },
     )
+
+
+@login_required
+@require_POST
+def home_reminder_action_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    reminder_id = (request.POST.get("reminder_id") or "").strip()
+    action = (request.POST.get("action") or "").strip().lower()
+    if not reminder_id:
+        return JsonResponse({"ok": False, "error": "reminder_id is required"}, status=400)
+    if action not in {"dismiss", "snooze"}:
+        return JsonResponse({"ok": False, "error": "unsupported action"}, status=400)
+
+    state = _get_home_reminders_state(seller)
+    timestamp = timezone.now().isoformat()
+    if action == "dismiss":
+        state.setdefault("dismissed", {})[reminder_id] = timestamp
+        state.setdefault("snoozed", {}).pop(reminder_id, None)
+    else:
+        state.setdefault("snoozed", {})[reminder_id] = timestamp
+        state.setdefault("dismissed", {}).pop(reminder_id, None)
+
+    _save_home_reminders_state(seller, state)
+    return JsonResponse({"ok": True, "reminder_id": reminder_id, "action": action}, status=200)
 
 
 @login_required
@@ -2006,6 +2605,7 @@ def account_settings(request):
         "account/settings.html",
         {
             "seller": seller,
+            "subscription": build_subscription_summary(get_or_create_subscription(request.user)),
             "saved": request.GET.get("saved") == "1",
             "auto_sync_enabled": bool(auto_sync_cfg.get("enabled", False)),
             "auto_sync_time": str(auto_sync_cfg.get("time") or "09:00"),

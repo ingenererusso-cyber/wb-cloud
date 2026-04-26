@@ -6,10 +6,57 @@ import uuid
 
 from django.conf import settings
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 
 
 logger = logging.getLogger("mp_saas")
+
+
+class TrialAccessMiddleware:
+    """
+    Мягкий контроль доступа по подписке и бесплатному полному доступу.
+    Если доступ истек, отправляем на страницу тарифов.
+    """
+
+    EXEMPT_PREFIXES = (
+        "/login/",
+        "/logout/",
+        "/admin/",
+        "/promo/",
+        "/pricing/",
+        "/account/settings/",
+        "/register/",
+        "/signup/",
+        "/billing/",
+        "/static/",
+        "/media/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated or user.is_superuser:
+            return self.get_response(request)
+
+        path = request.path or "/"
+        if path.startswith("/api/"):
+            return self.get_response(request)
+        if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
+            return self.get_response(request)
+
+        try:
+            from core.subscriptions import get_or_create_subscription, has_active_access
+
+            sub = get_or_create_subscription(user)
+            if has_active_access(sub):
+                return self.get_response(request)
+        except Exception:
+            logger.exception("TrialAccessMiddleware failed for user_id=%s", user.id)
+            return self.get_response(request)
+
+        return redirect(f"/pricing/?next={request.get_full_path()}")
 
 
 class ApiAuthRedirectMiddleware:

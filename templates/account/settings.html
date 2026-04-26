@@ -279,6 +279,19 @@
         </div>
         <p class="muted">Пользователь: {{ request.user.username }}</p>
 
+        {% if subscription %}
+        <div class="section-card">
+            <h2 class="section-title">Доступ и подписка</h2>
+            <p class="section-subtitle">
+                Статус: {{ subscription.status_label }} · План: {{ subscription.plan_label }}
+                {% if subscription.access_expires_at %}· Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}
+            </p>
+            <div class="actions">
+                <a class="btn btn-primary" href="{% url 'pricing_page' %}">Тарифы и продление</a>
+            </div>
+        </div>
+        {% endif %}
+
         {% if saved %}
             <div class="ok">API-ключ сохранён.</div>
         {% endif %}

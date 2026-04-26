@@ -1,0 +1,413 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendra — аналитика и контроль прибыли для продавцов Wildberries</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/vendra-landing.css' %}">
+</head>
+<body class="vl-page vl-page--sticky">
+<a class="vl-skip" href="#register">К форме регистрации</a>
+
+<header class="vl-header">
+    <div class="vl-header__inner">
+        <a class="vl-logo" href="{% url 'home' %}">
+            <span class="vl-logo__mark">V</span>
+            Vendra
+        </a>
+        <nav class="vl-nav" aria-label="Основное меню">
+            <a href="#possibilities">Возможности</a>
+            <a href="#for-who">Для кого</a>
+            <a href="#how-it-works">Как работает</a>
+            <a href="#pricing">Тарифы</a>
+        </nav>
+        <div class="vl-header__cta">
+            <a class="vl-btn vl-btn--secondary vl-btn--sm" href="{% url 'login' %}">Войти</a>
+            <a class="vl-btn vl-btn--primary vl-btn--cta vl-btn--sm" href="#register">3 дня бесплатно</a>
+        </div>
+    </div>
+</header>
+
+<main class="vl-wrap">
+    {# --- Hero --- #}
+    <section class="vl-hero" aria-labelledby="hero-title">
+        <div>
+            <p class="vl-eyebrow">Аналитика для селлеров WB</p>
+            <h1 id="hero-title" class="vl-h1">Vendra показывает, <span class="vl-h1-em">где селлер WB теряет прибыль</span></h1>
+            <p class="vl-lead vl-hero__lead">Сводим продажи, рекламу (ДРР), остатки и логистику в одну цепочку: видно, какой артикул, склад или кампания съедает маржу, пока в Excel ещё «всё в норме».</p>
+            <ul class="vl-hero__proof" aria-label="Ключевые факты">
+                <li><strong>3 дня</strong> бесплатного полного доступа</li>
+                <li><strong>API</strong> кабинета WB, не пароль</li>
+                <li><strong>ДРР + маржа</strong> в одной логике</li>
+            </ul>
+            <div class="vl-hero__ctas">
+                <a class="vl-btn vl-btn--primary vl-btn--cta vl-btn--lg" href="#register">Попробовать 3 дня бесплатно</a>
+                <a class="vl-btn vl-btn--secondary vl-btn--lg" href="#showcase">Как выглядит кабинет</a>
+            </div>
+            <p class="vl-micro">Первый срез: после синка данных, обычно <strong>часы</strong>, не недели. Долгой ручной настройки нет — нужен токен и учётка Vendra.</p>
+        </div>
+        <div class="vl-mock-hero vl-fade vl-fade--2" aria-hidden="true">
+            <div class="vl-mock-hero__bar">
+                <span>Кабинет · сегодня</span>
+                <div class="vl-mock-hero__dots"><span></span><span></span><span></span></div>
+            </div>
+            <div class="vl-mock-hero__body">
+                <div class="vl-kpi-row">
+                    <div class="vl-kpi">
+                        <div class="vl-kpi__label">Выручка</div>
+                        <div class="vl-kpi__value">2,4M ₽</div>
+                        <div class="vl-kpi__delta vl-kpi__delta--up">+12% за 7д</div>
+                    </div>
+                    <div class="vl-kpi">
+                        <div class="vl-kpi__label">Прибыль</div>
+                        <div class="vl-kpi__value">418K ₽</div>
+                        <div class="vl-kpi__delta vl-kpi__delta--down">−3% к плану</div>
+                    </div>
+                    <div class="vl-kpi">
+                        <div class="vl-kpi__label">ДРР</div>
+                        <div class="vl-kpi__value">14,2%</div>
+                        <div class="vl-kpi__delta vl-kpi__delta--up">норма</div>
+                    </div>
+                    <div class="vl-kpi">
+                        <div class="vl-kpi__label">Логистика</div>
+                        <div class="vl-kpi__value">+18%</div>
+                        <div class="vl-kpi__delta vl-kpi__delta--down">к прош. мес</div>
+                    </div>
+                </div>
+                <div class="vl-spark__label"><span>Выручка по дням</span></div>
+                <div class="vl-spark">
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </div>
+                <div class="vl-table-scroll">
+                <table class="vl-table-mini">
+                    <thead>
+                        <tr>
+                            <th>Товары под контролем</th>
+                            <th>Маржа</th>
+                            <th>ДРР</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Арт. 8821</td><td><span class="vl-pill">+22%</span></td><td>9%</td></tr>
+                        <tr><td>Арт. 4410</td><td>12%</td><td><span class="vl-trend vl-trend--bad">18%</span></td></tr>
+                        <tr><td>Арт. 3012</td><td>7%</td><td>11%</td></tr>
+                    </tbody>
+                </table>
+                </div>
+                <div class="vl-alert">
+                    <span class="vl-alert__icon">!</span>
+                    <span>Логистика по группе выросла на <strong>18%</strong> — проверьте остатки в Центральном и Сибири.</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {# --- Pain --- #}
+    <section class="vl-section" id="for-who" aria-labelledby="pain-title">
+        <span class="vl-section__kicker">Проблема</span>
+        <h2 id="pain-title" class="vl-h2 vl-h2--lg">Что обычно идёт не так у селлеров</h2>
+        <p class="vl-text-muted vl-section-intro">Оборот растёт, а на счёт приходит не больше: реклама, логистика и комиссии съедают маржу, а своды разъезжаются по 5–7 вкладкам Excel.</p>
+        <div class="vl-pain-grid">
+            <article class="vl-card">
+                <div class="vl-card__icon vl-card__icon--danger" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                </div>
+                <h3 class="vl-h3">Реклама ест маржу</h3>
+                <p class="vl-card__text">ДРР смотрят в кабинете рекламы, маржу — в отчётах. Непонятно, какой SKU в минусе, пока бюджет не сгорел.</p>
+                <span class="vl-pain-hint">Часто: высокий ДРР при марже &lt; 8% на артикул</span>
+            </article>
+            <article class="vl-card">
+                <div class="vl-card__icon vl-card__icon--warn" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                </div>
+                <h3 class="vl-h3">Остатки лежат не там</h3>
+                <p class="vl-card__text">Товар уезжает в один регион, а остатки — в другом. Лишняя логистика и потерянные продажи из-за out-of-stock.</p>
+                <span class="vl-pain-hint">Спрос в одном федеральном округе, склад — в другом</span>
+            </article>
+            <article class="vl-card">
+                <div class="vl-card__icon" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-6"/></svg>
+                </div>
+                <h3 class="vl-h3">Логистика дорожает незаметно</h3>
+                <p class="vl-card__text">Комиссии и доставка меняются по схеме и регионам. В сводной таблице легко не заметить, что юнит съёжился.</p>
+                <span class="vl-pain-hint">+10–20% к логистике легко «спрятать» в обороте</span>
+            </article>
+            <article class="vl-card">
+                <div class="vl-card__icon vl-card__icon--ok" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+                </div>
+                <h3 class="vl-h3">Решения — по ощущениям</h3>
+                <p class="vl-card__text">«Кажется, надо влить в рекламу» вместо цифр: что снижать, что дотачивать и где действительно резерв по марже.</p>
+                <span class="vl-pain-hint">Совещание по «ощущению» вместо сравнения артикулов</span>
+            </article>
+        </div>
+        <div class="vl-cta-strip">
+            <p>Посмотрите, где <strong>ваши</strong> деньги оседают в рекламе и логистике — на своих товарах, не на чужом демо.<small>Регистрация занимает пару минут, бесплатный полный доступ — 3 дня.</small></p>
+            <a class="vl-btn vl-btn--primary vl-btn--cta" href="#register">Попробовать 3 дня бесплатно</a>
+        </div>
+    </section>
+
+    {# --- Solution --- #}
+    <section class="vl-section" id="possibilities" aria-labelledby="sol-title">
+        <span class="vl-section__kicker">Решение</span>
+        <h2 id="sol-title" class="vl-h2 vl-h2--lg">Vendra собирает картину в одном кабинете</h2>
+        <p class="vl-text-muted vl-section-intro vl-section-intro--wide">Продажи, реклама, остатки и логистика сходятся в отчётах и сигналах — чтобы не копать десяток таблиц и не гадать по памяти.</p>
+        <div class="vl-sol-grid">
+            <article class="vl-card vl-sol-card">
+                <h3 class="vl-h3">Анализ продаж и маржи</h3>
+                <p class="vl-card__text">Выручка, выкупы, маржинальность по товарам и склейкам. Видно, что тянет P&amp;L вниз, а не только «топ по обороту».</p>
+                <div class="vl-mini-bars" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
+                <span class="vl-badge vl-sol__stack">Сводка</span>
+            </article>
+            <article class="vl-card vl-sol-card">
+                <h3 class="vl-h3">Контроль рекламы и ДРР</h3>
+                <p class="vl-card__text">Связка рекламных метрик с юнит-экономикой: где реклама отрабатывает и где съедает прибыль.</p>
+                <span class="vl-trend vl-sol__stack">ДРР 14% · цель 12%</span>
+                <div class="vl-sol__stack"><span class="vl-badge--up">Сигнал: снизить ставку в группе A</span></div>
+            </article>
+            <article class="vl-card vl-sol-card">
+                <h3 class="vl-h3">Остатки и склады</h3>
+                <p class="vl-card__text">FBO/FBS, зоны, риск заморозки капитала в «не той» точке. Меньше сюрпризов в поставках.</p>
+                <table class="vl-table-mini vl-table-mini--tight">
+                    <tr><td>Москва</td><td>хорошо</td></tr>
+                    <tr><td>Новосибирск</td><td class="vl-trend--bad">дефицит</td></tr>
+                </table>
+            </article>
+            <article class="vl-card vl-sol-card">
+                <h3 class="vl-h3">Подсказки по действиям</h3>
+                <p class="vl-card__text">Короткие приоритеты: что пересчитать, что остановить, куда сдвинуть остаток — вместо безконечного свода вручную.</p>
+                <div class="vl-alert vl-sol__alert--sm" role="note">
+                    <span class="vl-alert__icon">→</span>
+                    3 товара с высокой ценой логистики на единицу
+                </div>
+            </article>
+        </div>
+    </section>
+
+    {# --- Showcase --- #}
+    <section class="vl-section vl-fade" id="showcase" aria-labelledby="showcase-title">
+        <span class="vl-section__kicker">Интерфейс</span>
+        <h2 id="showcase-title" class="vl-h2 vl-h2--lg">Как выглядит работа в Vendra</h2>
+        <p class="vl-text-muted vl-section-intro--tight">Интерафейс-прототип: данные, график, таблица и рекомендация в одном экране — без тяжёлых картинок, всё на вёрстке.</p>
+        <div class="vl-showcase">
+            <div class="vl-showcase__head">
+                <span>vendra.app / обзор</span>
+                <span class="vl-showcase__sync">синк · 12 мин назад</span>
+            </div>
+            <div class="vl-showcase__layout">
+                <aside class="vl-showcase__side" aria-label="Меню">
+                    <a class="vl-showcase__link--active" href="#showcase">Обзор</a>
+                    <a href="#possibilities">Продажи</a>
+                    <a href="#possibilities">Реклама</a>
+                    <a href="#possibilities">Склад</a>
+                </aside>
+                <div class="vl-showcase__main">
+                    <div class="vl-showcase__toolbar">
+                        <div class="vl-fake-input" aria-hidden="true"></div>
+                        <span class="vl-badge vl-badge--in-dark">7 дней</span>
+                    </div>
+                    <div class="vl-showcase__grid">
+                        <div>
+                            <div class="vl-dark-chart">
+                                <svg viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true">
+                                    <defs>
+                                        <linearGradient id="vlg-landing" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stop-color="#22c55e" stop-opacity="0.4"/>
+                                            <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M0,75 L30,60 L55,70 L80,40 L110,50 L130,25 L160,35 L200,20 L200,100 L0,100 Z" fill="url(#vlg-landing)"/>
+                                    <path d="M0,75 L30,60 L55,70 L80,40 L110,50 L130,25 L160,35 L200,20" fill="none" stroke="#4ade80" stroke-width="2"/>
+                                </svg>
+                            </div>
+                            <div class="vl-insight" role="status">
+                                <strong>AI Insight</strong>
+                                Товар X продаётся в Сибири, а остатки лежат в Москве. Возможна переплата на логистике и срывы по сроку доставки. Рекомендация: перераспределить 15–20% остатка.
+                            </div>
+                        </div>
+                        <div>
+                            <div class="vl-rec-card">
+                                <h4>Рекомендации</h4>
+                                Снизить ДРР на арт. 4410 или перенести бюджет на арт. 8821 с лучшей маржой на выкуп.
+                            </div>
+                            <div class="vl-table-scroll vl-table-dark-wrap">
+                            <table class="vl-table-dark">
+                                <thead>
+                                    <tr><th>Артикул</th><th>Регион спроса</th><th>Остаток</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>X-102</td><td>Сибирь</td><td>Мск ▲</td></tr>
+                                    <tr><td>M-200</td><td>Центр</td><td>Ок</td></tr>
+                                </tbody>
+                            </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {# --- Benefits --- #}
+    <section class="vl-section" id="benefits" aria-labelledby="ben-title">
+        <span class="vl-section__kicker">Результат</span>
+        <h2 id="ben-title" class="vl-h2 vl-h2--lg">Что получает продавец</h2>
+        <div class="vl-benefits-grid">
+            <article class="vl-card">
+                <h3 class="vl-h3">Падающие товары по прибыли</h3>
+                <p class="vl-card__text">Не только лидеры по обороту, но и позиции, которые тянут маржу вниз — до того как сверка за месяц станет сюрпризом.</p>
+            </article>
+            <article class="vl-card">
+                <h3 class="vl-h3">Реклама в минусе</h3>
+                <p class="vl-card__text">Понятная связка ДРР с юнитом: где вливание в рекламу не окупается с учётом логистики и комиссий.</p>
+            </article>
+            <article class="vl-card">
+                <h3 class="vl-h3">Быстрее поставки и остатки</h3>
+                <p class="vl-card__text">Решения по переносу запасов и поставкам — на основе динамики спроса и «узких» регионов, а не чуйки.</p>
+            </article>
+            <article class="vl-card">
+                <h3 class="vl-h3">Контроль маржи, не только оборота</h3>
+                <p class="vl-card__text">Сводка, где выручка растёт, а чистая прибыль — нет: комиссии, логистика, скидки в одной логике.</p>
+            </article>
+            <article class="vl-card">
+                <h3 class="vl-h3">Меньше ручного Excel</h3>
+                <p class="vl-card__text">Своды и выгрузки перестают быть «болотом» из десятка файлов: данные в одной модели, меньше ночного копипаста.</p>
+            </article>
+            <article class="vl-card">
+                <h3 class="vl-h3">Понятные шаги</h3>
+                <p class="vl-card__text">Не абстрактные дашборды, а сигналы: что смотреть сегодня, что отключить и что перенести на другой артикул.</p>
+            </article>
+        </div>
+    </section>
+
+    {# --- How it works --- #}
+    <section class="vl-section" id="how-it-works" aria-labelledby="how-title">
+        <span class="vl-section__kicker">Процесс</span>
+        <h2 id="how-title" class="vl-h2 vl-h2--lg">Как это работает</h2>
+        <div class="vl-steps">
+            <div class="vl-step">
+                <div class="vl-step__n">1</div>
+                <h3 class="vl-h3">Подключаете кабинет WB</h3>
+                <p>Доступ по API, без ручных выгрузок каждую ночь. Vendra забирает структуру продаж, остатков и рекламы в разрешённых объёмах.</p>
+            </div>
+            <div class="vl-step">
+                <div class="vl-step__n">2</div>
+                <h3 class="vl-h3">Сбор и расчёты</h3>
+                <p>Сервис сопоставляет рекламу, комиссии, логистику и маржу по товарам — чтобы не сравнивать несопоставимое из разных отчётов.</p>
+            </div>
+            <div class="vl-step">
+                <div class="vl-step__n">3</div>
+                <h3 class="vl-h3">Отчёты и рекомендации</h3>
+                <p>Графики, таблицы, сигналы и сценарии: что срочно, что планово. Дальше — сами решаете, с каких позиций начать.</p>
+            </div>
+        </div>
+    </section>
+
+    {# --- Регистрация, бесплатный полный доступ --- #}
+    <section class="vl-section" id="register">
+        <div class="vl-access" id="signup">
+            <div class="vl-access__grid">
+                <div>
+                    <span class="vl-section__kicker">Старт</span>
+                    <h2 class="vl-h2 vl-h2--lg vl-access__title">Проверьте Vendra на своих данных за 3 дня</h2>
+                    <p class="vl-text-muted vl-access__lead">Подключите кабинет по API, посмотрите первые отчёты и решите, стоит ли сервис своих денег. Сценарий «оборот растёт — прибыль нет» раскладывается по товарам и расходам, а не по догадкам.</p>
+                    <a class="vl-btn vl-btn--primary vl-btn--cta vl-access__cta" href="#form-register">Попробовать 3 дня бесплатно</a>
+                </div>
+                <form id="form-register" class="vl-form" method="post" action="{% url 'register_trial' %}">
+                    {% csrf_token %}
+                    <p class="vl-h3 vl-form__title">Регистрация</p>
+                    <label for="full_name">Имя</label>
+                    <input id="full_name" name="full_name" type="text" required autocomplete="name">
+                    <label for="email">E-mail</label>
+                    <input id="email" name="email" type="email" required autocomplete="email">
+                    <label for="password">Пароль</label>
+                    <input id="password" name="password" type="password" minlength="8" required autocomplete="new-password">
+                    <label for="password_confirm">Повторите пароль</label>
+                    <input id="password_confirm" name="password_confirm" type="password" minlength="8" required autocomplete="new-password">
+                    <button class="vl-btn vl-btn--primary vl-btn--cta vl-btn--block vl-form__submit" type="submit">Начать бесплатно</button>
+                    <p class="vl-micro vl-micro--legal">3 дня бесплатно. Без лишних созвонов. Можно отключиться. Нажимая кнопку, вы соглашаетесь на обработку персональных данных и с правилами использования сервиса.</p>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    {# --- Pricing --- #}
+    <section class="vl-section" id="pricing" aria-labelledby="price-title">
+        <span class="vl-section__kicker">Стоимость</span>
+        <h2 id="price-title" class="vl-h2 vl-h2--lg">Тарифы</h2>
+        <p class="vl-text-muted vl-section-intro--tight">Оплата — после окончания бесплатного полного доступа. Сейчас тестовый запуск, списаний с карты нет. <a class="vl-text-link" href="{% url 'pricing_page' %}">Полные условия</a> на отдельной странице.</p>
+        <div class="vl-pricing-grid vl-pricing-grid--align">
+            {% for plan in plans %}
+            <div class="vl-plan {% if plan.code == 'month_6' %}vl-plan--rec{% endif %}">
+                {% if plan.code == 'month_6' %}
+                <span class="vl-plan__badge">Рекомендуем</span>
+                {% endif %}
+                <p class="vl-plan__name">{{ plan.label }}</p>
+                <p class="vl-plan__price">{{ plan.price_total|floatformat:0 }} ₽</p>
+                <p class="vl-plan__per">≈ {{ plan.price_monthly|floatformat:0 }} ₽ / мес при оплате периодом</p>
+                <ul>
+                    <li>Доступ к аналитике продаж и отчётам</li>
+                    <li>Реклама, склейки, юнит-экономика</li>
+                    <li>Остатки и сигналы по логистике</li>
+                    {% if plan.code == 'month_1' %}
+                    <li>Для старта и оценки сервиса</li>
+                    {% elif plan.code == 'month_6' %}
+                    <li>Баланс срока и скидки</li>
+                    {% else %}
+                    <li>Минимальная цена за месяц на длинном горизонте</li>
+                    {% endif %}
+                </ul>
+                <a class="vl-btn vl-btn--primary vl-btn--cta vl-btn--block" href="#register">Попробовать 3 дня бесплатно</a>
+            </div>
+            {% empty %}
+            <div class="vl-plan vl-plan--empty vl-pricing__empty">Тарифы временно недоступны. Пишите в поддержку.</div>
+            {% endfor %}
+        </div>
+    </section>
+
+    {# --- FAQ --- #}
+    <section class="vl-section" id="faq" aria-labelledby="faq-title">
+        <span class="vl-section__kicker vl-kicker--center">FAQ</span>
+        <h2 id="faq-title" class="vl-h2 vl-h2--lg vl-h2--center">Вопросы</h2>
+        <div class="vl-faq">
+            <details>
+                <summary>Нужно ли передавать пароль от кабинета WB?</summary>
+                <p>Нет. Подключение идёт через официальный API и токен доступа. Пароль от личного кабинета нигде не храним и не просим вводить в форме Vendra.</p>
+            </details>
+            <details>
+                <summary>Сколько времени занимает подключение?</summary>
+                <p>Регистрация и привязка токена обычно укладываются в часы, не дни. Первые агрегированные срезы появляются после успешного импорта и синхронизации данных.</p>
+            </details>
+            <details>
+                <summary>Подойдёт ли начинающему продавцу?</summary>
+                <p>Сервис ориентирован на тех, у кого уже есть оборот и реклама: иначе не из чего собрать смысловую картину по марже и остаткам. С совсем нулевой историей ценность ниже, чем у растущего кабинета.</p>
+            </details>
+            <details>
+                <summary>Что Vendra покажет в первые дни?</summary>
+                <p>Срез продаж, зацепки по рекламе и остаткам, зависят от полноты выгруженных данных. За 3 дня бесплатного полного доступа обычно хватает, чтобы оценить удобство и полезность отчётов.</p>
+            </details>
+            <details>
+                <summary>Можно ли отменить подписку?</summary>
+                <p>Да. В тестовом режиме нет жёсткой автопродления вне согласованного сценария. Условия отмены и продления смотрите на странице тарифов и в настройках аккаунта.</p>
+            </details>
+        </div>
+    </section>
+
+    {# --- Final CTA --- #}
+    <section class="vl-section" aria-labelledby="final-title">
+        <div class="vl-final">
+            <h2 id="final-title" class="vl-h2 vl-final__title">Начните с 3 дней бесплатно</h2>
+            <p class="vl-text-muted vl-final__lead">Сведите «оборот растёт, а прибыли нет» к конкретным товарам, кампаниям и складам — до закрытия месяца.</p>
+            <a class="vl-btn vl-btn--primary vl-btn--cta vl-btn--lg" href="#register">Зарегистрироваться</a>
+        </div>
+    </section>
+</main>
+<div class="vl-sticky-cta" role="complementary" aria-label="Пробный период">
+    <a href="#register">Попробовать 3 дня бесплатно</a>
+</div>
+</body>
+</html>

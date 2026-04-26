@@ -618,6 +618,64 @@ class SupportThreadParticipantState(models.Model):
         ]
 
 
+class SignupLead(models.Model):
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=255)
+    password_hash = models.CharField(max_length=255)
+    confirm_token = models.CharField(max_length=128, unique=True)
+    expires_at = models.DateTimeField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["email", "confirmed_at"]),
+            models.Index(fields=["confirm_token"]),
+        ]
+
+
+class UserSubscription(models.Model):
+    PLAN_MONTH_1 = "month_1"
+    PLAN_MONTH_6 = "month_6"
+    PLAN_MONTH_12 = "month_12"
+    PLAN_CHOICES = [
+        (PLAN_MONTH_1, "1 месяц"),
+        (PLAN_MONTH_6, "6 месяцев"),
+        (PLAN_MONTH_12, "12 месяцев"),
+    ]
+
+    STATUS_TRIAL = "trial"
+    STATUS_ACTIVE = "active"
+    STATUS_PAST_DUE = "past_due"
+    STATUS_EXPIRED = "expired"
+    STATUS_CANCELED = "canceled"
+    STATUS_CHOICES = [
+        (STATUS_TRIAL, "Бесплатный полный доступ"),
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_PAST_DUE, "Past due"),
+        (STATUS_EXPIRED, "Expired"),
+        (STATUS_CANCELED, "Canceled"),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="subscription")
+    plan_code = models.CharField(max_length=20, choices=PLAN_CHOICES, default=PLAN_MONTH_1)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_TRIAL)
+    trial_started_at = models.DateTimeField(null=True, blank=True)
+    trial_ends_at = models.DateTimeField(null=True, blank=True)
+    paid_from = models.DateTimeField(null=True, blank=True)
+    paid_to = models.DateTimeField(null=True, blank=True)
+    access_expires_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "access_expires_at"]),
+            models.Index(fields=["plan_code"]),
+        ]
+
+
 class AppErrorLog(models.Model):
     LEVEL_ERROR = "error"
     LEVEL_WARNING = "warning"

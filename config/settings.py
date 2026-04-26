@@ -55,6 +55,7 @@ MIDDLEWARE = [
     'core.middleware.GlobalExceptionCaptureMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.TrialAccessMiddleware',
     'core.middleware.ApiAuthRedirectMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -185,3 +186,6 @@ LOGGING = {
         },
     },
 }
+
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@vendra.local")
