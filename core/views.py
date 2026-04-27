@@ -1968,7 +1968,7 @@ def signup_confirm(request, token: str):
     if lead.confirmed_at is not None:
         user = User.objects.filter(email__iexact=lead.email).first()
         if user:
-            django_login(request, user)
+            django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             get_or_create_subscription(user)
         return render(request, "marketing/confirm_result.html", {"ok": True, "already_confirmed": True}, status=200)
     if lead.expires_at and lead.expires_at < timezone.now():
@@ -1979,18 +1979,24 @@ def signup_confirm(request, token: str):
             status=400,
         )
 
-    username = _generate_unique_username_from_email(lead.email)
-    user = User.objects.create(
-        username=username,
-        email=lead.email,
-        first_name=(lead.full_name or "").strip()[:150],
-        password=lead.password_hash,
-    )
+    user = User.objects.filter(email__iexact=lead.email).first()
+    if not user:
+        username = _generate_unique_username_from_email(lead.email)
+        user = User.objects.create(
+            username=username,
+            email=lead.email,
+            first_name=(lead.full_name or "").strip()[:150],
+            password=lead.password_hash,
+        )
+    elif lead.password_hash and not user.password:
+        user.password = lead.password_hash
+        user.save(update_fields=["password"])
+
     _get_or_create_seller_for_user(user)
     get_or_create_subscription(user)
     lead.confirmed_at = timezone.now()
     lead.save(update_fields=["confirmed_at", "updated_at"])
-    django_login(request, user)
+    django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     return render(request, "marketing/confirm_result.html", {"ok": True, "already_confirmed": False}, status=200)
 
 
