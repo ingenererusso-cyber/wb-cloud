@@ -22,7 +22,7 @@ from django.db.models import Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate, TruncHour
-from django.db import OperationalError, close_old_connections
+from django.db import OperationalError, ProgrammingError, close_old_connections
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -2606,12 +2606,18 @@ def account_settings(request):
         messages.info(request, "API-ключ не изменён.")
         return redirect(reverse("account_settings"))
 
+    try:
+        subscription_summary = build_subscription_summary(get_or_create_subscription(request.user))
+    except (OperationalError, ProgrammingError):
+        # Keep settings page usable when subscription schema is not migrated yet.
+        subscription_summary = None
+
     return render(
         request,
         "account/settings.html",
         {
             "seller": seller,
-            "subscription": build_subscription_summary(get_or_create_subscription(request.user)),
+            "subscription": subscription_summary,
             "saved": request.GET.get("saved") == "1",
             "auto_sync_enabled": bool(auto_sync_cfg.get("enabled", False)),
             "auto_sync_time": str(auto_sync_cfg.get("time") or "09:00"),
