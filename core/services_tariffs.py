@@ -206,8 +206,11 @@ def sync_acceptance_coefficients(
     """
     client = WBCommonClient(seller.api_token_plain)
     rows = client.get_acceptance_coefficients(warehouse_ids=warehouse_ids)
+    prepared_rows: list[dict[str, Any]] = []
+    coeff_dates: set[date] = set()
+    warehouse_ids_set: set[int] = set()
+    box_type_ids_set: set[int] = set()
 
-    synced = 0
     for row in rows:
         row_date_raw = row.get("date")
         warehouse_id = row.get("warehouseID")
@@ -221,12 +224,18 @@ def sync_acceptance_coefficients(
         except ValueError:
             continue
 
-        WbAcceptanceCoefficient.objects.update_or_create(
-            seller=seller,
-            coeff_date=coeff_date,
-            warehouse_id=int(warehouse_id),
-            box_type_id=box_type_id,
-            defaults={
+        warehouse_id_int = int(warehouse_id)
+        box_type_id_int = int(box_type_id) if box_type_id is not None else None
+        coeff_dates.add(coeff_date)
+        warehouse_ids_set.add(warehouse_id_int)
+        if box_type_id_int is not None:
+            box_type_ids_set.add(box_type_id_int)
+
+        prepared_rows.append(
+            {
+                "coeff_date": coeff_date,
+                "warehouse_id": warehouse_id_int,
+                "box_type_id": box_type_id_int,
                 "warehouse_name": _normalize_text(row.get("warehouseName")) or None,
                 "coefficient": _to_float(row.get("coefficient")),
                 "allow_unload": bool(row.get("allowUnload")),
@@ -238,8 +247,75 @@ def sync_acceptance_coefficients(
                 "storage_base_liter": _to_float(row.get("storageBaseLiter")),
                 "storage_additional_liter": _to_float(row.get("storageAdditionalLiter")),
                 "raw_payload": row,
-            },
+            }
         )
-        synced += 1
 
-    return synced
+    if not prepared_rows:
+        return 0
+
+    existing_qs = WbAcceptanceCoefficient.objects.filter(
+        seller=seller,
+        coeff_date__in=list(coeff_dates),
+        warehouse_id__in=list(warehouse_ids_set),
+    )
+    if box_type_ids_set:
+        existing_qs = existing_qs.filter(box_type_id__in=list(box_type_ids_set) + [None])
+    else:
+        existing_qs = existing_qs.filter(box_type_id__isnull=True)
+
+    existing_map = {
+        (row.coeff_date, row.warehouse_id, row.box_type_id): row
+        for row in existing_qs
+    }
+
+    to_create: list[WbAcceptanceCoefficient] = []
+    to_update: list[WbAcceptanceCoefficient] = []
+    update_fields = [
+        "warehouse_name",
+        "coefficient",
+        "allow_unload",
+        "is_sorting_center",
+        "storage_coef",
+        "delivery_coef",
+        "delivery_base_liter",
+        "delivery_additional_liter",
+        "storage_base_liter",
+        "storage_additional_liter",
+        "raw_payload",
+    ]
+
+    for payload in prepared_rows:
+        key = (payload["coeff_date"], payload["warehouse_id"], payload["box_type_id"])
+        existing = existing_map.get(key)
+        if existing is None:
+            to_create.append(
+                WbAcceptanceCoefficient(
+                    seller=seller,
+                    coeff_date=payload["coeff_date"],
+                    warehouse_id=payload["warehouse_id"],
+                    box_type_id=payload["box_type_id"],
+                    warehouse_name=payload["warehouse_name"],
+                    coefficient=payload["coefficient"],
+                    allow_unload=payload["allow_unload"],
+                    is_sorting_center=payload["is_sorting_center"],
+                    storage_coef=payload["storage_coef"],
+                    delivery_coef=payload["delivery_coef"],
+                    delivery_base_liter=payload["delivery_base_liter"],
+                    delivery_additional_liter=payload["delivery_additional_liter"],
+                    storage_base_liter=payload["storage_base_liter"],
+                    storage_additional_liter=payload["storage_additional_liter"],
+                    raw_payload=payload["raw_payload"],
+                )
+            )
+            continue
+
+        for field_name in update_fields:
+            setattr(existing, field_name, payload[field_name])
+        to_update.append(existing)
+
+    if to_create:
+        WbAcceptanceCoefficient.objects.bulk_create(to_create, batch_size=500)
+    if to_update:
+        WbAcceptanceCoefficient.objects.bulk_update(to_update, update_fields, batch_size=500)
+
+    return len(prepared_rows)

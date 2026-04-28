@@ -29,6 +29,7 @@ def get_dashboard_supply_recommendations(
     transit_warehouse: str | None = None,
     main_warehouse: str | None = None,
     include_food: bool = False,
+    only_with_fbs_stock: bool = False,
     base_logistics_per_order: float | None = None,
     penalty_factor: float = 1.0,
 ) -> dict:
@@ -37,7 +38,12 @@ def get_dashboard_supply_recommendations(
 
     Loads source data, builds recommendations and returns serialized payload.
     """
-    order_aggregates = load_order_aggregates(date_from=date_from, date_to=date_to, seller=seller)
+    order_aggregates = load_order_aggregates(
+        date_from=date_from,
+        date_to=date_to,
+        seller=seller,
+        only_with_fbs_stock=only_with_fbs_stock,
+    )
     if not order_aggregates:
         return serialize_recommendations_for_dashboard([])
 
@@ -193,6 +199,7 @@ def get_dashboard_supply_recommendations(
     payload["summary"]["selected_transit_warehouse"] = transit_warehouse or ""
     payload["summary"]["selected_main_warehouse"] = selected_main_warehouse or ""
     payload["summary"]["include_food"] = bool(include_food)
+    payload["summary"]["only_with_fbs_stock"] = bool(only_with_fbs_stock)
     payload["summary"]["available_transit_warehouses"] = list_available_transit_warehouses(seller=seller)
     payload["summary"]["available_main_warehouses"] = list_regular_warehouses(seller=seller)
     payload["summary"]["base_logistics_per_order"] = round(effective_base_logistics, 2)

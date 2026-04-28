@@ -28,6 +28,8 @@ from core.models import SellerAccount
 from core.models import WbWarehouseTariff
 from wb_api.client import WBFinanceReportsClient
 
+SQL_IN_CHUNK_SIZE = 10_000
+
 
 def _to_float(value):
     if value is None:
@@ -104,6 +106,41 @@ def _is_return_row(row: dict) -> bool:
     )
 
 
+def _build_realization_defaults(row: dict) -> dict:
+    return {
+        "realizationreport_id": _to_int(_row_get(row, "realizationreport_id", "realizationReportId")),
+        "date_from": _to_date(_row_get(row, "date_from", "dateFrom")),
+        "date_to": _to_date(_row_get(row, "date_to", "dateTo")),
+        "create_dt": _to_date(_row_get(row, "create_dt", "createDt", "createDate")),
+        "srid": _normalize(_row_get(row, "srid")) or None,
+        "nm_id": _to_int(_row_get(row, "nm_id", "nmId")),
+        "sa_name": _normalize(_row_get(row, "sa_name", "vendorCode")) or None,
+        "office_name": _normalize(_row_get(row, "office_name", "warehouseName", "officeName")) or None,
+        "site_country": _normalize(_row_get(row, "site_country", "countryName", "country")) or None,
+        "bonus_type_name": _normalize(_row_get(row, "bonus_type_name", "bonusTypeName")) or None,
+        "supplier_oper_name": _normalize(_row_get(row, "supplier_oper_name", "supplierOperName", "sellerOperName")) or None,
+        "doc_type_name": _normalize(_row_get(row, "doc_type_name", "docTypeName")) or None,
+        "order_dt": _to_datetime(_row_get(row, "order_dt", "orderDt")),
+        "sale_dt": _to_datetime(_row_get(row, "sale_dt", "saleDt")),
+        "rr_dt": _to_date(_row_get(row, "rr_dt", "rrDt", "rrDate")),
+        "fix_tariff_date_from": _to_date(_row_get(row, "fix_tariff_date_from", "fixTariffDateFrom")),
+        "fix_tariff_date_to": _to_date(_row_get(row, "fix_tariff_date_to", "fixTariffDateTo")),
+        "quantity": _to_int(_row_get(row, "quantity")),
+        "delivery_rub": _to_float(_row_get(row, "delivery_rub", "deliveryRub", "deliveryService")),
+        "dlv_prc": _to_float(_row_get(row, "dlv_prc", "deliveryCoef")),
+        "storage_fee": _to_float(_row_get(row, "storage_fee", "storageFee", "paidStorage")),
+        "deduction": _to_float(_row_get(row, "deduction")),
+        "acceptance": _to_float(_row_get(row, "acceptance", "paidAcceptance")),
+        "rebill_logistic_cost": _to_float(_row_get(row, "rebill_logistic_cost", "rebillLogisticCost")),
+        "raw_payload": row,
+    }
+
+
+def _iter_chunks(items: list, size: int):
+    for idx in range(0, len(items), size):
+        yield items[idx: idx + size]
+
+
 def sync_realization_report_detail(
     seller: SellerAccount,
     date_from: date,
@@ -128,6 +165,33 @@ def sync_realization_report_detail(
     pages = 0
     rrdid = 0
     return_srids: set[str] = set()
+    update_fields = [
+        "realizationreport_id",
+        "date_from",
+        "date_to",
+        "create_dt",
+        "srid",
+        "nm_id",
+        "sa_name",
+        "office_name",
+        "site_country",
+        "bonus_type_name",
+        "supplier_oper_name",
+        "doc_type_name",
+        "order_dt",
+        "sale_dt",
+        "rr_dt",
+        "fix_tariff_date_from",
+        "fix_tariff_date_to",
+        "quantity",
+        "delivery_rub",
+        "dlv_prc",
+        "storage_fee",
+        "deduction",
+        "acceptance",
+        "rebill_logistic_cost",
+        "raw_payload",
+    ]
 
     while True:
         status, rows = client.get_report_detail_by_period(
@@ -141,6 +205,7 @@ def sync_realization_report_detail(
             break
 
         pages += 1
+        page_items: list[tuple[int, dict]] = []
         for row in rows:
             rrd_id = _to_int(_row_get(row, "rrd_id", "rrdId"))
             if rrd_id is None:
@@ -150,38 +215,40 @@ def sync_realization_report_detail(
             if row_srid and _is_return_row(row):
                 return_srids.add(row_srid)
 
-            RealizationReportDetail.objects.update_or_create(
-                seller=seller,
-                rrd_id=rrd_id,
-                defaults={
-                    "realizationreport_id": _to_int(_row_get(row, "realizationreport_id", "realizationReportId")),
-                    "date_from": _to_date(_row_get(row, "date_from", "dateFrom")),
-                    "date_to": _to_date(_row_get(row, "date_to", "dateTo")),
-                    "create_dt": _to_date(_row_get(row, "create_dt", "createDt", "createDate")),
-                    "srid": _normalize(_row_get(row, "srid")) or None,
-                    "nm_id": _to_int(_row_get(row, "nm_id", "nmId")),
-                    "sa_name": _normalize(_row_get(row, "sa_name", "vendorCode")) or None,
-                    "office_name": _normalize(_row_get(row, "office_name", "warehouseName", "officeName")) or None,
-                    "site_country": _normalize(_row_get(row, "site_country", "countryName", "country")) or None,
-                    "bonus_type_name": _normalize(_row_get(row, "bonus_type_name", "bonusTypeName")) or None,
-                    "supplier_oper_name": _normalize(_row_get(row, "supplier_oper_name", "supplierOperName", "sellerOperName")) or None,
-                    "doc_type_name": _normalize(_row_get(row, "doc_type_name", "docTypeName")) or None,
-                    "order_dt": _to_datetime(_row_get(row, "order_dt", "orderDt")),
-                    "sale_dt": _to_datetime(_row_get(row, "sale_dt", "saleDt")),
-                    "rr_dt": _to_date(_row_get(row, "rr_dt", "rrDt", "rrDate")),
-                    "fix_tariff_date_from": _to_date(_row_get(row, "fix_tariff_date_from", "fixTariffDateFrom")),
-                    "fix_tariff_date_to": _to_date(_row_get(row, "fix_tariff_date_to", "fixTariffDateTo")),
-                    "quantity": _to_int(_row_get(row, "quantity")),
-                    "delivery_rub": _to_float(_row_get(row, "delivery_rub", "deliveryRub", "deliveryService")),
-                    "dlv_prc": _to_float(_row_get(row, "dlv_prc", "deliveryCoef")),
-                    "storage_fee": _to_float(_row_get(row, "storage_fee", "storageFee", "paidStorage")),
-                    "deduction": _to_float(_row_get(row, "deduction")),
-                    "acceptance": _to_float(_row_get(row, "acceptance", "paidAcceptance")),
-                    "rebill_logistic_cost": _to_float(_row_get(row, "rebill_logistic_cost", "rebillLogisticCost")),
-                    "raw_payload": row,
-                },
-            )
-            total_upserted += 1
+            page_items.append((rrd_id, _build_realization_defaults(row)))
+
+        if page_items:
+            page_rrd_ids = [item[0] for item in page_items]
+            existing_map: dict[int, RealizationReportDetail] = {}
+            for rrd_chunk in _iter_chunks(page_rrd_ids, SQL_IN_CHUNK_SIZE):
+                for item in RealizationReportDetail.objects.filter(
+                    seller=seller,
+                    rrd_id__in=rrd_chunk,
+                ):
+                    existing_map[item.rrd_id] = item
+            to_create: list[RealizationReportDetail] = []
+            to_update: list[RealizationReportDetail] = []
+            for row_rrd_id, defaults in page_items:
+                existing = existing_map.get(row_rrd_id)
+                if existing is None:
+                    to_create.append(
+                        RealizationReportDetail(
+                            seller=seller,
+                            rrd_id=row_rrd_id,
+                            **defaults,
+                        )
+                    )
+                    continue
+                for field_name, field_value in defaults.items():
+                    setattr(existing, field_name, field_value)
+                to_update.append(existing)
+
+            if to_create:
+                RealizationReportDetail.objects.bulk_create(to_create, batch_size=2000)
+            if to_update:
+                RealizationReportDetail.objects.bulk_update(to_update, update_fields, batch_size=2000)
+
+            total_upserted += len(page_items)
 
         last_rrd_id = _to_int(_row_get(rows[-1], "rrd_id", "rrdId"))
         if last_rrd_id is None or len(rows) < limit:
@@ -193,10 +260,12 @@ def sync_realization_report_detail(
             sleep(61)
 
     if return_srids:
-        Order.objects.filter(
-            seller=seller,
-            srid__in=list(return_srids),
-        ).update(is_return=True, is_buyout=False)
+        return_srid_list = list(return_srids)
+        for srid_chunk in _iter_chunks(return_srid_list, SQL_IN_CHUNK_SIZE):
+            Order.objects.filter(
+                seller=seller,
+                srid__in=srid_chunk,
+            ).update(is_return=True, is_buyout=False)
 
     return {
         "pages": pages,

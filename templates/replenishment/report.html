@@ -96,6 +96,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
             padding: 10px 12px;
         }
 
@@ -111,6 +112,89 @@
             background: #fff;
             color: var(--text);
             font-size: 14px;
+            cursor: pointer;
+        }
+
+        .hint-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 1px solid #c8d0da;
+            color: #6b7786;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: help;
+            vertical-align: middle;
+            background: #fff;
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toggle-caption {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 30px;
+            flex: 0 0 auto;
+        }
+
+        .toggle-switch input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            border-radius: 999px;
+            background: #d8e1e8;
+            transition: background .18s ease;
+        }
+
+        .toggle-slider::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+            transition: transform .18s ease;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--primary);
+        }
+
+        .toggle-switch input:checked + .toggle-slider::after {
+            transform: translateX(20px);
+        }
+
+        .toggle-text {
+            font-size: 14px;
+            color: var(--text);
+            font-weight: 600;
+            line-height: 1.3;
             cursor: pointer;
         }
 
@@ -158,6 +242,42 @@
             font-size: 14px;
         }
 
+        .group-row {
+            cursor: pointer;
+        }
+
+        .group-row:hover td {
+            background: #bff6ea;
+        }
+
+        .group-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .group-caret {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.12);
+            color: #0f766e;
+            font-size: 11px;
+            line-height: 1;
+            transition: transform .16s ease;
+        }
+
+        .group-row[data-collapsed="true"] .group-caret {
+            transform: rotate(-90deg);
+        }
+
+        .group-child-row[hidden] {
+            display: none;
+        }
+
         .to-ship {
             font-weight: 700;
         }
@@ -181,6 +301,23 @@
             font-size: 13px;
         }
 
+        .state-box {
+            margin-top: 12px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.88);
+            box-shadow: var(--shadow);
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .state-box-error {
+            border-color: #fecaca;
+            background: #fff5f5;
+            color: #991b1b;
+        }
+
     </style>
     {% include "partials/top_nav_css.html" %}
 </head>
@@ -198,6 +335,17 @@
                         <option value="nm_id">По артикулам</option>
                         <option value="supplier_article">По артикулу продавца</option>
                     </select>
+                    <div class="toggle-row">
+                        <div class="toggle-caption">
+                            <span>Фильтр остатков</span>
+                            <span class="hint-icon" title="В расчёт попадут только товары с положительным FBS-остатком на ваших складах. Товары без наличия будут исключены из пополнения." aria-label="Подсказка">?</span>
+                        </div>
+                        <label class="toggle-switch" for="onlyWithFbsStock">
+                            <input id="onlyWithFbsStock" type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <label class="toggle-text" for="onlyWithFbsStock">Учитывать только FBS остатки</label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -206,7 +354,11 @@
             <div class="status">Для этого пользователя ещё не назначен кабинет продавца, поэтому отчёт пустой.</div>
         {% endif %}
 
-        <div class="table-wrap">
+        <div id="loadingState" class="state-box" hidden>Пересчитываем пополнение...</div>
+        <div id="errorState" class="state-box state-box-error" hidden></div>
+        <div id="emptyState" class="state-box" hidden>Нет позиций к пополнению. Проверьте синхронизацию и выбранные фильтры.</div>
+
+        <div id="tableWrap" class="table-wrap" hidden>
             <table>
                 <thead>
                     <tr>
@@ -214,7 +366,8 @@
                         <th>Артикул продавца</th>
                         <th>Регион</th>
                         <th class="align-right">Прогноз заказов на 30д</th>
-                        <th class="align-right">Текущий остаток</th>
+                        <th class="align-right">Текущий остаток FBO</th>
+                        <th class="align-right">Общий остаток FBS</th>
                         <th class="align-right">Нужно отгрузить</th>
                     </tr>
                 </thead>
@@ -224,16 +377,33 @@
         <div class="summary" id="summaryText"></div>
     </div>
 
-    {{ rows|json_script:"report-data" }}
-
     <script>
-        const reportData = JSON.parse(document.getElementById("report-data").textContent || "[]");
         const reportBody = document.getElementById("reportBody");
         const groupBySelect = document.getElementById("groupBy");
         const summaryText = document.getElementById("summaryText");
+        const onlyWithFbsStockEl = document.getElementById("onlyWithFbsStock");
+        const tableWrapEl = document.getElementById("tableWrap");
+        const loadingStateEl = document.getElementById("loadingState");
+        const errorStateEl = document.getElementById("errorState");
+        const emptyStateEl = document.getElementById("emptyState");
+        const currentUrlParams = new URLSearchParams(window.location.search);
+        let reportData = [];
+        const collapsedGroups = new Set();
+
+        groupBySelect.value = currentUrlParams.get("group_by") || groupBySelect.value;
+        onlyWithFbsStockEl.checked = currentUrlParams.get("only_with_fbs_stock") === "1";
 
         function safeText(value) {
             return value === null || value === undefined || value === "" ? "Не указан" : String(value);
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
         }
 
         function toNumber(value) {
@@ -243,6 +413,10 @@
 
         function formatNum(value) {
             return new Intl.NumberFormat("ru-RU").format(toNumber(value));
+        }
+
+        function buildGroupKey(mode, groupName) {
+            return encodeURIComponent(`${mode}::${groupName}`);
         }
 
         function renderDataRows(items) {
@@ -263,11 +437,12 @@
                 })
                 .map((row) => `
                     <tr>
-                        <td>${safeText(row.nm_id)}</td>
-                        <td>${safeText(row.supplier_article)}</td>
-                        <td>${safeText(row.region)}</td>
+                        <td>${escapeHtml(safeText(row.nm_id))}</td>
+                        <td>${escapeHtml(safeText(row.supplier_article))}</td>
+                        <td>${escapeHtml(safeText(row.region))}</td>
                         <td class="align-right">${formatNum(row.forecast_30_days)}</td>
                         <td class="align-right">${formatNum(row.current_stock)}</td>
+                        <td class="align-right">${formatNum(row.current_fbs_stock)}</td>
                         <td class="align-right">
                             <span class="to-ship ${toNumber(row.to_ship) > 0 ? "positive" : ""}">
                                 ${formatNum(row.to_ship)}
@@ -292,8 +467,11 @@
                 .sort((a, b) => a.localeCompare(b, "ru", { numeric: true }))
                 .map((groupName) => {
                     const groupItems = groups[groupName];
+                    const groupKey = buildGroupKey(key, groupName);
+                    const isCollapsed = collapsedGroups.has(groupKey);
                     const totalForecast = groupItems.reduce((sum, row) => sum + toNumber(row.forecast_30_days), 0);
                     const totalStock = groupItems.reduce((sum, row) => sum + toNumber(row.current_stock), 0);
+                    const totalFbsStock = groupItems.reduce((sum, row) => sum + toNumber(row.current_fbs_stock), 0);
                     const totalToShip = groupItems.reduce((sum, row) => sum + toNumber(row.to_ship), 0);
                     const labelMap = {
                         region: "Регион",
@@ -303,34 +481,171 @@
                     const label = labelMap[key] || key;
 
                     return `
-                        <tr class="group-row">
-                            <td colspan="3">${label}: ${groupName} (${groupItems.length})</td>
+                        <tr class="group-row" data-group-key="${groupKey}" data-collapsed="${isCollapsed ? "true" : "false"}">
+                            <td colspan="3">
+                                <span class="group-label">
+                                    <span class="group-caret">▾</span>
+                                    <span>${escapeHtml(label)}: ${escapeHtml(groupName)} (${groupItems.length})</span>
+                                </span>
+                            </td>
                             <td class="align-right">${formatNum(totalForecast)}</td>
                             <td class="align-right">${formatNum(totalStock)}</td>
+                            <td class="align-right">${formatNum(totalFbsStock)}</td>
                             <td class="align-right">${formatNum(totalToShip)}</td>
                         </tr>
-                        ${renderDataRows(groupItems)}
+                        ${groupItems.map((row) => `
+                            <tr class="group-child-row" data-group-key="${groupKey}" ${isCollapsed ? "hidden" : ""}>
+                                <td>${escapeHtml(safeText(row.nm_id))}</td>
+                                <td>${escapeHtml(safeText(row.supplier_article))}</td>
+                                <td>${escapeHtml(safeText(row.region))}</td>
+                                <td class="align-right">${formatNum(row.forecast_30_days)}</td>
+                                <td class="align-right">${formatNum(row.current_stock)}</td>
+                                <td class="align-right">${formatNum(row.current_fbs_stock)}</td>
+                                <td class="align-right">
+                                    <span class="to-ship ${toNumber(row.to_ship) > 0 ? "positive" : ""}">
+                                        ${formatNum(row.to_ship)}
+                                    </span>
+                                </td>
+                            </tr>
+                        `).join("")}
                     `;
                 })
                 .join("");
         }
 
+        function toggleGroup(groupKey) {
+            if (!groupKey) {
+                return;
+            }
+            if (collapsedGroups.has(groupKey)) {
+                collapsedGroups.delete(groupKey);
+            } else {
+                collapsedGroups.add(groupKey);
+            }
+            const isCollapsed = collapsedGroups.has(groupKey);
+            reportBody.querySelectorAll(".group-row").forEach((row) => {
+                if (row.dataset.groupKey === groupKey) {
+                    row.dataset.collapsed = isCollapsed ? "true" : "false";
+                }
+            });
+            reportBody.querySelectorAll(".group-child-row").forEach((row) => {
+                if (row.dataset.groupKey === groupKey) {
+                    row.hidden = isCollapsed;
+                }
+            });
+        }
+
+        function setBaseState() {
+            loadingStateEl.hidden = true;
+            errorStateEl.hidden = true;
+            errorStateEl.textContent = "";
+            emptyStateEl.hidden = true;
+        }
+
+        function setLoadingState() {
+            setBaseState();
+            tableWrapEl.hidden = true;
+            loadingStateEl.hidden = false;
+            reportBody.innerHTML = "";
+        }
+
+        function setErrorState(message) {
+            setBaseState();
+            tableWrapEl.hidden = true;
+            reportBody.innerHTML = "";
+            errorStateEl.textContent = message;
+            errorStateEl.hidden = false;
+        }
+
+        function setEmptyState() {
+            setBaseState();
+            tableWrapEl.hidden = true;
+            reportBody.innerHTML = "";
+            emptyStateEl.hidden = false;
+        }
+
+        function updateUrl() {
+            const params = new URLSearchParams();
+            if (groupBySelect.value && groupBySelect.value !== "region") {
+                params.set("group_by", groupBySelect.value);
+            }
+            if (onlyWithFbsStockEl.checked) {
+                params.set("only_with_fbs_stock", "1");
+            }
+            const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+            window.history.replaceState({}, "", nextUrl);
+        }
+
         function render() {
             const mode = groupBySelect.value;
+            updateUrl();
+
+            if (!reportData.length) {
+                setEmptyState();
+                const suffix = onlyWithFbsStockEl.checked
+                    ? " С фильтром по FBS-остаткам подходящих SKU сейчас нет."
+                    : "";
+                summaryText.textContent = `Нет позиций к пополнению.${suffix}`;
+                return;
+            }
 
             if (mode === "none") {
                 reportBody.innerHTML = renderDataRows(reportData);
             } else {
                 reportBody.innerHTML = renderGrouped(reportData, mode);
             }
+            setBaseState();
+            tableWrapEl.hidden = false;
 
             const totalRows = reportData.length;
             const totalToShip = reportData.reduce((sum, row) => sum + toNumber(row.to_ship), 0);
-            summaryText.textContent = `Позиций в отчете: ${formatNum(totalRows)}. К отгрузке: ${formatNum(totalToShip)} шт.`;
+            const suffix = onlyWithFbsStockEl.checked
+                ? " Учитываются только SKU с положительным FBS-остатком."
+                : "";
+            summaryText.textContent = `Позиций в отчете: ${formatNum(totalRows)}. К отгрузке: ${formatNum(totalToShip)} шт.${suffix}`;
+        }
+
+        async function loadReport() {
+            updateUrl();
+            summaryText.textContent = "Пересчитываем пополнение...";
+            setLoadingState();
+
+            try {
+                const params = new URLSearchParams();
+                if (onlyWithFbsStockEl.checked) {
+                    params.set("only_with_fbs_stock", "1");
+                }
+                const url = `/api/replenishment-report/${params.toString() ? `?${params.toString()}` : ""}`;
+                const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    reportData = [];
+                    const message = data && data.error ? data.error : "Не удалось загрузить отчет.";
+                    summaryText.textContent = message;
+                    setErrorState(message);
+                    return;
+                }
+
+                reportData = Array.isArray(data.rows) ? data.rows : [];
+                render();
+            } catch (err) {
+                reportData = [];
+                summaryText.textContent = "Ошибка сети при загрузке отчета.";
+                setErrorState("Ошибка сети при загрузке отчета.");
+            }
         }
 
         groupBySelect.addEventListener("change", render);
-        render();
+        onlyWithFbsStockEl.addEventListener("change", loadReport);
+        reportBody.addEventListener("click", (event) => {
+            const groupRow = event.target.closest(".group-row");
+            if (!groupRow) {
+                return;
+            }
+            toggleGroup(groupRow.dataset.groupKey || "");
+        });
+        loadReport();
     </script>
 </body>
 </html>

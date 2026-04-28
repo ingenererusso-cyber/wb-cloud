@@ -32,6 +32,7 @@ ALLOWED_HOSTS = ["155.212.209.227", "127.0.0.1", "localhost", "vendra.ru", "www.
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
+CSRF_FAILURE_VIEW = "core.views.csrf_failure"
 AUTHENTICATION_BACKENDS = [
     "core.auth_backends.UsernameOrEmailBackend",
     "django.contrib.auth.backends.ModelBackend",

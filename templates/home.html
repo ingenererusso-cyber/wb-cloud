@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vendra dashboard</title>
+    <title>Дашборд логистики</title>
     <style>
         :root {
             --ink: #132033;
@@ -348,10 +348,7 @@
         {% include "partials/top_nav.html" %}
     {% endwith %}
     <main class="hero">
-        <h1>Vendra dashboard</h1>
-        <p>
-            Здесь размещаются аналитические графики, таблицы и обзор ключевых метрик.
-        </p>
+        <h1>Дашборд логистики</h1>
         {% if missing_api_token %}
             <div class="hint-banner">
                 Добавьте API-ключ в <a href="{% url 'account_settings' %}">настройках аккаунта</a>, чтобы начать синхронизацию данных.
@@ -432,7 +429,6 @@
                 <div id="non-local-districts-chart" class="bar-chart"></div>
             </div>
         </section>
-        <span class="pill">Раздел в разработке</span>
     </main>
     {{ running_sync_task|json_script:"running-sync-task-data" }}
     <script>

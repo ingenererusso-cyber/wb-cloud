@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, Iterable, List, Any
 
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 
 from core.models import (
     Order,
     Product,
+    ProductCardSize,
     SellerAccount,
+    SellerFbsStock,
     TransitDirectionTariff,
     WbAcceptanceCoefficient,
     WbWarehouseTariff,
@@ -196,10 +198,68 @@ def _load_volume_by_supplier_article(seller: SellerAccount | None = None) -> Dic
     return volume_map
 
 
+def load_positive_fbs_stock_keys(
+    seller: SellerAccount | None = None,
+) -> tuple[set[int], set[str]]:
+    """
+    Возвращает наборы nm_id и supplier_article, по которым есть положительный FBS-остаток.
+
+    Нужен для фильтрации рекомендаций только теми SKU, которые реально доступны
+    на складах продавца и могут участвовать в поставке.
+    """
+    if seller is None:
+        return set(), set()
+
+    size_rows = (
+        ProductCardSize.objects
+        .filter(seller=seller)
+        .exclude(chrt_id__isnull=True)
+        .values("chrt_id", "nm_id", "vendor_code")
+    )
+    size_map: Dict[int, tuple[int | None, str]] = {}
+    for row in size_rows:
+        chrt_id = row.get("chrt_id")
+        if chrt_id is None:
+            continue
+        size_map[int(chrt_id)] = (
+            int(row["nm_id"]) if row.get("nm_id") is not None else None,
+            _normalize_str(row.get("vendor_code")),
+        )
+
+    if not size_map:
+        return set(), set()
+
+    positive_nm_ids: set[int] = set()
+    positive_supplier_articles: set[str] = set()
+    stock_rows = (
+        SellerFbsStock.objects
+        .filter(seller=seller, chrt_id__in=list(size_map.keys()))
+        .values("chrt_id")
+        .annotate(total_qty=Sum("amount"))
+    )
+    for row in stock_rows:
+        if int(row.get("total_qty") or 0) <= 0:
+            continue
+        chrt_id = row.get("chrt_id")
+        if chrt_id is None:
+            continue
+        mapped = size_map.get(int(chrt_id))
+        if not mapped:
+            continue
+        nm_id, supplier_article = mapped
+        if nm_id is not None:
+            positive_nm_ids.add(int(nm_id))
+        if supplier_article:
+            positive_supplier_articles.add(supplier_article)
+
+    return positive_nm_ids, positive_supplier_articles
+
+
 def load_order_aggregates(
     date_from: date,
     date_to: date,
     seller: SellerAccount | None = None,
+    only_with_fbs_stock: bool = False,
 ) -> List[OrderAggregate]:
     """
     Загружает и агрегирует заказы по supplier_article / региону заказа / складу отгрузки.
@@ -214,6 +274,12 @@ def load_order_aggregates(
         raise ValueError("date_from must be <= date_to")
 
     volume_map = _load_volume_by_supplier_article(seller=seller)
+    positive_fbs_nm_ids: set[int] = set()
+    positive_fbs_supplier_articles: set[str] = set()
+    if only_with_fbs_stock and seller is not None:
+        positive_fbs_nm_ids, positive_fbs_supplier_articles = load_positive_fbs_stock_keys(seller=seller)
+        if not positive_fbs_nm_ids and not positive_fbs_supplier_articles:
+            return []
 
     orders_qs = Order.objects.filter(
         order_date__date__gte=date_from,
@@ -236,9 +302,18 @@ def load_order_aggregates(
     result: List[OrderAggregate] = []
     for row in grouped:
         supplier_article = _normalize_str(row["supplier_article"])
+        nm_id = row["nm_id"]
+        nm_id_int = int(nm_id) if nm_id is not None else None
+        if only_with_fbs_stock and seller is not None:
+            has_fbs_stock = (
+                (nm_id_int is not None and nm_id_int in positive_fbs_nm_ids)
+                or (supplier_article and supplier_article in positive_fbs_supplier_articles)
+            )
+            if not has_fbs_stock:
+                continue
         result.append(
             OrderAggregate(
-                nm_id=row["nm_id"],
+                nm_id=nm_id,
                 supplier_article=supplier_article,
                 order_region=_normalize_region(row["oblast_okrug_name"]),
                 shipment_warehouse=_normalize_str(row["warehouse_name"], fallback="Не указан"),

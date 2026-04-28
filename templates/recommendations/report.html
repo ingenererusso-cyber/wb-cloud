@@ -90,6 +90,81 @@
             user-select: none;
         }
 
+        .field-toggle {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+            align-self: stretch;
+        }
+
+        .field-toggle .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--muted);
+            min-height: 13px;
+        }
+
+        .toggle-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 46px;
+            padding: 0 4px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 30px;
+            flex: 0 0 auto;
+        }
+
+        .toggle-switch input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            border-radius: 999px;
+            background: #d8e1e8;
+            transition: background .18s ease;
+        }
+
+        .toggle-slider::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+            transition: transform .18s ease;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--primary);
+        }
+
+        .toggle-switch input:checked + .toggle-slider::after {
+            transform: translateX(20px);
+        }
+
+        .toggle-text {
+            font-size: 13px;
+            line-height: 1.3;
+            color: var(--text);
+            font-weight: 600;
+        }
+
         .field input,
         .field select {
             border: 1px solid var(--line);
@@ -176,6 +251,28 @@
         .summary-card .sub { font-size: 14px; color: var(--text); margin-top: 2px; }
         .v.good { color: var(--good); }
         .v.bad { color: var(--bad); }
+        .summary-note {
+            margin: 0 0 12px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .state-box {
+            margin: 12px 0;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.88);
+            box-shadow: var(--shadow);
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .state-box-error {
+            border-color: #fecaca;
+            background: #fff5f5;
+            color: var(--bad);
+        }
 
         .table-wrap {
             overflow-x: auto;
@@ -298,6 +395,19 @@
                         <label for="includeFood">Питание</label>
                     </div>
                 </div>
+                <div class="field-toggle">
+                    <div class="toggle-label">
+                        <span>Фильтр остатков</span>
+                        <span class="hint-icon" title="В расчет попадут только товары с положительным FBS-остатком на ваших складах. SKU без наличия будут исключены из рекомендаций." aria-label="Подсказка">?</span>
+                    </div>
+                    <div class="toggle-control">
+                        <label class="toggle-switch" for="onlyWithFbsStock">
+                            <input id="onlyWithFbsStock" type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <label class="toggle-text" for="onlyWithFbsStock">Учитывать только FBS остатки</label>
+                    </div>
+                </div>
                 <button id="loadBtn" class="btn btn-primary" type="button">Построить</button>
             </div>
         </div>
@@ -326,9 +436,13 @@
                 <div class="sub">Индекс локализации: <strong id="sumProjectedIndex">0</strong></div>
             </div>
         </div>
+        <p id="summaryNote" class="summary-note"></p>
 
         <div id="status" class="status">Нажмите «Построить», чтобы загрузить рекомендации.</div>
-        <div class="table-wrap">
+        <div id="loadingState" class="state-box" hidden>Собираем данные и рассчитываем рекомендации...</div>
+        <div id="errorState" class="state-box state-box-error" hidden></div>
+        <div id="emptyState" class="state-box" hidden>Нет данных за выбранный период. Проверьте даты, синхронизацию и наличие заказов.</div>
+        <div id="tableWrap" class="table-wrap" hidden>
             <table>
                 <thead>
                     <tr>
@@ -356,9 +470,15 @@
         const transitWarehouseEl = document.getElementById("transitWarehouse");
         const mainWarehouseEl = document.getElementById("mainWarehouse");
         const includeFoodEl = document.getElementById("includeFood");
+        const onlyWithFbsStockEl = document.getElementById("onlyWithFbsStock");
         const loadBtn = document.getElementById("loadBtn");
         const statusEl = document.getElementById("status");
         const rowsEl = document.getElementById("rows");
+        const tableWrapEl = document.getElementById("tableWrap");
+        const loadingStateEl = document.getElementById("loadingState");
+        const errorStateEl = document.getElementById("errorState");
+        const emptyStateEl = document.getElementById("emptyState");
+        const summaryNoteEl = document.getElementById("summaryNote");
 
         const sumTotal = document.getElementById("sumTotal");
         const sumRecommended = document.getElementById("sumRecommended");
@@ -367,6 +487,14 @@
         const sumCurrentIndex = document.getElementById("sumCurrentIndex");
         const sumProjectedShare = document.getElementById("sumProjectedShare");
         const sumProjectedIndex = document.getElementById("sumProjectedIndex");
+        const currentUrlParams = new URLSearchParams(window.location.search);
+
+        dateFromEl.value = currentUrlParams.get("date_from") || dateFromEl.value;
+        dateToEl.value = currentUrlParams.get("date_to") || dateToEl.value;
+        transitWarehouseEl.value = currentUrlParams.get("transit_warehouse") || transitWarehouseEl.value;
+        mainWarehouseEl.value = currentUrlParams.get("main_warehouse") || mainWarehouseEl.value;
+        includeFoodEl.checked = currentUrlParams.get("include_food") === "1";
+        onlyWithFbsStockEl.checked = currentUrlParams.get("only_with_fbs_stock") === "1";
 
         function fmtMoney(v) {
             const num = Number(v);
@@ -417,6 +545,59 @@
             return num > 0 ? "v bad" : "v good";
         }
 
+        function setBaseState() {
+            errorStateEl.hidden = true;
+            errorStateEl.textContent = "";
+            emptyStateEl.hidden = true;
+            loadingStateEl.hidden = true;
+        }
+
+        function setLoadingState() {
+            setBaseState();
+            tableWrapEl.hidden = true;
+            rowsEl.innerHTML = "";
+            loadingStateEl.hidden = false;
+        }
+
+        function setErrorState(message) {
+            setBaseState();
+            tableWrapEl.hidden = true;
+            rowsEl.innerHTML = "";
+            errorStateEl.textContent = message;
+            errorStateEl.hidden = false;
+        }
+
+        function setEmptyState() {
+            setBaseState();
+            tableWrapEl.hidden = true;
+            rowsEl.innerHTML = "";
+            emptyStateEl.hidden = false;
+        }
+
+        function updateUrl() {
+            const params = new URLSearchParams();
+            if (dateFromEl.value) {
+                params.set("date_from", dateFromEl.value);
+            }
+            if (dateToEl.value) {
+                params.set("date_to", dateToEl.value);
+            }
+            if (transitWarehouseEl.value) {
+                params.set("transit_warehouse", transitWarehouseEl.value);
+            }
+            if (mainWarehouseEl.value) {
+                params.set("main_warehouse", mainWarehouseEl.value);
+            }
+            if (includeFoodEl.checked) {
+                params.set("include_food", "1");
+            }
+            if (onlyWithFbsStockEl.checked) {
+                params.set("only_with_fbs_stock", "1");
+            }
+            const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+            window.history.replaceState({}, "", nextUrl);
+        }
+
         function render(payload) {
             const summary = payload.summary || {};
             const regions = Array.isArray(payload.regions) ? payload.regions : [];
@@ -430,6 +611,14 @@
             sumCurrentIndex.textContent = safe(summary.current_localization_index || 0);
             sumProjectedShare.textContent = `${safe(summary.projected_local_share_percent || 0)}%`;
             sumProjectedIndex.textContent = safe(summary.projected_localization_index || 0);
+            summaryNoteEl.textContent = summary.uses_shared_reference_data
+                ? "Для части расчётов используются общие справочные тарифы, пока не загружены ваши собственные."
+                : "";
+
+            if (!regions.length) {
+                setEmptyState();
+                return;
+            }
 
             rowsEl.innerHTML = regions.map((r) => `
                 <tr>
@@ -455,10 +644,8 @@
                     <td>${escapeHtml(safe(r.comment))}</td>
                 </tr>
             `).join("");
-
-            if (!regions.length) {
-                rowsEl.innerHTML = '<tr><td colspan="11">Нет данных для выбранного периода.</td></tr>';
-            }
+            setBaseState();
+            tableWrapEl.hidden = false;
         }
 
         async function loadData() {
@@ -467,14 +654,23 @@
             const transitWarehouse = transitWarehouseEl.value;
             const mainWarehouse = mainWarehouseEl.value;
             const includeFood = includeFoodEl.checked;
+            const onlyWithFbsStock = onlyWithFbsStockEl.checked;
 
             if (!dateFrom || !dateTo) {
-                statusEl.textContent = "Укажите даты date_from и date_to.";
+                statusEl.textContent = "Выберите обе даты периода.";
+                setErrorState("Выберите обе даты периода.");
+                return;
+            }
+            if (dateFrom > dateTo) {
+                statusEl.textContent = "Дата начала не может быть позже даты окончания.";
+                setErrorState("Дата начала не может быть позже даты окончания.");
                 return;
             }
 
+            updateUrl();
             loadBtn.disabled = true;
-            statusEl.textContent = "Загрузка...";
+            statusEl.textContent = "Собираем данные и рассчитываем рекомендации...";
+            setLoadingState();
 
             try {
                 const params = new URLSearchParams({
@@ -490,27 +686,45 @@
                 if (includeFood) {
                     params.set("include_food", "1");
                 }
+                if (onlyWithFbsStock) {
+                    params.set("only_with_fbs_stock", "1");
+                }
                 const url = `/api/dashboard/supply-recommendations/?${params.toString()}`;
                 const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
                 const data = await res.json();
 
                 if (!res.ok) {
-                    statusEl.textContent = `Ошибка: ${safe(data.error || "не удалось загрузить рекомендации")}`;
+                    const message = safe(data.error || "Не удалось загрузить рекомендации.");
+                    statusEl.textContent = `Ошибка: ${message}`;
+                    setErrorState(message);
                     return;
                 }
 
                 render(data);
-                statusEl.textContent = transitWarehouse
-                    ? `Период: ${dateFrom} — ${dateTo}. Транзитный склад: ${transitWarehouse}.`
-                    : `Период: ${dateFrom} — ${dateTo}.`;
+                const statusParts = [`Период: ${dateFrom} — ${dateTo}.`];
+                if (transitWarehouse) {
+                    statusParts.push(`Транзитный склад: ${transitWarehouse}.`);
+                }
+                if (mainWarehouse) {
+                    statusParts.push(`Основной склад: ${mainWarehouse}.`);
+                }
+                if (includeFood) {
+                    statusParts.push("Склады питания включены в расчёт.");
+                }
+                if (onlyWithFbsStock) {
+                    statusParts.push("Учитываются только SKU с положительным FBS-остатком.");
+                }
+                statusEl.textContent = statusParts.join(" ");
             } catch (err) {
                 statusEl.textContent = "Ошибка сети при загрузке рекомендаций.";
+                setErrorState("Ошибка сети при загрузке рекомендаций.");
             } finally {
                 loadBtn.disabled = false;
             }
         }
 
         loadBtn.addEventListener("click", loadData);
+        onlyWithFbsStockEl.addEventListener("change", loadData);
         loadData();
     </script>
 </body>

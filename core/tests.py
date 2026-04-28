@@ -1,12 +1,25 @@
+from datetime import datetime
+
 from django.contrib.auth.models import User
 from django.core import mail
 from django.test import TestCase
+from django.test import Client
 from django.urls import reverse
 from django.test.utils import override_settings
 from django.utils import timezone
 from unittest.mock import patch
 
-from core.models import SellerAccount, SignupLead, UserSubscription
+from core.models import (
+    Order,
+    Product,
+    ProductCardSize,
+    SellerAccount,
+    SellerFbsStock,
+    SellerWarehouse,
+    SignupLead,
+    UserSubscription,
+    WarehouseStockDetailed,
+)
 
 
 class DashboardSupplyRecommendationsApiTests(TestCase):
@@ -45,6 +58,191 @@ class DashboardSupplyRecommendationsApiTests(TestCase):
         data = response.json()
         self.assertIn("summary", data)
         self.assertIn("regions", data)
+
+
+class FbsStockAwareRecommendationsTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="fbs-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Seller")
+        self.seller_warehouse = SellerWarehouse.objects.create(
+            seller=self.seller,
+            seller_warehouse_id=101,
+            name="Основной FBS",
+        )
+
+    def _create_order(self, *, srid: str, nm_id: int, supplier_article: str, region: str = "Центральный"):
+        order_dt = timezone.make_aware(datetime(2026, 1, 10, 12, 0, 0))
+        return Order.objects.create(
+            seller=self.seller,
+            srid=srid,
+            nm_id=nm_id,
+            supplier_article=supplier_article,
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type="Склад WB",
+            oblast_okrug_name=region,
+            region_name=region,
+            order_date=order_dt,
+            last_change_date=order_dt,
+            is_local=False,
+        )
+
+    def test_supply_recommendations_api_excludes_sku_without_fbs_stock(self):
+        self.client.login(username="fbs-user", password="pass12345")
+        self._create_order(srid="order-1", nm_id=1001, supplier_article="SKU-1001")
+
+        response_all = self.client.get(
+            reverse("dashboard_supply_recommendations_api"),
+            {"date_from": "2026-01-01", "date_to": "2026-01-31"},
+        )
+        self.assertEqual(response_all.status_code, 200)
+        self.assertEqual(len(response_all.json()["regions"]), 1)
+
+        ProductCardSize.objects.create(
+            seller=self.seller,
+            chrt_id=5001,
+            nm_id=1002,
+            vendor_code="SKU-1002",
+        )
+        SellerFbsStock.objects.create(
+            seller=self.seller,
+            seller_warehouse=self.seller_warehouse,
+            warehouse_name=self.seller_warehouse.name,
+            chrt_id=5001,
+            amount=7,
+        )
+
+        response_fbs_only = self.client.get(
+            reverse("dashboard_supply_recommendations_api"),
+            {"date_from": "2026-01-01", "date_to": "2026-01-31", "only_with_fbs_stock": "1"},
+        )
+        self.assertEqual(response_fbs_only.status_code, 200)
+        self.assertEqual(response_fbs_only.json()["regions"], [])
+
+    def test_replenishment_api_excludes_sku_without_fbs_stock(self):
+        self.client.login(username="fbs-user", password="pass12345")
+        order_dt = timezone.now() - timezone.timedelta(days=3)
+        Order.objects.create(
+            seller=self.seller,
+            srid="order-2",
+            nm_id=2001,
+            supplier_article="SKU-2001",
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type="Склад WB",
+            oblast_okrug_name="Центральный",
+            region_name="Центральный",
+            order_date=order_dt,
+            last_change_date=order_dt,
+            is_cancel=False,
+            is_return=False,
+            is_local=False,
+        )
+        WarehouseStockDetailed.objects.create(
+            seller=self.seller,
+            nm_id=2001,
+            supplier_article="SKU-2001",
+            tech_size="0",
+            warehouse_name="Коледино",
+            quantity=0,
+        )
+
+        response_all = self.client.get(reverse("replenishment_report_api"))
+        self.assertEqual(response_all.status_code, 200)
+        self.assertEqual(len(response_all.json()["rows"]), 1)
+
+        ProductCardSize.objects.create(
+            seller=self.seller,
+            chrt_id=6001,
+            nm_id=2002,
+            vendor_code="SKU-2002",
+        )
+        SellerFbsStock.objects.create(
+            seller=self.seller,
+            seller_warehouse=self.seller_warehouse,
+            warehouse_name=self.seller_warehouse.name,
+            chrt_id=6001,
+            amount=4,
+        )
+
+        response_fbs_only = self.client.get(
+            reverse("replenishment_report_api"),
+            {"only_with_fbs_stock": "1"},
+        )
+        self.assertEqual(response_fbs_only.status_code, 200)
+        self.assertEqual(response_fbs_only.json()["rows"], [])
+
+
+class ProductGluesApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="glues-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Glue Seller")
+
+    def test_product_glues_api_returns_grouped_glues(self):
+        self.client.login(username="glues-user", password="pass12345")
+        Product.objects.create(seller=self.seller, nm_id=3001, imt_id=777, vendor_code="SKU-1", title="Item 1")
+        Product.objects.create(seller=self.seller, nm_id=3002, imt_id=777, vendor_code="SKU-2", title="Item 2")
+
+        response = self.client.get(
+            reverse("product_glues_api"),
+            {"date_from": "2026-02-01", "date_to": "2026-02-28"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total_glues_count"], 1)
+        self.assertEqual(len(payload["glues"]), 1)
+        self.assertEqual(payload["glues"][0]["imt_id"], 777)
+        self.assertEqual(payload["glues"][0]["items_count"], 2)
+
+    def test_product_glues_api_uses_selected_date_range(self):
+        self.client.login(username="glues-user", password="pass12345")
+        Product.objects.create(seller=self.seller, nm_id=4001, imt_id=888, vendor_code="SKU-3", title="Item 3")
+        Product.objects.create(seller=self.seller, nm_id=4002, imt_id=888, vendor_code="SKU-4", title="Item 4")
+        in_range_dt = timezone.make_aware(datetime(2026, 2, 5, 12, 0, 0))
+        out_of_range_dt = timezone.make_aware(datetime(2026, 3, 5, 12, 0, 0))
+        Order.objects.create(
+            seller=self.seller,
+            srid="glue-order-in",
+            nm_id=4001,
+            supplier_article="SKU-3",
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type="Склад WB",
+            oblast_okrug_name="Центральный",
+            region_name="Центральный",
+            order_date=in_range_dt,
+            last_change_date=in_range_dt,
+            is_buyout=True,
+            finished_price=1200,
+        )
+        Order.objects.create(
+            seller=self.seller,
+            srid="glue-order-out",
+            nm_id=4002,
+            supplier_article="SKU-4",
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type="Склад WB",
+            oblast_okrug_name="Центральный",
+            region_name="Центральный",
+            order_date=out_of_range_dt,
+            last_change_date=out_of_range_dt,
+            is_buyout=True,
+            finished_price=999,
+        )
+
+        response = self.client.get(
+            reverse("product_glues_api"),
+            {"date_from": "2026-02-01", "date_to": "2026-02-28"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["date_from"], "2026-02-01")
+        self.assertEqual(payload["date_to"], "2026-02-28")
+        self.assertEqual(payload["glues"][0]["orders_30d"], 1)
+        self.assertEqual(payload["glues"][0]["buyouts_30d"], 1)
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -140,3 +338,17 @@ class SignupFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(email="expired@example.com").exists())
+
+
+class CsrfFailurePageTests(TestCase):
+    def test_logout_with_invalid_csrf_shows_friendly_page(self):
+        client = Client(enforce_csrf_checks=True)
+        user = User.objects.create_user(username="csrf-user", password="pass12345")
+        self.assertTrue(client.login(username="csrf-user", password="pass12345"))
+
+        response = client.post(reverse("logout"), HTTP_X_CSRFTOKEN="invalid-token")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(response, "Не удалось подтвердить действие", status_code=403)
+        self.assertContains(response, "Обновите страницу", status_code=403)
+        self.assertContains(response, "Войти заново", status_code=403)

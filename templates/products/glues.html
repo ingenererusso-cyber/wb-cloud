@@ -23,17 +23,34 @@
         }
         .content-wrap { max-width: 1560px; margin: 0 auto; }
         .panel { background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
-        .toolbar { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
+        .toolbar { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
         .chip { padding: 8px 12px; border-radius: 999px; background: var(--chip); font-weight: 700; color: #334155; }
         .search-form { display: flex; gap: 10px; flex: 1; min-width: 280px; }
         .search-form input {
             flex: 1; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font-size: 15px; min-width: 180px;
         }
+        .search-form .date-input {
+            flex: 0 0 auto;
+            min-width: 160px;
+        }
         .search-form button {
             border: 0; background: var(--accent); color: #fff; border-radius: 12px; padding: 0 16px; font-weight: 700; cursor: pointer;
         }
-        .hint { color: var(--muted); font-size: 13px; }
+        .hint { color: var(--muted); font-size: 13px; white-space: nowrap; }
         .glue-list { padding: 14px; display: grid; gap: 12px; }
+        .loading-state, .error-state {
+            margin: 14px;
+            padding: 18px 20px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: #f8fbff;
+            color: #334155;
+        }
+        .error-state {
+            background: #fff5f5;
+            border-color: #f2c9c9;
+            color: #9b1c1c;
+        }
         .glue-card {
             border: 1px solid var(--line);
             border-radius: 16px;
@@ -128,6 +145,10 @@
             border: 1px solid var(--line); text-decoration: none; color: #334155; font-weight: 600; background: #fff;
         }
         .pagination span { background: #e8f2ee; border-color: #c6e3d8; color: #0f5a42; }
+        .pagination a[aria-disabled="true"] {
+            opacity: .45;
+            pointer-events: none;
+        }
     </style>
     {% include "partials/top_nav_css.html" %}
 </head>
@@ -136,75 +157,316 @@
 <div class="content-wrap">
     <div class="panel">
         <div class="toolbar">
-            <span class="chip">Склейки {{ total_glues_count }}</span>
-            <form class="search-form" method="get">
-                <input type="text" name="q" value="{{ query }}" placeholder="ID склейки / название / бренд / артикул">
+            <span class="chip" id="totalChip">Склейки ...</span>
+            <form class="search-form" id="searchForm" method="get">
+                <input type="text" id="searchInput" name="q" value="{{ query }}" placeholder="ID склейки / название / бренд / артикул">
+                <input class="date-input" type="date" id="dateFromInput" name="date_from" value="{{ default_date_from }}">
+                <input class="date-input" type="date" id="dateToInput" name="date_to" value="{{ default_date_to }}">
                 <button type="submit">Найти</button>
             </form>
-            <span class="hint">Метрики за {{ last_30_from|date:"d.m.Y" }} - {{ last_30_to|date:"d.m.Y" }}</span>
+            <span class="hint" id="periodHint">Метрики за период</span>
         </div>
 
-        {% if page_obj.object_list %}
-            <div class="glue-list">
-                {% for glue in page_obj.object_list %}
-                    <section class="glue-card">
-                        <div class="glue-head">
-                            <h3 class="glue-title">Склейка #{{ glue.imt_id }}</h3>
-                            <div class="glue-sub">Товаров в склейке: {{ glue.items_count }} · Остатки FBO/FBS: {{ glue.fbo_stock_qty }} / {{ glue.fbs_stock_qty }}</div>
-                            <div class="kpis">
-                                <div class="kpi"><div class="kpi-label">Заказы</div><div class="kpi-value">{{ glue.orders_30d }}</div></div>
-                                <div class="kpi"><div class="kpi-label">Выкупы</div><div class="kpi-value">{{ glue.buyouts_30d }} ({{ glue.buyout_rate_30d }}%)</div></div>
-                                <div class="kpi"><div class="kpi-label">Реклама</div><div class="kpi-value">{{ glue.ad_spend_30d }}</div></div>
-                                <div class="kpi"><div class="kpi-label">Выручка</div><div class="kpi-value">{{ glue.revenue_30d }}</div></div>
-                                <div class="kpi"><div class="kpi-label">ДРР</div><div class="kpi-value">{{ glue.ad_share_30d }}%</div></div>
-                            </div>
-                        </div>
-                        <div class="items">
-                            {% for item in glue.items %}
-                                <article class="item">
-                                    {% if item.photo_url %}
-                                        <img class="thumb" src="{{ item.photo_url }}" alt="{{ item.title|default:item.vendor_code }}">
-                                    {% else %}
-                                        <div class="thumb-fallback">Нет фото</div>
-                                    {% endif %}
-                                    <div>
-                                        <p class="item-title">
-                                            <a href="{% url 'product_card_detail' item.id %}">{{ item.title|default:"Без названия" }}</a>
-                                        </p>
-                                        <div class="item-meta">
-                                            WB: {{ item.nm_id }}<br>
-                                            Продавец: {{ item.vendor_code }}<br>
-                                            {{ item.brand|default:"-" }}
-                                        </div>
-                                        <div class="item-kpi">
-                                            <span class="pill">Заказы: {{ item.orders_30d }}</span>
-                                            <span class="pill">Выкупы: {{ item.buyouts_30d }}</span>
-                                            <span class="pill">Реклама: {{ item.ad_spend_30d }}</span>
-                                            <span class="pill">Остатки FBO/FBS: {{ item.fbo_stock_qty }} / {{ item.fbs_stock_qty }}</span>
-                                        </div>
-                                    </div>
-                                </article>
-                            {% endfor %}
-                        </div>
-                    </section>
-                {% endfor %}
-            </div>
-        {% else %}
-            <div class="empty">Склеек не найдено. Нужны карточки с одинаковым ID склейки (imtID) и данные после синхронизации.</div>
-        {% endif %}
-
-        {% if page_obj.paginator.num_pages > 1 %}
-            <div class="pagination">
-                {% if page_obj.has_previous %}
-                    <a href="?page={{ page_obj.previous_page_number }}&q={{ query|urlencode }}">←</a>
-                {% endif %}
-                <span>{{ page_obj.number }}</span>
-                {% if page_obj.has_next %}
-                    <a href="?page={{ page_obj.next_page_number }}&q={{ query|urlencode }}">→</a>
-                {% endif %}
-            </div>
-        {% endif %}
+        <div id="loadingState" class="loading-state">Загружаем склейки и рассчитываем метрики...</div>
+        <div id="errorState" class="error-state" hidden></div>
+        <div id="glueList" class="glue-list" hidden></div>
+        <div id="emptyState" class="empty" hidden>Склеек не найдено. Нужны карточки с одинаковым ID склейки (imtID) и данные после синхронизации.</div>
+        <div id="pagination" class="pagination" hidden></div>
     </div>
 </div>
+<script>
+    const totalChipEl = document.getElementById("totalChip");
+    const searchFormEl = document.getElementById("searchForm");
+    const searchInputEl = document.getElementById("searchInput");
+    const dateFromInputEl = document.getElementById("dateFromInput");
+    const dateToInputEl = document.getElementById("dateToInput");
+    const periodHintEl = document.getElementById("periodHint");
+    const loadingStateEl = document.getElementById("loadingState");
+    const errorStateEl = document.getElementById("errorState");
+    const glueListEl = document.getElementById("glueList");
+    const emptyStateEl = document.getElementById("emptyState");
+    const paginationEl = document.getElementById("pagination");
+    const initialQuery = "{{ query|escapejs }}";
+    const initialDateFrom = "{{ default_date_from|escapejs }}";
+    const initialDateTo = "{{ default_date_to|escapejs }}";
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    let currentPage = Number(currentUrlParams.get("page") || "1") || 1;
+    let currentQuery = initialQuery;
+    let currentDateFrom = currentUrlParams.get("date_from") || initialDateFrom;
+    let currentDateTo = currentUrlParams.get("date_to") || initialDateTo;
+
+    dateFromInputEl.value = currentDateFrom;
+    dateToInputEl.value = currentDateTo;
+
+    function safe(value, fallback = "-") {
+        return value === null || value === undefined || value === "" ? fallback : String(value);
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function formatNumber(value, digits = 0) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+            return digits > 0 ? `0.${"0".repeat(digits)}` : "0";
+        }
+        return new Intl.NumberFormat("ru-RU", {
+            minimumFractionDigits: digits,
+            maximumFractionDigits: digits,
+        }).format(num);
+    }
+
+    function formatDateLabel(value) {
+        if (!value) {
+            return "";
+        }
+        const [year, month, day] = value.split("-");
+        if (!year || !month || !day) {
+            return value;
+        }
+        return `${day}.${month}.${year}`;
+    }
+
+    function updatePeriodHint(dateFromValue, dateToValue) {
+        periodHintEl.textContent = `Метрики за ${formatDateLabel(dateFromValue)} - ${formatDateLabel(dateToValue)}`;
+    }
+
+    function buildItemCard(item) {
+        const title = safe(item.title, "Без названия");
+        const photo = item.photo_url
+            ? `<img class="thumb" src="${escapeHtml(item.photo_url)}" alt="${escapeHtml(title)}">`
+            : '<div class="thumb-fallback">Нет фото</div>';
+        return `
+            <article class="item">
+                ${photo}
+                <div>
+                    <p class="item-title">
+                        <a href="/product_cards/${encodeURIComponent(item.id)}/">${escapeHtml(title)}</a>
+                    </p>
+                    <div class="item-meta">
+                        WB: ${escapeHtml(safe(item.nm_id))}<br>
+                        Продавец: ${escapeHtml(safe(item.vendor_code))}<br>
+                        ${escapeHtml(safe(item.brand))}
+                    </div>
+                    <div class="item-kpi">
+                        <span class="pill">Заказы: ${formatNumber(item.orders_30d)}</span>
+                        <span class="pill">Выкупы: ${formatNumber(item.buyouts_30d)}</span>
+                        <span class="pill">Реклама: ${formatNumber(item.ad_spend_30d, 2)}</span>
+                        <span class="pill">Остатки FBO/FBS: ${formatNumber(item.fbo_stock_qty)} / ${formatNumber(item.fbs_stock_qty)}</span>
+                    </div>
+                </div>
+            </article>
+        `;
+    }
+
+    function buildGlueCard(glue) {
+        const itemsHtml = (Array.isArray(glue.items) ? glue.items : []).map(buildItemCard).join("");
+        return `
+            <section class="glue-card">
+                <div class="glue-head">
+                    <h3 class="glue-title">Склейка #${escapeHtml(safe(glue.imt_id))}</h3>
+                    <div class="glue-sub">Товаров в склейке: ${formatNumber(glue.items_count)} · Остатки FBO/FBS: ${formatNumber(glue.fbo_stock_qty)} / ${formatNumber(glue.fbs_stock_qty)}</div>
+                    <div class="kpis">
+                        <div class="kpi"><div class="kpi-label">Заказы</div><div class="kpi-value">${formatNumber(glue.orders_30d)}</div></div>
+                        <div class="kpi"><div class="kpi-label">Выкупы</div><div class="kpi-value">${formatNumber(glue.buyouts_30d)} (${formatNumber(glue.buyout_rate_30d, 2)}%)</div></div>
+                        <div class="kpi"><div class="kpi-label">Реклама</div><div class="kpi-value">${formatNumber(glue.ad_spend_30d, 2)}</div></div>
+                        <div class="kpi"><div class="kpi-label">Выручка</div><div class="kpi-value">${formatNumber(glue.revenue_30d, 2)}</div></div>
+                        <div class="kpi"><div class="kpi-label">ДРР</div><div class="kpi-value">${formatNumber(glue.ad_share_30d, 2)}%</div></div>
+                    </div>
+                </div>
+                <div class="items">${itemsHtml}</div>
+            </section>
+        `;
+    }
+
+    function renderPagination(page) {
+        if (!page || Number(page.num_pages || 0) <= 1) {
+            paginationEl.hidden = true;
+            paginationEl.innerHTML = "";
+            return;
+        }
+
+        const prevParams = new URLSearchParams();
+        const nextParams = new URLSearchParams();
+        if (currentQuery) {
+            prevParams.set("q", currentQuery);
+            nextParams.set("q", currentQuery);
+        }
+        if (currentDateFrom) {
+            prevParams.set("date_from", currentDateFrom);
+            nextParams.set("date_from", currentDateFrom);
+        }
+        if (currentDateTo) {
+            prevParams.set("date_to", currentDateTo);
+            nextParams.set("date_to", currentDateTo);
+        }
+        if (page.previous_page_number) {
+            prevParams.set("page", page.previous_page_number);
+        }
+        if (page.next_page_number) {
+            nextParams.set("page", page.next_page_number);
+        }
+        const prevHref = page.has_previous ? `?${prevParams.toString()}` : "#";
+        const nextHref = page.has_next ? `?${nextParams.toString()}` : "#";
+        paginationEl.innerHTML = `
+            <a href="${prevHref}" data-page="${page.previous_page_number || ""}" aria-disabled="${page.has_previous ? "false" : "true"}">←</a>
+            <span>${page.number}</span>
+            <a href="${nextHref}" data-page="${page.next_page_number || ""}" aria-disabled="${page.has_next ? "false" : "true"}">→</a>
+        `;
+        paginationEl.hidden = false;
+    }
+
+    function renderPayload(payload) {
+        const glues = Array.isArray(payload.glues) ? payload.glues : [];
+        totalChipEl.textContent = `Склейки ${formatNumber(payload.total_glues_count || 0)}`;
+        if (payload.date_from && payload.date_to) {
+            currentDateFrom = payload.date_from;
+            currentDateTo = payload.date_to;
+            dateFromInputEl.value = currentDateFrom;
+            dateToInputEl.value = currentDateTo;
+            updatePeriodHint(currentDateFrom, currentDateTo);
+        }
+        errorStateEl.hidden = true;
+        errorStateEl.textContent = "";
+        loadingStateEl.hidden = true;
+
+        if (!glues.length) {
+            glueListEl.hidden = true;
+            glueListEl.innerHTML = "";
+            emptyStateEl.hidden = false;
+        } else {
+            glueListEl.innerHTML = glues.map(buildGlueCard).join("");
+            glueListEl.hidden = false;
+            emptyStateEl.hidden = true;
+        }
+
+        renderPagination(payload.page || {});
+    }
+
+    function renderError(message) {
+        loadingStateEl.hidden = true;
+        glueListEl.hidden = true;
+        glueListEl.innerHTML = "";
+        emptyStateEl.hidden = true;
+        paginationEl.hidden = true;
+        paginationEl.innerHTML = "";
+        errorStateEl.textContent = message;
+        errorStateEl.hidden = false;
+        totalChipEl.textContent = "Склейки ...";
+    }
+
+    function setLoading() {
+        loadingStateEl.hidden = false;
+        errorStateEl.hidden = true;
+        glueListEl.hidden = true;
+        emptyStateEl.hidden = true;
+        paginationEl.hidden = true;
+    }
+
+    async function loadGlues() {
+        setLoading();
+        const params = new URLSearchParams();
+        if (currentQuery) {
+            params.set("q", currentQuery);
+        }
+        params.set("page", String(currentPage));
+        params.set("date_from", currentDateFrom);
+        params.set("date_to", currentDateTo);
+
+        try {
+            const res = await fetch(`/api/product_glues/?${params.toString()}`, {
+                method: "GET",
+                headers: { "Accept": "application/json" },
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                renderError(safe(data.error, "Не удалось загрузить склейки."));
+                return;
+            }
+            renderPayload(data);
+        } catch (_error) {
+            renderError("Ошибка сети при загрузке склеек.");
+        }
+    }
+
+    function updateUrl() {
+        const params = new URLSearchParams();
+        if (currentQuery) {
+            params.set("q", currentQuery);
+        }
+        if (currentPage > 1) {
+            params.set("page", String(currentPage));
+        }
+        if (currentDateFrom) {
+            params.set("date_from", currentDateFrom);
+        }
+        if (currentDateTo) {
+            params.set("date_to", currentDateTo);
+        }
+        const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+        window.history.replaceState({}, "", nextUrl);
+    }
+
+    searchFormEl.addEventListener("submit", (event) => {
+        event.preventDefault();
+        currentQuery = searchInputEl.value.trim();
+        currentDateFrom = dateFromInputEl.value;
+        currentDateTo = dateToInputEl.value;
+        if (!currentDateFrom || !currentDateTo) {
+            renderError("Выберите обе даты периода.");
+            return;
+        }
+        currentPage = 1;
+        updateUrl();
+        loadGlues();
+    });
+
+    paginationEl.addEventListener("click", (event) => {
+        const link = event.target.closest("a[data-page]");
+        if (!link || link.getAttribute("aria-disabled") === "true") {
+            return;
+        }
+        event.preventDefault();
+        const nextPage = Number(link.dataset.page || "0");
+        if (!Number.isFinite(nextPage) || nextPage <= 0) {
+            return;
+        }
+        currentPage = nextPage;
+        updateUrl();
+        loadGlues();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    dateFromInputEl.addEventListener("change", () => {
+        currentDateFrom = dateFromInputEl.value;
+        if (!currentDateFrom || !currentDateTo) {
+            renderError("Выберите обе даты периода.");
+            return;
+        }
+        currentPage = 1;
+        updateUrl();
+        loadGlues();
+    });
+
+    dateToInputEl.addEventListener("change", () => {
+        currentDateTo = dateToInputEl.value;
+        if (!currentDateFrom || !currentDateTo) {
+            renderError("Выберите обе даты периода.");
+            return;
+        }
+        currentPage = 1;
+        updateUrl();
+        loadGlues();
+    });
+
+    updatePeriodHint(currentDateFrom, currentDateTo);
+    loadGlues();
+</script>
 </body>
 </html>

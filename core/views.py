@@ -123,6 +123,20 @@ INITIAL_SYNC_WEEKS = 25
 INITIAL_SYNC_DAYS = INITIAL_SYNC_WEEKS * 7
 
 
+def csrf_failure(request, reason="", template_name="errors/csrf.html"):
+    is_session_issue = "incorrect" in str(reason).lower() or "missing" in str(reason).lower()
+    return render(
+        request,
+        template_name,
+        {
+            "reason": reason,
+            "is_session_issue": is_session_issue,
+            "next_url": request.get_full_path() if request.method == "GET" else request.META.get("HTTP_REFERER", ""),
+        },
+        status=403,
+    )
+
+
 def _get_or_create_unit_economics_settings(seller: SellerAccount) -> UnitEconomicsSettings:
     settings_obj, _ = UnitEconomicsSettings.objects.get_or_create(seller=seller)
     return settings_obj
@@ -1061,6 +1075,24 @@ def _get_home_reminders_snapshot(seller: SellerAccount | None) -> list[dict]:
     return groups if isinstance(groups, list) else []
 
 
+def _get_home_reminders_generated_at(seller: SellerAccount | None):
+    if not seller:
+        return None
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        return None
+    raw_value = reminders_meta.get("generated_at")
+    if not raw_value:
+        return None
+    dt = parse_datetime(str(raw_value))
+    if dt is None:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_default_timezone())
+    return dt
+
+
 def _apply_home_reminder_state(groups: list[dict], seller: SellerAccount | None) -> list[dict]:
     if not seller:
         return []
@@ -1499,7 +1531,7 @@ def _recommended_orders_days_back(seller: SellerAccount, fallback_days: int = 17
     return int(fallback_days)
 
 
-def _recommended_realization_date_from(seller: SellerAccount, fallback_days: int = 175, overlap_days: int = 14) -> date:
+def _recommended_realization_date_from(seller: SellerAccount, fallback_days: int = 175, overlap_days: int = 10) -> date:
     max_rr_dt = RealizationReportDetail.objects.filter(seller=seller).aggregate(max_dt=Max("rr_dt")).get("max_dt")
     if max_rr_dt:
         return max_rr_dt - timedelta(days=int(overlap_days))
@@ -1727,7 +1759,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         today = timezone.localdate()
         ads_date_from = _recommended_ads_date_from(seller=seller, fallback_days=30, overlap_days=7)
         orders_days_back = _recommended_orders_days_back(seller=seller, fallback_days=INITIAL_SYNC_DAYS, overlap_days=3)
-        realization_date_from = _recommended_realization_date_from(seller=seller, fallback_days=INITIAL_SYNC_DAYS, overlap_days=14)
+        realization_date_from = _recommended_realization_date_from(seller=seller, fallback_days=INITIAL_SYNC_DAYS, overlap_days=10)
         steps = [
             ("Карточки товаров", "products", sync_products_content, {"seller": seller}),
             ("Цены и скидки", "prices", sync_product_size_prices, {"seller": seller}),
@@ -1804,7 +1836,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     date_from=realization_date_from,
                     date_to=today,
                     period="weekly",
-                    limit=10000,
+                    limit=100000,
                     respect_rate_limit=False,
                 )
             )
@@ -2161,7 +2193,21 @@ def home(request):
                 "revenue": data["revenue"],
             }
         )
-    reminder_groups = _apply_home_reminder_state(_get_home_reminders_snapshot(seller), seller)
+    reminder_snapshot = _get_home_reminders_snapshot(seller)
+    reminder_generated_at = _get_home_reminders_generated_at(seller)
+    is_snapshot_stale = (
+        reminder_generated_at is None
+        or timezone.localtime(reminder_generated_at).date() < timezone.localdate()
+    )
+    if not reminder_snapshot or is_snapshot_stale:
+        try:
+            reminder_snapshot = _build_home_reminder_groups(seller)
+            _save_home_reminders_snapshot(seller, reminder_snapshot, generated_at=timezone.now())
+        except Exception:
+            # Main dashboard should still render even if reminder pipeline fails.
+            reminder_snapshot = reminder_snapshot or []
+
+    reminder_groups = _apply_home_reminder_state(reminder_snapshot, seller)
 
     return render(
         request,
@@ -2559,13 +2605,45 @@ def sync_orders_current_api(request):
 @login_required
 def replenishment_report(request):
     seller = _get_seller_for_user(request.user)
-    data = calculate_replenishment(seller) if seller else []
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
 
     return render(
         request,
         "replenishment/report.html",
-        {"rows": data, "seller": seller, "last_sync_at": last_sync_at}
+        {"seller": seller, "last_sync_at": last_sync_at}
+    )
+
+
+@login_required
+@require_GET
+def replenishment_report_api(request):
+    only_with_fbs_stock = (request.GET.get("only_with_fbs_stock") or "").strip().lower() in {"1", "true", "yes", "on"}
+    seller = _get_seller_for_user(request.user)
+
+    try:
+        rows = calculate_replenishment(seller, only_with_fbs_stock=only_with_fbs_stock) if seller else []
+    except Exception as exc:
+        _log_app_error(
+            source="replenishment.api",
+            message=f"Не удалось построить отчёт пополнения: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            context={"only_with_fbs_stock": only_with_fbs_stock},
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": "Не удалось построить отчет пополнения."}, status=500)
+
+    return JsonResponse(
+        {
+            "rows": rows,
+            "summary": {
+                "total_rows": len(rows),
+                "total_to_ship": int(sum(int(item.get("to_ship") or 0) for item in rows)),
+                "only_with_fbs_stock": bool(only_with_fbs_stock),
+            },
+        },
+        status=200,
     )
 
 
@@ -2707,10 +2785,11 @@ def dashboard_supply_recommendations_api(request):
     transit_warehouse = (request.GET.get("transit_warehouse") or "").strip()
     main_warehouse = (request.GET.get("main_warehouse") or "").strip()
     include_food = (request.GET.get("include_food") or "").strip().lower() in {"1", "true", "yes", "on"}
+    only_with_fbs_stock = (request.GET.get("only_with_fbs_stock") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     if not date_from_raw or not date_to_raw:
         return JsonResponse(
-            {"error": "date_from and date_to are required query params in YYYY-MM-DD format"},
+            {"error": "Нужно указать date_from и date_to в формате YYYY-MM-DD."},
             status=400,
         )
 
@@ -2718,10 +2797,10 @@ def dashboard_supply_recommendations_api(request):
         date_from = date.fromisoformat(date_from_raw)
         date_to = date.fromisoformat(date_to_raw)
     except ValueError:
-        return JsonResponse({"error": "Invalid date format. Use YYYY-MM-DD"}, status=400)
+        return JsonResponse({"error": "Некорректный формат даты. Используйте YYYY-MM-DD."}, status=400)
 
     if date_from > date_to:
-        return JsonResponse({"error": "date_from must be <= date_to"}, status=400)
+        return JsonResponse({"error": "Дата начала не может быть позже даты окончания."}, status=400)
 
     try:
         seller = _get_seller_for_user(request.user)
@@ -2741,13 +2820,14 @@ def dashboard_supply_recommendations_api(request):
             transit_warehouse=transit_warehouse or None,
             main_warehouse=main_warehouse or None,
             include_food=include_food,
+            only_with_fbs_stock=only_with_fbs_stock,
         )
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     except Exception as exc:
         _log_app_error(
             source="recommendations.api",
-            message=f"Internal error while building recommendations: {exc}",
+            message=f"Не удалось построить рекомендации к поставкам: {exc}",
             user=request.user,
             seller=_get_seller_for_user(request.user),
             path=request.path,
@@ -2757,10 +2837,11 @@ def dashboard_supply_recommendations_api(request):
                 "transit_warehouse": transit_warehouse,
                 "main_warehouse": main_warehouse,
                 "include_food": include_food,
+                "only_with_fbs_stock": only_with_fbs_stock,
             },
             traceback_text=traceback.format_exc(),
         )
-        return JsonResponse({"error": "Internal error while building recommendations"}, status=500)
+        return JsonResponse({"error": "Не удалось построить рекомендации к поставкам."}, status=500)
 
     return JsonResponse(payload, status=200)
 
@@ -3224,7 +3305,44 @@ def product_glues_report(request):
     seller = _get_or_create_seller_for_user(request.user)
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     query = (request.GET.get("q") or "").strip()
+    today = timezone.localdate()
+    default_date_to = today
+    default_date_from = today - timedelta(days=29)
+    date_from_raw = (request.GET.get("date_from") or "").strip()
+    date_to_raw = (request.GET.get("date_to") or "").strip()
+    try:
+        selected_date_from = date.fromisoformat(date_from_raw) if date_from_raw else default_date_from
+    except ValueError:
+        selected_date_from = default_date_from
+    try:
+        selected_date_to = date.fromisoformat(date_to_raw) if date_to_raw else default_date_to
+    except ValueError:
+        selected_date_to = default_date_to
+    if selected_date_from > selected_date_to:
+        selected_date_from = default_date_from
+        selected_date_to = default_date_to
 
+    return render(
+        request,
+        "products/glues.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+            "query": query,
+            "default_date_from": selected_date_from.isoformat(),
+            "default_date_to": selected_date_to.isoformat(),
+        },
+    )
+
+
+def _build_product_glues_payload(
+    *,
+    seller: SellerAccount,
+    query: str,
+    page_number: int,
+    date_from_value: date,
+    date_to_value: date,
+) -> dict:
     base_products_qs = Product.objects.filter(seller=seller, imt_id__isnull=False)
     filtered_imt_ids: list[int] | None = None
     if query:
@@ -3262,9 +3380,6 @@ def product_glues_report(request):
     )
     nm_ids = [int(p.nm_id) for p in products]
 
-    today = timezone.localdate()
-    last_30_from = today - timedelta(days=29)
-
     orders_by_nm = {
         int(row["nm_id"]): {
             "orders": int(row.get("orders") or 0),
@@ -3273,7 +3388,7 @@ def product_glues_report(request):
         }
         for row in (
             Order.objects
-            .filter(seller=seller, nm_id__in=nm_ids, order_date__date__gte=last_30_from, order_date__date__lte=today)
+            .filter(seller=seller, nm_id__in=nm_ids, order_date__date__gte=date_from_value, order_date__date__lte=date_to_value)
             .values("nm_id")
             .annotate(
                 orders=Count("id"),
@@ -3312,16 +3427,16 @@ def product_glues_report(request):
     spend_by_advert = _build_campaign_spend_totals(
         seller=seller,
         advert_ids=sorted(related_advert_ids),
-        date_from=last_30_from,
-        date_to=today,
+        date_from=date_from_value,
+        date_to=date_to_value,
     )
     participant_nm_ids_for_ads: set[int] = set()
     for advert_id_int in related_advert_ids:
         participant_nm_ids_for_ads.update(campaign_nm_ids_map.get(advert_id_int, []))
     sales_base_by_nm_for_ads = _build_sales_base_by_nm(
         seller=seller,
-        date_from=last_30_from,
-        date_to=today,
+        date_from=date_from_value,
+        date_to=date_to_value,
         nm_ids=participant_nm_ids_for_ads,
     )
     for target_nm_id in nm_ids_set:
@@ -3428,21 +3543,73 @@ def product_glues_report(request):
     glue_rows.sort(key=lambda row: (row["orders_30d"], row["buyouts_30d"], row["items_count"]), reverse=True)
 
     paginator = Paginator(glue_rows, 20)
-    page_obj = paginator.get_page(request.GET.get("page") or 1)
+    page_obj = paginator.get_page(page_number or 1)
 
-    return render(
-        request,
-        "products/glues.html",
-        {
-            "seller": seller,
-            "last_sync_at": last_sync_at,
-            "query": query,
-            "page_obj": page_obj,
-            "total_glues_count": len(glue_rows),
-            "last_30_from": last_30_from,
-            "last_30_to": today,
+    return {
+        "query": query,
+        "total_glues_count": len(glue_rows),
+        "date_from": date_from_value.isoformat(),
+        "date_to": date_to_value.isoformat(),
+        "page": {
+            "number": page_obj.number,
+            "has_previous": page_obj.has_previous(),
+            "has_next": page_obj.has_next(),
+            "previous_page_number": page_obj.previous_page_number() if page_obj.has_previous() else None,
+            "next_page_number": page_obj.next_page_number() if page_obj.has_next() else None,
+            "num_pages": paginator.num_pages,
         },
-    )
+        "glues": list(page_obj.object_list),
+    }
+
+
+@login_required
+@require_GET
+def product_glues_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    query = (request.GET.get("q") or "").strip()
+    raw_page = (request.GET.get("page") or "1").strip()
+    raw_date_from = (request.GET.get("date_from") or "").strip()
+    raw_date_to = (request.GET.get("date_to") or "").strip()
+    try:
+        page_number = max(int(raw_page), 1)
+    except ValueError:
+        return JsonResponse({"error": "Некорректный номер страницы."}, status=400)
+    if not raw_date_from or not raw_date_to:
+        return JsonResponse({"error": "Нужно указать date_from и date_to в формате YYYY-MM-DD."}, status=400)
+    try:
+        date_from_value = date.fromisoformat(raw_date_from)
+        date_to_value = date.fromisoformat(raw_date_to)
+    except ValueError:
+        return JsonResponse({"error": "Некорректный формат даты. Используйте YYYY-MM-DD."}, status=400)
+    if date_from_value > date_to_value:
+        return JsonResponse({"error": "Дата начала не может быть позже даты окончания."}, status=400)
+
+    try:
+        payload = _build_product_glues_payload(
+            seller=seller,
+            query=query,
+            page_number=page_number,
+            date_from_value=date_from_value,
+            date_to_value=date_to_value,
+        )
+    except Exception as exc:
+        _log_app_error(
+            source="product_glues.api",
+            message=f"Не удалось построить отчёт по склейкам: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            context={
+                "q": query,
+                "page": page_number,
+                "date_from": raw_date_from,
+                "date_to": raw_date_to,
+            },
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": "Не удалось загрузить склейки."}, status=500)
+
+    return JsonResponse(payload, status=200)
 
 
 def _build_product_card_heavy_context(

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Не удалось подтвердить действие</title>
+    <style>
+        :root {
+            --bg: #f3f7fb;
+            --card: rgba(255, 255, 255, 0.96);
+            --text: #132033;
+            --muted: #5f6c7b;
+            --line: rgba(19, 32, 51, 0.1);
+            --accent: #14532d;
+            --accent-soft: #ecfdf3;
+            --warn-soft: #fff7ed;
+            --warn-text: #9a3412;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 18% 18%, rgba(133, 239, 201, 0.42), transparent 30%),
+                radial-gradient(circle at 82% 10%, rgba(191, 219, 254, 0.42), transparent 28%),
+                var(--bg);
+            display: grid;
+            place-items: center;
+            padding: 24px 14px;
+        }
+
+        .card {
+            width: min(680px, 100%);
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            box-shadow: 0 18px 48px rgba(19, 32, 51, 0.12);
+            padding: 28px;
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 32px;
+            line-height: 1.15;
+        }
+
+        p {
+            margin: 0 0 12px;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.55;
+        }
+
+        .notice {
+            margin: 18px 0;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: var(--warn-soft);
+            color: var(--warn-text);
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .steps {
+            margin: 18px 0 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            gap: 10px;
+        }
+
+        .steps li {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: var(--accent-soft);
+            border: 1px solid rgba(20, 83, 45, 0.08);
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .actions {
+            margin-top: 22px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 46px;
+            padding: 0 16px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .reason {
+            margin-top: 18px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Не удалось подтвердить действие</h1>
+        <p>Запрос не прошел проверку безопасности, поэтому мы его остановили. Обычно это не ошибка данных, а устаревшая страница или завершившаяся сессия.</p>
+
+        <div class="notice">
+            {% if is_session_issue %}
+                Чаще всего это происходит после повторного входа в другой вкладке, возврата назад в браузере или долгого простоя страницы.
+            {% else %}
+                Текущая страница больше не может безопасно отправить форму или запрос в текущей сессии.
+            {% endif %}
+        </div>
+
+        <ul class="steps">
+            <li>Обновите страницу, с которой выполняли действие, и попробуйте еще раз.</li>
+            <li>Если ошибка повторяется, откройте страницу заново через меню сервиса, а не через кнопку “Назад”.</li>
+            <li>Если вы недавно входили в аккаунт в другой вкладке, войдите заново и повторите действие.</li>
+        </ul>
+
+        <div class="actions">
+            <a class="btn btn-primary" href="javascript:window.location.reload()">Обновить страницу</a>
+            <a class="btn" href="/login/">Войти заново</a>
+            <a class="btn" href="/">На главную</a>
+        </div>
+
+        {% if reason %}
+            <div class="reason">Техническая причина: {{ reason }}</div>
+        {% endif %}
+    </main>
+</body>
+</html>
