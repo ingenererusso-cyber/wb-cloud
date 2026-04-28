@@ -22,7 +22,7 @@ from django.db.models import Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate, TruncHour
-from django.db import OperationalError, ProgrammingError, close_old_connections
+from django.db import OperationalError, ProgrammingError, close_old_connections, transaction
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -1939,25 +1939,42 @@ def register_trial(request):
 
     token = get_random_string(48)
     now_dt = timezone.now()
-    lead, _ = SignupLead.objects.update_or_create(
-        email=email,
-        defaults={
-            "full_name": full_name,
-            "password_hash": make_password(password),
-            "confirm_token": token,
-            "expires_at": now_dt + timedelta(hours=24),
-            "confirmed_at": None,
-        },
-    )
-    confirm_url = request.build_absolute_uri(reverse("signup_confirm", kwargs={"token": lead.confirm_token}))
-    mail_subject = "Подтвердите регистрацию в Vendra"
-    mail_body = (
-        f"{full_name}, здравствуйте!\n\n"
-        "Спасибо за регистрацию. Подтвердите e-mail, чтобы активировать бесплатный полный доступ на 3 дня:\n"
-        f"{confirm_url}\n\n"
-        "Ссылка действует 24 часа."
-    )
-    send_mail(mail_subject, mail_body, None, [email], fail_silently=False)
+    try:
+        with transaction.atomic():
+            lead, _ = SignupLead.objects.update_or_create(
+                email=email,
+                defaults={
+                    "full_name": full_name,
+                    "password_hash": make_password(password),
+                    "confirm_token": token,
+                    "expires_at": now_dt + timedelta(hours=24),
+                    "confirmed_at": None,
+                },
+            )
+            confirm_url = request.build_absolute_uri(reverse("signup_confirm", kwargs={"token": lead.confirm_token}))
+            mail_subject = "Подтвердите регистрацию в Vendra"
+            mail_body = (
+                f"{full_name}, здравствуйте!\n\n"
+                "Спасибо за регистрацию. Подтвердите e-mail, чтобы активировать бесплатный полный доступ на 3 дня:\n"
+                f"{confirm_url}\n\n"
+                "Ссылка действует 24 часа."
+            )
+            send_mail(mail_subject, mail_body, None, [email], fail_silently=False)
+    except Exception as exc:
+        _log_app_error(
+            source="signup.register",
+            message=f"Не удалось завершить регистрацию: {exc}",
+            path=request.path,
+            context={"email": email},
+            traceback_text=traceback.format_exc(),
+        )
+        return render(
+            request,
+            "marketing/register_result.html",
+            {"ok": False, "error": "Не удалось отправить письмо подтверждения. Попробуйте еще раз чуть позже."},
+            status=500,
+        )
+
     return render(request, "marketing/register_result.html", {"ok": True, "email": email}, status=200)
 
 
@@ -1979,23 +1996,48 @@ def signup_confirm(request, token: str):
             status=400,
         )
 
-    user = User.objects.filter(email__iexact=lead.email).first()
-    if not user:
-        username = _generate_unique_username_from_email(lead.email)
-        user = User.objects.create(
-            username=username,
-            email=lead.email,
-            first_name=(lead.full_name or "").strip()[:150],
-            password=lead.password_hash,
-        )
-    elif lead.password_hash and not user.password:
-        user.password = lead.password_hash
-        user.save(update_fields=["password"])
+    try:
+        with transaction.atomic():
+            lead = SignupLead.objects.select_for_update().get(pk=lead.pk)
+            if lead.confirmed_at is not None:
+                user = User.objects.filter(email__iexact=lead.email).first()
+                if user:
+                    django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+                    get_or_create_subscription(user)
+                return render(request, "marketing/confirm_result.html", {"ok": True, "already_confirmed": True}, status=200)
 
-    _get_or_create_seller_for_user(user)
-    get_or_create_subscription(user)
-    lead.confirmed_at = timezone.now()
-    lead.save(update_fields=["confirmed_at", "updated_at"])
+            user = User.objects.filter(email__iexact=lead.email).first()
+            if not user:
+                username = _generate_unique_username_from_email(lead.email)
+                user = User.objects.create(
+                    username=username,
+                    email=lead.email,
+                    first_name=(lead.full_name or "").strip()[:150],
+                    password=lead.password_hash,
+                )
+            elif lead.password_hash and not user.password:
+                user.password = lead.password_hash
+                user.save(update_fields=["password"])
+
+            _get_or_create_seller_for_user(user)
+            get_or_create_subscription(user)
+            lead.confirmed_at = timezone.now()
+            lead.save(update_fields=["confirmed_at", "updated_at"])
+    except Exception as exc:
+        _log_app_error(
+            source="signup.confirm",
+            message=f"Не удалось подтвердить регистрацию: {exc}",
+            path=request.path,
+            context={"token_prefix": token[:12]},
+            traceback_text=traceback.format_exc(),
+        )
+        return render(
+            request,
+            "marketing/confirm_result.html",
+            {"ok": False, "error": "Не удалось завершить подтверждение. Попробуйте открыть ссылку еще раз или зарегистрируйтесь заново."},
+            status=500,
+        )
+
     django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     return render(request, "marketing/confirm_result.html", {"ok": True, "already_confirmed": False}, status=200)
 
