@@ -4,6 +4,7 @@ from datetime import date
 from datetime import timedelta
 from typing import Any
 
+from django.utils import timezone
 from core.models import (
     SellerAccount,
     TransitDirectionTariff,
@@ -112,32 +113,80 @@ def sync_warehouse_tariffs(seller: SellerAccount, on_date: date | None = None) -
     tariff_date = on_date or date.today()
     warehouse_list = client.get_tariffs_box(on_date=tariff_date)
 
-    synced = 0
+    prepared_rows: list[tuple[str, dict]] = []
+    now_dt = timezone.now()
     for row in warehouse_list:
         warehouse_name = (row.get("warehouseName") or "").strip()
         if not warehouse_name:
             continue
 
-        WbWarehouseTariff.objects.update_or_create(
-            seller=seller,
-            warehouse_name=warehouse_name,
-            tariff_date=tariff_date,
-            defaults={
-                "geo_name": _normalize_text(row.get("geoName")) or None,
-                "box_delivery_base": _to_float(row.get("boxDeliveryBase")),
-                "box_delivery_coef_expr": _to_float(row.get("boxDeliveryCoefExpr")),
-                "box_delivery_liter": _to_float(row.get("boxDeliveryLiter")),
-                "box_delivery_marketplace_base": _to_float(row.get("boxDeliveryMarketplaceBase")),
-                "box_delivery_marketplace_coef_expr": _to_float(row.get("boxDeliveryMarketplaceCoefExpr")),
-                "box_delivery_marketplace_liter": _to_float(row.get("boxDeliveryMarketplaceLiter")),
-                "box_storage_base": _to_float(row.get("boxStorageBase")),
-                "box_storage_coef_expr": _to_float(row.get("boxStorageCoefExpr")),
-                "box_storage_liter": _to_float(row.get("boxStorageLiter")),
-            },
+        prepared_rows.append(
+            (
+                warehouse_name,
+                {
+                    "geo_name": _normalize_text(row.get("geoName")) or None,
+                    "box_delivery_base": _to_float(row.get("boxDeliveryBase")),
+                    "box_delivery_coef_expr": _to_float(row.get("boxDeliveryCoefExpr")),
+                    "box_delivery_liter": _to_float(row.get("boxDeliveryLiter")),
+                    "box_delivery_marketplace_base": _to_float(row.get("boxDeliveryMarketplaceBase")),
+                    "box_delivery_marketplace_coef_expr": _to_float(row.get("boxDeliveryMarketplaceCoefExpr")),
+                    "box_delivery_marketplace_liter": _to_float(row.get("boxDeliveryMarketplaceLiter")),
+                    "box_storage_base": _to_float(row.get("boxStorageBase")),
+                    "box_storage_coef_expr": _to_float(row.get("boxStorageCoefExpr")),
+                    "box_storage_liter": _to_float(row.get("boxStorageLiter")),
+                    "updated_at": now_dt,
+                },
+            )
         )
-        synced += 1
 
-    return synced
+    if not prepared_rows:
+        return 0
+
+    existing_map = {
+        str(item.warehouse_name): item
+        for item in WbWarehouseTariff.objects.filter(
+            seller=seller,
+            tariff_date=tariff_date,
+            warehouse_name__in=[row[0] for row in prepared_rows],
+        )
+    }
+    to_create: list[WbWarehouseTariff] = []
+    to_update: list[WbWarehouseTariff] = []
+    update_fields = [
+        "geo_name",
+        "box_delivery_base",
+        "box_delivery_coef_expr",
+        "box_delivery_liter",
+        "box_delivery_marketplace_base",
+        "box_delivery_marketplace_coef_expr",
+        "box_delivery_marketplace_liter",
+        "box_storage_base",
+        "box_storage_coef_expr",
+        "box_storage_liter",
+        "updated_at",
+    ]
+    for warehouse_name, defaults in prepared_rows:
+        existing = existing_map.get(warehouse_name)
+        if existing is None:
+            to_create.append(
+                WbWarehouseTariff(
+                    seller=seller,
+                    warehouse_name=warehouse_name,
+                    tariff_date=tariff_date,
+                    **defaults,
+                )
+            )
+            continue
+        for field_name in update_fields:
+            setattr(existing, field_name, defaults[field_name])
+        to_update.append(existing)
+
+    if to_create:
+        WbWarehouseTariff.objects.bulk_create(to_create, batch_size=2000)
+    if to_update:
+        WbWarehouseTariff.objects.bulk_update(to_update, update_fields, batch_size=2000)
+
+    return len(prepared_rows)
 
 
 def sync_warehouse_tariffs_for_period(
@@ -166,7 +215,8 @@ def sync_transit_direction_tariffs(seller: SellerAccount) -> int:
     client = WBSuppliesClient(seller.api_token_plain)
     rows = client.get_transit_tariffs()
 
-    synced = 0
+    prepared_rows: list[tuple[str, str, dict]] = []
+    now_dt = timezone.now()
     for row in rows:
         transit_warehouse = _normalize_text(row.get("transitWarehouseName"))
         target_warehouse = _normalize_text(row.get("destinationWarehouseName"))
@@ -177,21 +227,65 @@ def sync_transit_direction_tariffs(seller: SellerAccount) -> int:
         target_region = _resolve_target_region(target_warehouse)
         target_region = _normalize_target_region_for_known_warehouses(target_warehouse, target_region)
 
-        TransitDirectionTariff.objects.update_or_create(
-            seller=seller,
-            transit_warehouse=transit_warehouse,
-            target_warehouse=target_warehouse,
-            defaults={
-                "target_region": target_region,
-                "tariff_per_pallet": _to_float(row.get("palletTariff")),
-                "box_price_per_liter_lt_1500": lt_1500,
-                "box_price_per_liter_gt_1500": gt_1500,
-                "delivery_eta": _normalize_text(row.get("activeFrom")) or None,
-            },
+        prepared_rows.append(
+            (
+                transit_warehouse,
+                target_warehouse,
+                {
+                    "target_region": target_region,
+                    "tariff_per_pallet": _to_float(row.get("palletTariff")),
+                    "box_price_per_liter_lt_1500": lt_1500,
+                    "box_price_per_liter_gt_1500": gt_1500,
+                    "delivery_eta": _normalize_text(row.get("activeFrom")) or None,
+                    "updated_at": now_dt,
+                },
+            )
         )
-        synced += 1
 
-    return synced
+    if not prepared_rows:
+        return 0
+
+    existing_map = {
+        (str(item.transit_warehouse), str(item.target_warehouse or "")): item
+        for item in TransitDirectionTariff.objects.filter(
+            seller=seller,
+            transit_warehouse__in=[row[0] for row in prepared_rows],
+            target_warehouse__in=[row[1] for row in prepared_rows],
+        )
+    }
+    to_create: list[TransitDirectionTariff] = []
+    to_update: list[TransitDirectionTariff] = []
+    update_fields = [
+        "target_region",
+        "tariff_per_pallet",
+        "box_price_per_liter_lt_1500",
+        "box_price_per_liter_gt_1500",
+        "delivery_eta",
+        "updated_at",
+    ]
+    for transit_warehouse, target_warehouse, defaults in prepared_rows:
+        key = (transit_warehouse, target_warehouse)
+        existing = existing_map.get(key)
+        if existing is None:
+            to_create.append(
+                TransitDirectionTariff(
+                    seller=seller,
+                    transit_warehouse=transit_warehouse,
+                    target_warehouse=target_warehouse,
+                    **defaults,
+                )
+            )
+            continue
+        for field_name in update_fields:
+            setattr(existing, field_name, defaults[field_name])
+        to_update.append(existing)
+
+    if to_create:
+        TransitDirectionTariff.objects.bulk_create(to_create, batch_size=2000)
+    if to_update:
+        TransitDirectionTariff.objects.bulk_update(to_update, update_fields, batch_size=2000)
+
+    return len(prepared_rows)
 
 
 def sync_acceptance_coefficients(

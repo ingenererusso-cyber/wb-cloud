@@ -95,6 +95,13 @@
             padding: 14px 15px;
         }
 
+        .metric-card.is-loading {
+            min-height: 114px;
+            background: linear-gradient(90deg, rgba(241, 245, 249, 0.95) 25%, rgba(226, 232, 240, 0.95) 37%, rgba(241, 245, 249, 0.95) 63%);
+            background-size: 400% 100%;
+            animation: dashboard-skeleton 1.2s ease infinite;
+        }
+
         .metric-title {
             margin: 0;
             font-size: 13px;
@@ -408,6 +415,29 @@
             background: rgba(255, 255, 255, 0.58);
         }
 
+        .reminders-loading,
+        .reminders-error {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.72);
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .reminders-loading {
+            min-height: 120px;
+            background: linear-gradient(90deg, rgba(241, 245, 249, 0.95) 25%, rgba(226, 232, 240, 0.95) 37%, rgba(241, 245, 249, 0.95) 63%);
+            background-size: 400% 100%;
+            animation: dashboard-skeleton 1.2s ease infinite;
+        }
+
+        .reminders-error {
+            border-color: #fecaca;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
         .trend-card {
             margin-top: 12px;
             border: 1px solid var(--line);
@@ -522,6 +552,11 @@
             100% { background-position: 0 0; }
         }
 
+        @keyframes dashboard-skeleton {
+            0% { background-position: 100% 0; }
+            100% { background-position: 0 0; }
+        }
+
         .trend-error {
             border: 1px solid #fecaca;
             background: #fee2e2;
@@ -629,34 +664,34 @@
         <div id="sync-status-banner" class="hint-banner hint-banner-info"></div>
 
         <section class="metrics">
-            <article class="metric-card">
+            <article class="metric-card is-loading">
                 <p class="metric-title">Выручка (30 дней)</p>
-                <p class="metric-value">{{ revenue_30d|floatformat:2 }} ₽</p>
-                <p class="metric-meta">Средний чек: {{ avg_check_30d|floatformat:2 }} ₽</p>
+                <p class="metric-value" id="metric-revenue">—</p>
+                <p class="metric-meta" id="metric-avg-check">Загружаем...</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card is-loading">
                 <p class="metric-title">Заказы / Выкупы</p>
-                <p class="metric-value">{{ total_orders_30d }} / {{ buyouts_30d }}</p>
-                <p class="metric-meta">Процент выкупа: {{ buyout_rate_30d|floatformat:2 }}%</p>
+                <p class="metric-value" id="metric-orders-buyouts">—</p>
+                <p class="metric-meta" id="metric-buyout-rate">Загружаем...</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card is-loading">
                 <p class="metric-title">Доля локальных заказов</p>
-                <p class="metric-value">{{ local_share_orders_30d|floatformat:2 }}%</p>
+                <p class="metric-value" id="metric-local-share">—</p>
                 <p class="metric-meta">По всем заказам за 30 дней</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card is-loading">
                 <p class="metric-title">Остатки FBO / Остатки FBS</p>
-                <p class="metric-value">{{ fbo_stock_total }} / {{ fbs_stock_total }}</p>
+                <p class="metric-value" id="metric-stocks">—</p>
                 <p class="metric-meta">Текущие остатки по складам WB и продавца</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card is-loading">
                 <p class="metric-title">Расход на рекламу (30 дней)</p>
-                <p class="metric-value">{{ ad_spend_30d|floatformat:2 }} ₽</p>
-                <p class="metric-meta">Активных РК: {{ active_ads_count }}</p>
+                <p class="metric-value" id="metric-ad-spend">—</p>
+                <p class="metric-meta" id="metric-active-ads">Загружаем...</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card is-loading">
                 <p class="metric-title">Последняя синхронизация</p>
-                <p class="metric-value" style="font-size:22px;">{% if last_sync_at %}{{ last_sync_at|date:"d.m.Y H:i" }}{% else %}не было{% endif %}</p>
+                <p class="metric-value" id="metric-last-sync" style="font-size:22px;">—</p>
             </article>
         </section>
 
@@ -667,66 +702,10 @@
                     <p class="reminders-subtitle">Сервис собирает карточки-задачи, где сейчас нужно ваше участие: пополнить товар, проверить склейки и другие важные сигналы.</p>
                 </div>
             </div>
-            <div class="reminder-groups" id="reminder-groups">
-                {% for group in reminder_groups %}
-                    <section class="reminder-group" data-group-id="{{ group.group_id }}">
-                        <div class="reminder-group-head">
-                            <div>
-                                <h3 class="reminder-group-title">{{ group.title }}</h3>
-                                <p class="reminder-group-desc">{{ group.description }}</p>
-                            </div>
-                            <div class="reminder-count" data-role="count">{{ group.cards|length }}</div>
-                        </div>
-                        <div class="deck-list" data-role="deck-list">
-                            {% for card in group.cards %}
-                                <article class="deck-card" data-reminder-id="{{ card.reminder_id }}">
-                                    {% if card.photo_url %}
-                                        <img class="deck-thumb" src="{{ card.photo_url }}" alt="{{ card.title }}">
-                                    {% else %}
-                                        <div class="deck-thumb-fallback">Нет фото</div>
-                                    {% endif %}
-                                    <div>
-                                        <div class="deck-card-head">
-                                            <h4 class="deck-title">
-                                                {% if card.link %}
-                                                    <a href="{{ card.link }}">{{ card.title }}</a>
-                                                {% else %}
-                                                    {{ card.title }}
-                                                {% endif %}
-                                            </h4>
-                                            {% if card.badge %}
-                                                <span class="deck-badge {% if card.badge_tone == 'danger' %}deck-badge-danger{% else %}deck-badge-warn{% endif %}">{{ card.badge }}</span>
-                                            {% endif %}
-                                        </div>
-                                        <p class="deck-subtitle">{{ card.subtitle }}</p>
-                                        <p class="deck-meta">{{ card.meta }}</p>
-                                        <p class="deck-footnote">{{ card.footnote }}</p>
-                                        <div class="deck-actions">
-                                            {% if card.link %}
-                                                <a class="deck-action deck-action-primary" href="{{ card.link }}">Открыть</a>
-                                            {% endif %}
-                                            <button class="deck-action" type="button" data-reminder-action="snooze">Отложить вниз</button>
-                                            <button class="deck-action" type="button" data-reminder-action="dismiss">Закрыть</button>
-                                        </div>
-                                    </div>
-                                </article>
-                            {% endfor %}
-                        </div>
-                        <div class="deck-empty" data-role="empty" {% if group.cards %}style="display:none;"{% endif %}>{{ group.empty_text }}</div>
-                    </section>
-                {% empty %}
-                    <section class="reminder-group">
-                        <div class="reminder-group-head">
-                            <div>
-                                <h3 class="reminder-group-title">Спокойная зона</h3>
-                                <p class="reminder-group-desc">Сейчас сервис не видит сигналов, требующих вашего участия.</p>
-                            </div>
-                            <div class="reminder-count">0</div>
-                        </div>
-                        <div class="deck-empty" style="display:block;">Когда появятся товары без остатка, рискованные склейки или другие сигналы, они появятся здесь отдельными колодами.</div>
-                    </section>
-                {% endfor %}
-            </div>
+            <div id="reminders-loading" class="reminders-loading">Собираем сигналы, требующие внимания...</div>
+            <div id="reminders-error" class="reminders-error" style="display:none;"></div>
+            <div class="reminder-groups" id="reminder-groups" style="display:none;"></div>
+            <div id="reminders-empty" class="deck-empty" style="display:none;">Когда появятся товары без остатка, рискованные склейки или другие сигналы, они появятся здесь отдельными колодами.</div>
         </section>
 
         <section class="trend-card" id="dashboard-trend-card">
@@ -768,11 +747,14 @@
         </section>
     </main>
 
-    {{ daily_points_json|json_script:"dashboard-daily-points" }}
     {{ running_sync_task|json_script:"running-sync-task-data" }}
 
     <script>
         (function () {
+            const reminderGroupsRoot = document.getElementById("reminder-groups");
+            const remindersLoadingEl = document.getElementById("reminders-loading");
+            const remindersErrorEl = document.getElementById("reminders-error");
+            const remindersEmptyEl = document.getElementById("reminders-empty");
             const trendSvg = document.getElementById("trend-chart");
             const trendWrap = document.getElementById("trend-line-wrap");
             const trendLoading = document.getElementById("trend-loading");
@@ -791,6 +773,128 @@
                 metric: "orders",
                 requestId: 0,
             };
+
+            function formatMoney(value) {
+                return new Intl.NumberFormat("ru-RU", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                }).format(Number(value || 0));
+            }
+
+            function escapeHtml(value) {
+                return String(value ?? "")
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function fillMetricCard(cardId, value, metaId, metaText) {
+                const valueEl = document.getElementById(cardId);
+                if (valueEl) {
+                    valueEl.textContent = value;
+                    valueEl.closest(".metric-card")?.classList.remove("is-loading");
+                }
+                if (metaId) {
+                    const metaEl = document.getElementById(metaId);
+                    if (metaEl) metaEl.textContent = metaText || "";
+                }
+            }
+
+            function renderSummary(summary) {
+                fillMetricCard("metric-revenue", `${formatMoney(summary.revenue_30d)} ₽`, "metric-avg-check", `Средний чек: ${formatMoney(summary.avg_check_30d)} ₽`);
+                fillMetricCard("metric-orders-buyouts", `${summary.total_orders_30d} / ${summary.buyouts_30d}`, "metric-buyout-rate", `Процент выкупа: ${Number(summary.buyout_rate_30d || 0).toFixed(2)}%`);
+                fillMetricCard("metric-local-share", `${Number(summary.local_share_orders_30d || 0).toFixed(2)}%`);
+                fillMetricCard("metric-stocks", `${summary.fbo_stock_total} / ${summary.fbs_stock_total}`);
+                fillMetricCard("metric-ad-spend", `${formatMoney(summary.ad_spend_30d)} ₽`, "metric-active-ads", `Активных РК: ${summary.active_ads_count || 0}`);
+                fillMetricCard("metric-last-sync", summary.last_sync_at_label || "не было");
+            }
+
+            function buildReminderGroupsHtml(groups) {
+                return groups.map((group) => {
+                    const cards = Array.isArray(group.cards) ? group.cards : [];
+                    const cardsHtml = cards.map((card) => `
+                        <article class="deck-card" data-reminder-id="${escapeHtml(card.reminder_id || "")}">
+                            ${card.photo_url
+                                ? `<img class="deck-thumb" src="${escapeHtml(card.photo_url)}" alt="${escapeHtml(card.title || "")}">`
+                                : '<div class="deck-thumb-fallback">Нет фото</div>'}
+                            <div>
+                                <div class="deck-card-head">
+                                    <h4 class="deck-title">
+                                        ${card.link
+                                            ? `<a href="${escapeHtml(card.link)}">${escapeHtml(card.title || "")}</a>`
+                                            : escapeHtml(card.title || "")}
+                                    </h4>
+                                    ${card.badge
+                                        ? `<span class="deck-badge ${card.badge_tone === "danger" ? "deck-badge-danger" : "deck-badge-warn"}">${escapeHtml(card.badge)}</span>`
+                                        : ""}
+                                </div>
+                                <p class="deck-subtitle">${escapeHtml(card.subtitle || "")}</p>
+                                <p class="deck-meta">${escapeHtml(card.meta || "")}</p>
+                                <p class="deck-footnote">${escapeHtml(card.footnote || "")}</p>
+                                <div class="deck-actions">
+                                    ${card.link ? `<a class="deck-action deck-action-primary" href="${escapeHtml(card.link)}">Открыть</a>` : ""}
+                                    <button class="deck-action" type="button" data-reminder-action="snooze">Отложить вниз</button>
+                                    <button class="deck-action" type="button" data-reminder-action="dismiss">Закрыть</button>
+                                </div>
+                            </div>
+                        </article>
+                    `).join("");
+                    return `
+                        <section class="reminder-group" data-group-id="${escapeHtml(group.group_id || "")}">
+                            <div class="reminder-group-head">
+                                <div>
+                                    <h3 class="reminder-group-title">${escapeHtml(group.title || "")}</h3>
+                                    <p class="reminder-group-desc">${escapeHtml(group.description || "")}</p>
+                                </div>
+                                <div class="reminder-count" data-role="count">${cards.length}</div>
+                            </div>
+                            <div class="deck-list" data-role="deck-list">${cardsHtml}</div>
+                            <div class="deck-empty" data-role="empty" ${cards.length ? 'style="display:none;"' : ""}>${escapeHtml(group.empty_text || "Нет активных сигналов.")}</div>
+                        </section>
+                    `;
+                }).join("");
+            }
+
+            function renderReminderGroups(groups) {
+                if (!reminderGroupsRoot || !remindersLoadingEl || !remindersEmptyEl || !remindersErrorEl) return;
+                remindersLoadingEl.style.display = "none";
+                remindersErrorEl.style.display = "none";
+                const safeGroups = Array.isArray(groups) ? groups : [];
+                if (!safeGroups.length) {
+                    reminderGroupsRoot.style.display = "none";
+                    reminderGroupsRoot.innerHTML = "";
+                    remindersEmptyEl.style.display = "block";
+                    return;
+                }
+                remindersEmptyEl.style.display = "none";
+                reminderGroupsRoot.innerHTML = buildReminderGroupsHtml(safeGroups);
+                reminderGroupsRoot.style.display = "grid";
+                document.querySelectorAll(".reminder-group").forEach((groupEl) => {
+                    refreshReminderGroupState(groupEl);
+                });
+            }
+
+            async function loadDashboardSummary() {
+                const res = await fetch("{% url 'dashboard_summary_api' %}", { headers: { "Accept": "application/json" } });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Не удалось загрузить KPI");
+                }
+                renderSummary(data.summary || {});
+            }
+
+            async function loadDashboardReminders() {
+                if (remindersLoadingEl) remindersLoadingEl.style.display = "block";
+                if (remindersErrorEl) remindersErrorEl.style.display = "none";
+                const res = await fetch("{% url 'dashboard_reminders_api' %}", { headers: { "Accept": "application/json" } });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Не удалось загрузить блок напоминаний");
+                }
+                renderReminderGroups(data.groups || []);
+            }
 
             function setSegmentedActive(root, attr, value) {
                 if (!root) return;
@@ -936,7 +1040,30 @@
             });
 
             trendRetryBtn?.addEventListener("click", loadTrendData);
-            loadTrendData();
+            async function loadDashboardTopToBottom() {
+                try {
+                    await loadDashboardSummary();
+                } catch (_err) {
+                    document.querySelectorAll(".metric-card").forEach((cardEl) => cardEl.classList.remove("is-loading"));
+                }
+
+                try {
+                    await loadDashboardReminders();
+                } catch (err) {
+                    if (remindersLoadingEl) remindersLoadingEl.style.display = "none";
+                    if (reminderGroupsRoot) {
+                        reminderGroupsRoot.style.display = "none";
+                        reminderGroupsRoot.innerHTML = "";
+                    }
+                    if (remindersEmptyEl) remindersEmptyEl.style.display = "none";
+                    if (remindersErrorEl) {
+                        remindersErrorEl.textContent = err && err.message ? err.message : "Не удалось загрузить блок напоминаний.";
+                        remindersErrorEl.style.display = "block";
+                    }
+                }
+
+                loadTrendData();
+            }
 
             function getCookie(name) {
                 const value = `; ${document.cookie}`;
@@ -996,10 +1123,6 @@
                 }
                 applyDeckStack(groupEl);
             }
-
-            document.querySelectorAll(".reminder-group").forEach((groupEl) => {
-                refreshReminderGroupState(groupEl);
-            });
 
             document.getElementById("reminder-groups")?.addEventListener("click", async (event) => {
                 const actionBtn = event.target.closest("[data-reminder-action]");
@@ -1138,6 +1261,8 @@
                 if (syncBtn) syncBtn.disabled = true;
                 pollSyncStatus(runningSyncTaskData.task_id);
             }
+
+            loadDashboardTopToBottom();
         })();
     </script>
 </body>

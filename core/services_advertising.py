@@ -6,7 +6,6 @@ from typing import Dict, Iterable, List, Tuple
 
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
-from django.db import OperationalError
 
 from core.models import SellerAccount, WbAdvertCampaign, WbAdvertStatDaily
 from wb_api.client import WBPromotionClient
@@ -79,20 +78,6 @@ def _extract_campaign_start_date(row: Dict) -> date | None:
             if d is not None:
                 return d
     return None
-
-
-def _update_or_create_with_db_retry(model, *, lookup: Dict, defaults: Dict, attempts: int = 8):
-    last_exc: Exception | None = None
-    for attempt in range(1, attempts + 1):
-        try:
-            return model.objects.update_or_create(**lookup, defaults=defaults)
-        except OperationalError as exc:
-            last_exc = exc
-            if "database is locked" not in str(exc).lower() or attempt >= attempts:
-                raise
-            time.sleep(min(2.0, 0.2 * attempt))
-    if last_exc is not None:
-        raise last_exc
 
 
 def _chunks(values: List[int], size: int) -> Iterable[List[int]]:
@@ -213,6 +198,8 @@ def sync_ad_campaigns_and_stats(
         }
     campaigns_synced = 0
     advert_ids: List[int] = []
+    campaign_rows_map: Dict[int, Dict] = {}
+    campaigns_now = timezone.now()
 
     for row in campaigns_rows:
         if not isinstance(row, dict):
@@ -222,34 +209,68 @@ def sync_ad_campaigns_and_stats(
             continue
 
         advert_ids.append(advert_id)
-        _update_or_create_with_db_retry(
-            WbAdvertCampaign,
-            lookup={
-                "seller": seller,
-                "advert_id": advert_id,
-            },
-            defaults={
-                "campaign_name": (
-                    row.get("name")
-                    or row.get("advertName")
-                    or ((row.get("settings") or {}).get("name") if isinstance(row.get("settings"), dict) else None)
-                    or ""
-                ).strip() or None,
-                "advert_type": _to_int(row.get("type"), default=0) or None,
-                "status": _to_int(row.get("status"), default=0) or None,
-                "create_time": _to_datetime(
-                    (row.get("timestamps") or {}).get("created")
-                    if isinstance(row.get("timestamps"), dict)
-                    else row.get("createTime") or row.get("createDate")
-                ),
-                "change_time": _to_datetime(row.get("changeTime") or row.get("changeDate")),
-                "start_time": _to_datetime(row.get("startTime")),
-                "end_time": _to_datetime(row.get("endTime")),
-                "daily_budget": _to_float(row.get("dailyBudget"), 0.0) or None,
-                "raw_payload": row,
-            },
-        )
-        campaigns_synced += 1
+        campaign_rows_map[int(advert_id)] = {
+            "campaign_name": (
+                row.get("name")
+                or row.get("advertName")
+                or ((row.get("settings") or {}).get("name") if isinstance(row.get("settings"), dict) else None)
+                or ""
+            ).strip() or None,
+            "advert_type": _to_int(row.get("type"), default=0) or None,
+            "status": _to_int(row.get("status"), default=0) or None,
+            "create_time": _to_datetime(
+                (row.get("timestamps") or {}).get("created")
+                if isinstance(row.get("timestamps"), dict)
+                else row.get("createTime") or row.get("createDate")
+            ),
+            "change_time": _to_datetime(row.get("changeTime") or row.get("changeDate")),
+            "start_time": _to_datetime(row.get("startTime")),
+            "end_time": _to_datetime(row.get("endTime")),
+            "daily_budget": _to_float(row.get("dailyBudget"), 0.0) or None,
+            "raw_payload": row,
+            "updated_at": campaigns_now,
+        }
+    if campaign_rows_map:
+        existing_campaign_map = {
+            int(item.advert_id): item
+            for item in WbAdvertCampaign.objects.filter(
+                seller=seller,
+                advert_id__in=campaign_rows_map.keys(),
+            )
+        }
+        campaign_update_fields = [
+            "campaign_name",
+            "advert_type",
+            "status",
+            "create_time",
+            "change_time",
+            "start_time",
+            "end_time",
+            "daily_budget",
+            "raw_payload",
+            "updated_at",
+        ]
+        to_create_campaigns: List[WbAdvertCampaign] = []
+        to_update_campaigns: List[WbAdvertCampaign] = []
+        for advert_id, defaults in campaign_rows_map.items():
+            existing = existing_campaign_map.get(advert_id)
+            if existing is None:
+                to_create_campaigns.append(
+                    WbAdvertCampaign(
+                        seller=seller,
+                        advert_id=advert_id,
+                        **defaults,
+                    )
+                )
+                continue
+            for field_name in campaign_update_fields:
+                setattr(existing, field_name, defaults[field_name])
+            to_update_campaigns.append(existing)
+        if to_create_campaigns:
+            WbAdvertCampaign.objects.bulk_create(to_create_campaigns, batch_size=2000)
+        if to_update_campaigns:
+            WbAdvertCampaign.objects.bulk_update(to_update_campaigns, campaign_update_fields, batch_size=2000)
+        campaigns_synced = len(campaign_rows_map)
 
     advert_start_dates: Dict[int, date] = {}
     for row in campaigns_rows:
@@ -315,7 +336,49 @@ def sync_ad_campaigns_and_stats(
             if sleep_for > 0:
                 time.sleep(sleep_for)
 
+    def _bulk_upsert_stats(stat_rows_map: Dict[tuple[int, date, int], Dict]) -> int:
+        if not stat_rows_map:
+            return 0
+        advert_ids_for_map = sorted({row_key[0] for row_key in stat_rows_map.keys()})
+        stat_dates_for_map = sorted({row_key[1] for row_key in stat_rows_map.keys()})
+        nm_ids_for_map = sorted({row_key[2] for row_key in stat_rows_map.keys()})
+        existing_stat_map: Dict[tuple[int, date, int], WbAdvertStatDaily] = {}
+        for advert_chunk in _chunks(advert_ids_for_map, 500):
+            for item in WbAdvertStatDaily.objects.filter(
+                seller=seller,
+                advert_id__in=advert_chunk,
+                stat_date__in=stat_dates_for_map,
+                nm_id__in=nm_ids_for_map,
+            ):
+                existing_stat_map[(int(item.advert_id), item.stat_date, int(item.nm_id))] = item
+        update_fields = ["spend", "views", "clicks", "orders", "add_to_cart", "raw_payload", "updated_at"]
+        to_create_stats: List[WbAdvertStatDaily] = []
+        to_update_stats: List[WbAdvertStatDaily] = []
+        for (advert_id, stat_date, nm_id), defaults in stat_rows_map.items():
+            existing = existing_stat_map.get((advert_id, stat_date, nm_id))
+            if existing is None:
+                to_create_stats.append(
+                    WbAdvertStatDaily(
+                        seller=seller,
+                        advert_id=advert_id,
+                        stat_date=stat_date,
+                        nm_id=nm_id,
+                        **defaults,
+                    )
+                )
+                continue
+            for field_name in update_fields:
+                setattr(existing, field_name, defaults[field_name])
+            to_update_stats.append(existing)
+        if to_create_stats:
+            WbAdvertStatDaily.objects.bulk_create(to_create_stats, batch_size=2000)
+        if to_update_stats:
+            WbAdvertStatDaily.objects.bulk_update(to_update_stats, update_fields, batch_size=2000)
+        return len(stat_rows_map)
+
     for ids_chunk in grouped_id_chunks:
+        stat_rows_map: Dict[tuple[int, date, int], Dict] = {}
+        stats_now = timezone.now()
         chunk_start_dates = [advert_start_dates.get(int(advert_id)) for advert_id in ids_chunk]
         chunk_start_dates = [d for d in chunk_start_dates if d is not None]
         chunk_min_start = min(chunk_start_dates) if chunk_start_dates else effective_date_from
@@ -414,54 +477,37 @@ def sync_ad_campaigns_and_stats(
                             if nm_id <= 0:
                                 continue
                             nm_spend = _to_float(nm_row.get("sum"), 0.0)
-                            _update_or_create_with_db_retry(
-                                WbAdvertStatDaily,
-                                lookup={
-                                    "seller": seller,
-                                    "advert_id": advert_id,
-                                    "stat_date": stat_date,
-                                    "nm_id": nm_id,
+                            stat_rows_map[(int(advert_id), stat_date, int(nm_id))] = {
+                                "spend": nm_spend,
+                                "views": None,
+                                "clicks": None,
+                                "orders": None,
+                                "add_to_cart": None,
+                                "raw_payload": {
+                                    "campaign": campaign_row,
+                                    "day": day_row,
+                                    "app": app_row,
+                                    "nm": nm_row,
                                 },
-                                defaults={
-                                    "spend": nm_spend,
-                                    "views": None,
-                                    "clicks": None,
-                                    "orders": None,
-                                    "add_to_cart": None,
-                                    "raw_payload": {
-                                        "campaign": campaign_row,
-                                        "day": day_row,
-                                        "app": app_row,
-                                        "nm": nm_row,
-                                    },
-                                },
-                            )
-                            stats_rows_upserted += 1
+                                "updated_at": stats_now,
+                            }
                             nm_rows_written += 1
 
                 if nm_rows_written == 0:
                     # Если разбивки по артикулам нет, сохраняем агрегатной строкой nm_id=0.
-                    _update_or_create_with_db_retry(
-                        WbAdvertStatDaily,
-                        lookup={
-                            "seller": seller,
-                            "advert_id": advert_id,
-                            "stat_date": stat_date,
-                            "nm_id": 0,
+                    stat_rows_map[(int(advert_id), stat_date, 0)] = {
+                        "spend": day_spend,
+                        "views": day_views,
+                        "clicks": day_clicks,
+                        "orders": day_orders,
+                        "add_to_cart": day_atc,
+                        "raw_payload": {
+                            "campaign": campaign_row,
+                            "day": day_row,
                         },
-                        defaults={
-                            "spend": day_spend,
-                            "views": day_views,
-                            "clicks": day_clicks,
-                            "orders": day_orders,
-                            "add_to_cart": day_atc,
-                            "raw_payload": {
-                                "campaign": campaign_row,
-                                "day": day_row,
-                            },
-                        },
-                    )
-                    stats_rows_upserted += 1
+                        "updated_at": stats_now,
+                    }
+        stats_rows_upserted += _bulk_upsert_stats(stat_rows_map)
 
     result = {
         "campaigns_synced": campaigns_synced,

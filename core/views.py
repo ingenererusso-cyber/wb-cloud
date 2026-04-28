@@ -121,6 +121,26 @@ UNIT_MODEL_FBS = "fbs"
 UNIT_MODEL_TYPES = {UNIT_MODEL_FBO, UNIT_MODEL_FBS}
 INITIAL_SYNC_WEEKS = 25
 INITIAL_SYNC_DAYS = INITIAL_SYNC_WEEKS * 7
+SELLER_PURGE_MODELS = [
+    ("orders", "заказы", Order),
+    ("products", "товары", Product),
+    ("product_card_sizes", "размеры карточек", ProductCardSize),
+    ("unit_calculations", "расчеты юнит-экономики", ProductUnitEconomicsCalculation),
+    ("product_prices", "цены по размерам", ProductSizePrice),
+    ("stocks", "остатки FBO", WarehouseStockDetailed),
+    ("seller_warehouses", "склады продавца", SellerWarehouse),
+    ("fbs_stocks", "остатки FBS", SellerFbsStock),
+    ("commissions", "комиссии", WbCategoryCommission),
+    ("tariffs", "тарифы складов", WbWarehouseTariff),
+    ("acceptance", "коэффициенты приемки", WbAcceptanceCoefficient),
+    ("transit", "транзитные направления", TransitDirectionTariff),
+    ("realization", "отчеты реализации", RealizationReportDetail),
+    ("advert_campaigns", "рекламные кампании", WbAdvertCampaign),
+    ("advert_stats", "статистика рекламы", WbAdvertStatDaily),
+    ("sync_tasks", "задачи синхронизации", SyncTask),
+    ("feedback", "обратная связь", TesterFeedback),
+    ("errors", "логи ошибок", AppErrorLog),
+]
 
 
 def csrf_failure(request, reason="", template_name="errors/csrf.html"):
@@ -140,6 +160,116 @@ def csrf_failure(request, reason="", template_name="errors/csrf.html"):
 def _get_or_create_unit_economics_settings(seller: SellerAccount) -> UnitEconomicsSettings:
     settings_obj, _ = UnitEconomicsSettings.objects.get_or_create(seller=seller)
     return settings_obj
+
+
+def _purge_seller_data(seller: SellerAccount) -> dict[str, int]:
+    deleted_summary = {
+        key: int(model.objects.filter(seller=seller).count())
+        for key, _label, model in SELLER_PURGE_MODELS
+    }
+    deleted_summary["unit_settings"] = int(UnitEconomicsSettings.objects.filter(seller=seller).count())
+
+    with transaction.atomic():
+        for key, _label, model in SELLER_PURGE_MODELS:
+            model.objects.filter(seller=seller).delete()
+        UnitEconomicsSettings.objects.filter(seller=seller).delete()
+        sync_meta = dict(seller.sync_meta) if isinstance(seller.sync_meta, dict) else {}
+        auto_sync_meta = sync_meta.get("auto_sync") if isinstance(sync_meta.get("auto_sync"), dict) else None
+        seller.sync_meta = {"auto_sync": auto_sync_meta} if auto_sync_meta else {}
+        seller.save(update_fields=["sync_meta"])
+
+    return deleted_summary
+
+
+def _format_seller_purge_message(deleted_summary: dict[str, int]) -> str:
+    label_map = {key: label for key, label, _model in SELLER_PURGE_MODELS}
+    label_map["unit_settings"] = "настройки юнит-экономики"
+    total_deleted = sum(int(value or 0) for value in deleted_summary.values())
+    parts = [
+        f"{label}: {int(deleted_summary.get(key) or 0)}"
+        for key in [key for key, _label, _model in SELLER_PURGE_MODELS] + ["unit_settings"]
+        if int(deleted_summary.get(key) or 0) > 0
+        for label in [label_map[key]]
+    ]
+    details = ", ".join(parts) if parts else "подходящих записей не было"
+    return f"Данные seller очищены. Удалено записей: {total_deleted}. Детализация: {details}."
+
+
+def _build_home_summary_payload(
+    *,
+    seller: SellerAccount,
+    last_sync_at,
+) -> dict:
+    today = timezone.localdate()
+    date_from_30d = today - timedelta(days=29)
+
+    orders_30_qs = Order.objects.filter(
+        seller=seller,
+        order_date__date__gte=date_from_30d,
+        order_date__date__lte=today,
+    )
+    orders_30_stats = orders_30_qs.aggregate(
+        total_orders=Count("id"),
+        buyouts=Count("id", filter=Q(is_buyout=True)),
+        revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
+        local_orders=Count("id", filter=Q(is_local=True)),
+    )
+
+    total_orders_30d = int(orders_30_stats.get("total_orders") or 0)
+    buyouts_30d = int(orders_30_stats.get("buyouts") or 0)
+    revenue_30d = float(orders_30_stats.get("revenue") or 0.0)
+    local_orders_30d = int(orders_30_stats.get("local_orders") or 0)
+    buyout_rate_30d = round((buyouts_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
+    avg_check_30d = round(revenue_30d / buyouts_30d, 2) if buyouts_30d > 0 else 0.0
+    local_share_orders_30d = round((local_orders_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
+
+    fbo_stock_total = int(
+        WarehouseStockDetailed.objects.filter(seller=seller).aggregate(total=Sum("quantity")).get("total") or 0
+    )
+    fbs_stock_total = int(
+        SellerFbsStock.objects.filter(seller=seller).aggregate(total=Sum("amount")).get("total") or 0
+    )
+    ad_spend_30d = float(
+        WbAdvertStatDaily.objects
+        .filter(seller=seller, stat_date__gte=date_from_30d, stat_date__lte=today)
+        .aggregate(total=Sum("spend"))
+        .get("total")
+        or 0.0
+    )
+    active_ads_count = WbAdvertCampaign.objects.filter(seller=seller, status=9).count()
+
+    return {
+        "revenue_30d": round(revenue_30d, 2),
+        "avg_check_30d": avg_check_30d,
+        "total_orders_30d": total_orders_30d,
+        "buyouts_30d": buyouts_30d,
+        "buyout_rate_30d": buyout_rate_30d,
+        "local_share_orders_30d": local_share_orders_30d,
+        "fbo_stock_total": fbo_stock_total,
+        "fbs_stock_total": fbs_stock_total,
+        "ad_spend_30d": round(ad_spend_30d, 2),
+        "active_ads_count": active_ads_count,
+        "last_sync_at": last_sync_at.isoformat() if last_sync_at else "",
+        "last_sync_at_label": last_sync_at.strftime("%d.%m.%Y %H:%M") if last_sync_at else "не было",
+    }
+
+
+def _build_home_reminders_payload(seller: SellerAccount) -> dict:
+    reminder_snapshot = _get_home_reminders_snapshot(seller)
+    reminder_generated_at = _get_home_reminders_generated_at(seller)
+    is_snapshot_stale = (
+        reminder_generated_at is None
+        or timezone.localtime(reminder_generated_at).date() < timezone.localdate()
+    )
+    if not reminder_snapshot or is_snapshot_stale:
+        try:
+            reminder_snapshot = _build_home_reminder_groups(seller)
+            _save_home_reminders_snapshot(seller, reminder_snapshot, generated_at=timezone.now())
+        except Exception:
+            reminder_snapshot = reminder_snapshot or []
+
+    reminder_groups = _apply_home_reminder_state(reminder_snapshot, seller)
+    return {"groups": reminder_groups}
 
 
 def _to_float_or_default(value, default: float = 0.0) -> float:
@@ -2133,120 +2263,56 @@ def home(request):
             "message": running_sync_task.message,
         }
 
-    today = timezone.localdate()
-    date_from_30d = today - timedelta(days=29)
-
-    orders_30_qs = Order.objects.filter(
-        seller=seller,
-        order_date__date__gte=date_from_30d,
-        order_date__date__lte=today,
-    )
-    orders_30_stats = orders_30_qs.aggregate(
-        total_orders=Count("id"),
-        buyouts=Count("id", filter=Q(is_buyout=True)),
-        revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
-        local_orders=Count("id", filter=Q(is_local=True)),
-        local_buyouts=Count("id", filter=Q(is_buyout=True, is_local=True)),
-    )
-
-    total_orders_30d = int(orders_30_stats.get("total_orders") or 0)
-    buyouts_30d = int(orders_30_stats.get("buyouts") or 0)
-    revenue_30d = float(orders_30_stats.get("revenue") or 0.0)
-    local_orders_30d = int(orders_30_stats.get("local_orders") or 0)
-    buyout_rate_30d = round((buyouts_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
-    avg_check_30d = round(revenue_30d / buyouts_30d, 2) if buyouts_30d > 0 else 0.0
-    local_share_orders_30d = round((local_orders_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
-
-    products_count = Product.objects.filter(seller=seller).count()
-    fbo_stock_total = int(
-        WarehouseStockDetailed.objects.filter(seller=seller).aggregate(total=Sum("quantity")).get("total") or 0
-    )
-    fbs_stock_total = int(
-        SellerFbsStock.objects.filter(seller=seller).aggregate(total=Sum("amount")).get("total") or 0
-    )
-
-    ad_spend_30d = float(
-        WbAdvertStatDaily.objects
-        .filter(seller=seller, stat_date__gte=date_from_30d, stat_date__lte=today)
-        .aggregate(total=Sum("spend"))
-        .get("total")
-        or 0.0
-    )
-    active_ads_count = WbAdvertCampaign.objects.filter(seller=seller, status=9).count()
-
-    daily_rows = list(
-        orders_30_qs
-        .annotate(day=TruncDate("order_date"))
-        .values("day")
-        .annotate(
-            total=Count("id"),
-            buyouts=Count("id", filter=Q(is_buyout=True)),
-            revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
-        )
-        .order_by("day")
-    )
-    daily_map = {
-        row["day"]: {
-            "total": int(row.get("total") or 0),
-            "buyouts": int(row.get("buyouts") or 0),
-            "revenue": round(float(row.get("revenue") or 0.0), 2),
-        }
-        for row in daily_rows
-        if row.get("day")
-    }
-
-    daily_points = []
-    for i in range(30):
-        day = date_from_30d + timedelta(days=i)
-        data = daily_map.get(day, {"total": 0, "buyouts": 0, "revenue": 0.0})
-        daily_points.append(
-            {
-                "date": day.isoformat(),
-                "label": day.strftime("%d.%m"),
-                "orders": data["total"],
-                "buyouts": data["buyouts"],
-                "revenue": data["revenue"],
-            }
-        )
-    reminder_snapshot = _get_home_reminders_snapshot(seller)
-    reminder_generated_at = _get_home_reminders_generated_at(seller)
-    is_snapshot_stale = (
-        reminder_generated_at is None
-        or timezone.localtime(reminder_generated_at).date() < timezone.localdate()
-    )
-    if not reminder_snapshot or is_snapshot_stale:
-        try:
-            reminder_snapshot = _build_home_reminder_groups(seller)
-            _save_home_reminders_snapshot(seller, reminder_snapshot, generated_at=timezone.now())
-        except Exception:
-            # Main dashboard should still render even if reminder pipeline fails.
-            reminder_snapshot = reminder_snapshot or []
-
-    reminder_groups = _apply_home_reminder_state(reminder_snapshot, seller)
-
     return render(
         request,
         "dashboard_main.html",
         {
             "seller": seller,
             "missing_api_token": missing_api_token,
-            "last_sync_at": last_sync_at,
-            "products_count": products_count,
-            "total_orders_30d": total_orders_30d,
-            "buyouts_30d": buyouts_30d,
-            "buyout_rate_30d": buyout_rate_30d,
-            "revenue_30d": round(revenue_30d, 2),
-            "avg_check_30d": avg_check_30d,
-            "local_share_orders_30d": local_share_orders_30d,
-            "fbo_stock_total": fbo_stock_total,
-            "fbs_stock_total": fbs_stock_total,
-            "ad_spend_30d": round(ad_spend_30d, 2),
-            "active_ads_count": active_ads_count,
-            "daily_points_json": daily_points,
             "running_sync_task": running_sync_task_payload,
-            "reminder_groups": reminder_groups,
         },
     )
+
+
+@login_required
+@require_GET
+def dashboard_summary_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    try:
+        payload = _build_home_summary_payload(
+            seller=seller,
+            last_sync_at=_get_last_sync_at_for_user(request.user, seller),
+        )
+        return JsonResponse({"ok": True, "summary": payload}, status=200)
+    except Exception as exc:
+        _log_app_error(
+            source="dashboard.summary_api",
+            message=f"Не удалось собрать KPI главной страницы: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"ok": False, "error": "Не удалось загрузить KPI главной страницы."}, status=500)
+
+
+@login_required
+@require_GET
+def dashboard_reminders_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    try:
+        payload = _build_home_reminders_payload(seller)
+        return JsonResponse({"ok": True, "groups": payload["groups"]}, status=200)
+    except Exception as exc:
+        _log_app_error(
+            source="dashboard.reminders_api",
+            message=f"Не удалось собрать напоминания главной страницы: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"ok": False, "error": "Не удалось загрузить блок напоминаний."}, status=500)
 
 
 @login_required
@@ -2697,29 +2763,8 @@ def account_settings(request):
                 messages.error(request, "Удаление данных отменено: не подтверждено.")
                 return redirect(reverse("account_settings"))
 
-            deleted_summary = {
-                "products": Product.objects.filter(seller=seller).delete()[0],
-                "product_prices": ProductSizePrice.objects.filter(seller=seller).delete()[0],
-                "commissions": WbCategoryCommission.objects.filter(seller=seller).delete()[0],
-                "orders": Order.objects.filter(seller=seller).delete()[0],
-                "stocks": WarehouseStockDetailed.objects.filter(seller=seller).delete()[0],
-                "tariffs": WbWarehouseTariff.objects.filter(seller=seller).delete()[0],
-                "acceptance": WbAcceptanceCoefficient.objects.filter(seller=seller).delete()[0],
-                "transit": TransitDirectionTariff.objects.filter(seller=seller).delete()[0],
-                "realization": RealizationReportDetail.objects.filter(seller=seller).delete()[0],
-                "sync_tasks": SyncTask.objects.filter(seller=seller).delete()[0],
-                "feedback": TesterFeedback.objects.filter(seller=seller).delete()[0],
-                "errors": AppErrorLog.objects.filter(seller=seller).delete()[0],
-            }
-            total_deleted = sum(deleted_summary.values())
-            messages.success(
-                request,
-                (
-                    "Данные seller очищены. "
-                    f"Удалено записей: {total_deleted} "
-                    f"(заказы: {deleted_summary['orders']}, товары: {deleted_summary['products']})."
-                ),
-            )
+            deleted_summary = _purge_seller_data(seller)
+            messages.success(request, _format_seller_purge_message(deleted_summary))
             return redirect(reverse("account_settings"))
 
         if action == "delete_account":

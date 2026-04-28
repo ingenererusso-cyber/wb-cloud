@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, List
 
 from django.db import transaction
+from django.utils import timezone
 from core.models import ProductCardSize, SellerAccount, SellerFbsStock, SellerWarehouse
 from wb_api.client import WBContentClient, WBMarketplaceClient
 
@@ -23,7 +24,8 @@ def _sync_product_card_sizes(seller: SellerAccount) -> int:
     content_client = WBContentClient(seller.api_token_plain)
     cards = content_client.get_cards_list(limit=100)
 
-    synced = 0
+    prepared_rows: dict[int, dict] = {}
+    now_dt = timezone.now()
     for card in cards:
         nm_id = _to_int(card.get("nmID"))
         vendor_code = (card.get("vendorCode") or "").strip() or None
@@ -38,19 +40,39 @@ def _sync_product_card_sizes(seller: SellerAccount) -> int:
             chrt_id = _to_int(size.get("chrtID"))
             if chrt_id is None:
                 continue
-            ProductCardSize.objects.update_or_create(
-                seller=seller,
-                chrt_id=chrt_id,
-                defaults={
-                    "nm_id": nm_id,
-                    "vendor_code": vendor_code,
-                    "title": title,
-                    "tech_size": (size.get("techSize") or "").strip() or None,
-                    "wb_size": (size.get("wbSize") or "").strip() or None,
-                },
-            )
-            synced += 1
-    return synced
+            prepared_rows[chrt_id] = {
+                "nm_id": nm_id,
+                "vendor_code": vendor_code,
+                "title": title,
+                "tech_size": (size.get("techSize") or "").strip() or None,
+                "wb_size": (size.get("wbSize") or "").strip() or None,
+                "updated_at": now_dt,
+            }
+
+    if not prepared_rows:
+        return 0
+
+    existing_map = {
+        int(item.chrt_id): item
+        for item in ProductCardSize.objects.filter(seller=seller, chrt_id__in=prepared_rows.keys())
+    }
+    to_create: list[ProductCardSize] = []
+    to_update: list[ProductCardSize] = []
+    update_fields = ["nm_id", "vendor_code", "title", "tech_size", "wb_size", "updated_at"]
+    for chrt_id, defaults in prepared_rows.items():
+        existing = existing_map.get(chrt_id)
+        if existing is None:
+            to_create.append(ProductCardSize(seller=seller, chrt_id=chrt_id, **defaults))
+            continue
+        for field_name in update_fields:
+            setattr(existing, field_name, defaults[field_name])
+        to_update.append(existing)
+
+    if to_create:
+        ProductCardSize.objects.bulk_create(to_create, batch_size=2000)
+    if to_update:
+        ProductCardSize.objects.bulk_update(to_update, update_fields, batch_size=2000)
+    return len(prepared_rows)
 
 
 def sync_seller_fbs_stocks(

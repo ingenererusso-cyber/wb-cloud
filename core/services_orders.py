@@ -8,6 +8,7 @@ from core.services.localization import determine_locality
 
 INITIAL_SYNC_WEEKS = 25
 INITIAL_SYNC_DAYS = INITIAL_SYNC_WEEKS * 7
+SQL_IN_CHUNK_SIZE = 10_000
 
 
 def _extract_order_price_from_row(row: dict) -> float | None:
@@ -43,6 +44,11 @@ def _to_aware_datetime(value, default_tz):
     return dt
 
 
+def _iter_chunks(items: list, size: int):
+    for idx in range(0, len(items), size):
+        yield items[idx: idx + size]
+
+
 def sync_fbw_orders(seller: SellerAccount, days_back: int = INITIAL_SYNC_DAYS):
     """
     Загружает заказы за последние days_back дней.
@@ -55,6 +61,7 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = INITIAL_SYNC_DAYS):
 
     rows = client.get_orders(date_from=date_from)
 
+    prepared_rows: list[tuple[str, dict]] = []
     for r in rows:
         srid = r.get("srid")
         warehouse_name = r.get("warehouseName")
@@ -72,27 +79,70 @@ def sync_fbw_orders(seller: SellerAccount, days_back: int = INITIAL_SYNC_DAYS):
         order_date = _to_aware_datetime(r.get("date"), default_tz)
         last_change_date = _to_aware_datetime(r.get("lastChangeDate"), default_tz)
 
-        Order.objects.update_or_create(
-            seller=seller,
-            srid=srid,  # уникальный ID заказа в рамках seller
-            defaults={
-                "nm_id": nm_id,
-                "supplier_article": r.get("supplierArticle"),
-                "tech_size": r.get("techSize"),
-                "warehouse_name": warehouse_name,
-                "warehouse_type": warehouse_type,
-                "region_name": r.get("regionName"),
-                "country_name": r.get("countryName"),
-                "oblast_okrug_name": oblast_okrug_name or None,
-                "is_cancel": bool(r.get("isCancel", False)),
-                "is_buyout": False,
-                "order_price": _extract_order_price_from_row(r),
-                "finished_price": r.get("finishedPrice"),
-                "order_date": order_date,
-                "last_change_date": last_change_date,
-                "is_local": is_local,
-            }
+        prepared_rows.append(
+            (
+                str(srid),
+                {
+                    "nm_id": nm_id,
+                    "supplier_article": r.get("supplierArticle"),
+                    "tech_size": r.get("techSize"),
+                    "warehouse_name": warehouse_name,
+                    "warehouse_type": warehouse_type,
+                    "region_name": r.get("regionName"),
+                    "country_name": r.get("countryName"),
+                    "oblast_okrug_name": oblast_okrug_name or None,
+                    "is_cancel": bool(r.get("isCancel", False)),
+                    "is_buyout": False,
+                    "order_price": _extract_order_price_from_row(r),
+                    "finished_price": r.get("finishedPrice"),
+                    "order_date": order_date,
+                    "last_change_date": last_change_date,
+                    "is_local": is_local,
+                },
+            )
         )
+
+    if not prepared_rows:
+        return 0
+
+    existing_map: dict[str, Order] = {}
+    srids = [row[0] for row in prepared_rows]
+    for srid_chunk in _iter_chunks(srids, SQL_IN_CHUNK_SIZE):
+        for item in Order.objects.filter(seller=seller, srid__in=srid_chunk):
+            existing_map[str(item.srid)] = item
+
+    to_create: list[Order] = []
+    to_update: list[Order] = []
+    update_fields = [
+        "nm_id",
+        "supplier_article",
+        "tech_size",
+        "warehouse_name",
+        "warehouse_type",
+        "region_name",
+        "country_name",
+        "oblast_okrug_name",
+        "is_cancel",
+        "is_buyout",
+        "order_price",
+        "finished_price",
+        "order_date",
+        "last_change_date",
+        "is_local",
+    ]
+    for row_srid, defaults in prepared_rows:
+        existing = existing_map.get(row_srid)
+        if existing is None:
+            to_create.append(Order(seller=seller, srid=row_srid, **defaults))
+            continue
+        for field_name in update_fields:
+            setattr(existing, field_name, defaults[field_name])
+        to_update.append(existing)
+
+    if to_create:
+        Order.objects.bulk_create(to_create, batch_size=2000)
+    if to_update:
+        Order.objects.bulk_update(to_update, update_fields, batch_size=2000)
 
     return len(rows)
 

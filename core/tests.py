@@ -10,15 +10,26 @@ from django.utils import timezone
 from unittest.mock import patch
 
 from core.models import (
+    AppErrorLog,
     Order,
     Product,
     ProductCardSize,
+    ProductSizePrice,
+    ProductUnitEconomicsCalculation,
     SellerAccount,
     SellerFbsStock,
     SellerWarehouse,
     SignupLead,
+    SyncTask,
+    TesterFeedback,
+    UnitEconomicsSettings,
     UserSubscription,
     WarehouseStockDetailed,
+    WbAcceptanceCoefficient,
+    WbAdvertCampaign,
+    WbAdvertStatDaily,
+    WbCategoryCommission,
+    WbWarehouseTariff,
 )
 
 
@@ -58,6 +69,33 @@ class DashboardSupplyRecommendationsApiTests(TestCase):
         data = response.json()
         self.assertIn("summary", data)
         self.assertIn("regions", data)
+
+
+class DashboardHomeApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="home-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Seller")
+
+    def test_dashboard_summary_api_returns_lightweight_kpis(self):
+        self.client.login(username="home-user", password="pass12345")
+        response = self.client.get(reverse("dashboard_summary_api"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("summary", payload)
+        self.assertIn("revenue_30d", payload["summary"])
+        self.assertIn("last_sync_at_label", payload["summary"])
+
+    def test_dashboard_reminders_api_returns_groups_payload(self):
+        self.client.login(username="home-user", password="pass12345")
+        response = self.client.get(reverse("dashboard_reminders_api"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("groups", payload)
+        self.assertIsInstance(payload["groups"], list)
 
 
 class FbsStockAwareRecommendationsTests(TestCase):
@@ -352,3 +390,96 @@ class CsrfFailurePageTests(TestCase):
         self.assertContains(response, "Не удалось подтвердить действие", status_code=403)
         self.assertContains(response, "Обновите страницу", status_code=403)
         self.assertContains(response, "Войти заново", status_code=403)
+
+
+class AccountSettingsPurgeSellerDataTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="purge-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Seller")
+        self.client.login(username="purge-user", password="pass12345")
+
+    def test_purge_seller_data_shows_full_breakdown(self):
+        warehouse = SellerWarehouse.objects.create(
+            seller=self.seller,
+            seller_warehouse_id=101,
+            name="FBS склад",
+        )
+        product = Product.objects.create(seller=self.seller, nm_id=1001, vendor_code="SKU-1", title="Item")
+        ProductCardSize.objects.create(seller=self.seller, chrt_id=501, nm_id=1001, vendor_code="SKU-1")
+        ProductSizePrice.objects.create(seller=self.seller, nm_id=1001, size_id=1)
+        ProductUnitEconomicsCalculation.objects.create(seller=self.seller, product=product)
+        Order.objects.create(
+            seller=self.seller,
+            srid="purge-order",
+            nm_id=1001,
+            supplier_article="SKU-1",
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type="Склад WB",
+            order_date=timezone.now(),
+            last_change_date=timezone.now(),
+        )
+        WarehouseStockDetailed.objects.create(
+            seller=self.seller,
+            nm_id=1001,
+            supplier_article="SKU-1",
+            tech_size="0",
+            warehouse_name="Коледино",
+            quantity=3,
+        )
+        SellerFbsStock.objects.create(
+            seller=self.seller,
+            seller_warehouse=warehouse,
+            warehouse_name=warehouse.name,
+            chrt_id=501,
+            amount=4,
+        )
+        WbCategoryCommission.objects.create(seller=self.seller, subject_id=1)
+        WbWarehouseTariff.objects.create(seller=self.seller, warehouse_name="Коледино", tariff_date=timezone.localdate())
+        WbAcceptanceCoefficient.objects.create(seller=self.seller, coeff_date=timezone.localdate(), warehouse_id=1)
+        WbAdvertCampaign.objects.create(seller=self.seller, advert_id=11)
+        WbAdvertStatDaily.objects.create(seller=self.seller, advert_id=11, stat_date=timezone.localdate())
+        SyncTask.objects.create(task_id="purge-task", user=self.user, seller=self.seller)
+        TesterFeedback.objects.create(user=self.user, seller=self.seller, message="msg")
+        AppErrorLog.objects.create(source="test", message="msg", seller=self.seller, user=self.user)
+        UnitEconomicsSettings.objects.create(seller=self.seller)
+
+        response = self.client.post(
+            reverse("account_settings"),
+            {"action": "purge_seller_data", "confirm_purge_seller_data": "1"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        page = response.content.decode("utf-8")
+        self.assertIn("Данные seller очищены. Удалено записей:", page)
+        self.assertIn("заказы: 1", page)
+        self.assertIn("товары: 1", page)
+        self.assertIn("размеры карточек: 1", page)
+        self.assertIn("остатки FBS: 1", page)
+        self.assertIn("рекламные кампании: 1", page)
+        self.assertIn("настройки юнит-экономики: 1", page)
+
+    def test_purge_seller_data_clears_home_reminders_snapshot(self):
+        self.seller.sync_meta = {
+            "auto_sync": {"enabled": True, "time": "09:00"},
+            "home_reminders": {
+                "groups": [{"group_id": "sold_out", "cards": [{"title": "Old reminder"}]}],
+                "dismissed": {"sold_out:1": True},
+                "generated_at": timezone.now().isoformat(),
+            },
+        }
+        self.seller.save(update_fields=["sync_meta"])
+
+        response = self.client.post(
+            reverse("account_settings"),
+            {"action": "purge_seller_data", "confirm_purge_seller_data": "1"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.seller.refresh_from_db()
+        self.assertEqual(
+            self.seller.sync_meta,
+            {"auto_sync": {"enabled": True, "time": "09:00"}},
+        )

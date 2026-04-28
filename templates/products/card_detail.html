@@ -165,6 +165,33 @@
             color: var(--muted);
             font-size: 13px;
         }
+        .sales-legend {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+            margin: 8px 0 12px;
+            color: #6b7280;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .sales-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sales-legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            flex: 0 0 auto;
+        }
+        .sales-legend-dot-current {
+            background: linear-gradient(180deg, #1a9b72 0%, #147a59 100%);
+        }
+        .sales-legend-dot-previous {
+            background: #c5ced8;
+        }
         .grid2 {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -826,6 +853,10 @@
     <section class="section">
         <h2>Продажи за 2 недели (по дням)</h2>
         <p class="muted">Период: {{ chart_start|date:"d.m.Y" }} — {{ chart_end|date:"d.m.Y" }}</p>
+        <div class="sales-legend">
+            <span class="sales-legend-item"><span class="sales-legend-dot sales-legend-dot-current"></span>Текущая неделя</span>
+            <span class="sales-legend-item"><span class="sales-legend-dot sales-legend-dot-previous"></span>Прошлая неделя</span>
+        </div>
         <div class="chart-wrap chart-wrap--line">
             <svg id="sales-chart"></svg>
             <div id="sales-chart-empty" class="chart-empty" style="display:none;">Нет данных</div>
@@ -1207,20 +1238,28 @@
         const empty = document.getElementById("sales-chart-empty");
         if (!svg) return;
 
-        function renderLineChart() {
-            const getNumeric = (value) => {
-                if (value === null || value === undefined || value === "") {
-                    return null;
-                }
-                const num = Number(value);
-                return Number.isFinite(num) ? num : null;
-            };
+        const weekdayMap = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 
-            const values = points
-                .map((p) => getNumeric(p.total_orders))
-                .filter((v) => v !== null);
+        function toNumber(value) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : 0;
+        }
 
-            if (!points.length || !values.length || Math.max(...values) <= 0) {
+        function weekdayLabel(dateValue) {
+            const date = new Date(`${dateValue}T12:00:00`);
+            if (Number.isNaN(date.getTime())) {
+                return "";
+            }
+            return weekdayMap[date.getDay()] || "";
+        }
+
+        function renderSalesBars() {
+            const orderedPoints = Array.isArray(points) ? points.slice(-14) : [];
+            const previousWeek = orderedPoints.slice(0, 7);
+            const currentWeek = orderedPoints.slice(-7);
+            const values = orderedPoints.map((point) => toNumber(point.total_orders));
+
+            if (currentWeek.length < 7 || Math.max(...values, 0) <= 0) {
                 svg.style.display = "none";
                 empty.style.display = "grid";
                 return;
@@ -1234,79 +1273,69 @@
             svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
             svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
 
-            const padX = 52;
-            const padY = 22;
-            const innerW = width - padX * 2;
-            const innerH = height - padY * 2;
-            const xStep = points.length > 1 ? innerW / (points.length - 1) : 0;
+            const padLeft = 20;
+            const padRight = 38;
+            const padTop = 18;
+            const padBottom = 34;
+            const innerW = width - padLeft - padRight;
+            const innerH = height - padTop - padBottom;
+            const groupWidth = innerW / 7;
+            const barWidth = Math.max(16, Math.min(26, groupWidth * 0.28));
+            const gapInside = Math.max(6, groupWidth * 0.08);
+            const maxValue = Math.max(...values, 0);
+            const tickTop = Math.max(2, Math.ceil(maxValue));
+            const ticks = [0, Math.max(1, Math.round(tickTop / 2)), tickTop];
 
-            const rawMin = Math.min(...values);
-            const rawMax = Math.max(...values);
-            const baseRange = Math.max(rawMax - rawMin, 2);
-            const pad = baseRange * 0.12;
-            let minVal = Math.max(0, rawMin - pad);
-            let maxVal = rawMax + pad;
-            let valueRange = maxVal - minVal;
-            if (valueRange < 2) {
-                maxVal = minVal + 2;
-                valueRange = 2;
-            }
-
-            const coords = points.map((p, idx) => {
-                const x = padX + idx * xStep;
-                const rawValue = getNumeric(p.total_orders);
-                const clamped = rawValue === null ? null : Math.min(maxVal, Math.max(minVal, rawValue));
-                const y = rawValue === null
-                    ? (height - padY)
-                    : padY + (1 - ((clamped - minVal) / valueRange)) * innerH;
-                return { x, y, ...p };
-            });
-
-            const line = coords.map((p) => `${p.x},${p.y}`).join(" ");
-            const area = `${padX},${height - padY} ${line} ${padX + innerW},${height - padY}`;
-
-            const tickCount = 5;
-            const yTicks = Array.from({ length: tickCount }, (_, idx) => {
-                const k = idx / (tickCount - 1);
-                return minVal + (maxVal - minVal) * k;
-            }).map((tick) => {
-                const y = padY + (1 - ((tick - minVal) / valueRange)) * innerH;
+            const yTicks = ticks.map((tick) => {
+                const y = padTop + innerH - (tick / tickTop) * innerH;
                 return `
-                    <line x1="${padX}" y1="${y}" x2="${padX + innerW}" y2="${y}" stroke="rgba(19,32,51,0.14)" stroke-width="1"/>
-                    <text x="${padX - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5a6778">${Math.round(tick)}</text>
+                    <line x1="${padLeft}" y1="${y}" x2="${padLeft + innerW}" y2="${y}" stroke="rgba(19,32,51,0.12)" stroke-width="1"/>
+                    <text x="${width - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="#94a3b8">${tick}</text>
                 `;
             }).join("");
 
-            const xLabels = coords
-                .filter((_, idx) => idx === 0 || idx === coords.length - 1 || idx % 2 === 0)
-                .map((p) => `
-                    <text x="${p.x}" y="${height - 6}" text-anchor="middle" font-size="11" fill="#5a6778">${p.label}</text>
-                `)
-                .join("");
-
-            const dots = coords.map((p) => `
-                <circle cx="${p.x}" cy="${p.y}" r="5.2" fill="#0f5132" stroke="#ffffff" stroke-width="1.3">
-                    <title>${p.label}: заказов ${p.total_orders}, выкупы ${p.sold_orders}, отмены ${p.canceled_orders}</title>
-                </circle>
-            `).join("");
+            const bars = currentWeek.map((point, idx) => {
+                const previousPoint = previousWeek[idx] || {};
+                const currentValue = toNumber(point.total_orders);
+                const previousValue = toNumber(previousPoint.total_orders);
+                const groupX = padLeft + idx * groupWidth;
+                const centerX = groupX + groupWidth / 2;
+                const prevHeight = tickTop > 0 ? (previousValue / tickTop) * innerH : 0;
+                const currentHeight = tickTop > 0 ? (currentValue / tickTop) * innerH : 0;
+                const prevX = centerX - barWidth - gapInside / 2;
+                const currentX = centerX + gapInside / 2;
+                const prevY = padTop + innerH - prevHeight;
+                const currentY = padTop + innerH - currentHeight;
+                const label = weekdayLabel(point.date);
+                const previousTitle = previousPoint.date
+                    ? `Прошлая неделя, ${label}: заказов ${previousValue}, выкупы ${toNumber(previousPoint.sold_orders)}, отмены ${toNumber(previousPoint.canceled_orders)}`
+                    : `Прошлая неделя, ${label}: заказов ${previousValue}`;
+                const currentTitle = `Текущая неделя, ${label}: заказов ${currentValue}, выкупы ${toNumber(point.sold_orders)}, отмены ${toNumber(point.canceled_orders)}`;
+                return `
+                    <rect x="${prevX}" y="${prevY}" width="${barWidth}" height="${Math.max(prevHeight, 2)}" rx="7" fill="#c7c2d3">
+                        <title>${previousTitle}</title>
+                    </rect>
+                    <rect x="${currentX}" y="${currentY}" width="${barWidth}" height="${Math.max(currentHeight, 2)}" rx="7" fill="#147a59">
+                        <title>${currentTitle}</title>
+                    </rect>
+                    <text x="${centerX}" y="${height - 10}" text-anchor="middle" font-size="12" font-weight="700" fill="#a1a1aa">${label}</text>
+                `;
+            }).join("");
 
             svg.innerHTML = `
                 ${yTicks}
-                <polygon points="${area}" fill="rgba(15,81,50,0.14)"></polygon>
-                <polyline points="${line}" fill="none" stroke="#0f5132" stroke-width="3"></polyline>
-                ${dots}
-                ${xLabels}
+                ${bars}
             `;
         }
 
-        renderLineChart();
+        renderSalesBars();
 
         let resizeTimer = null;
         window.addEventListener("resize", () => {
             if (resizeTimer) {
                 window.clearTimeout(resizeTimer);
             }
-            resizeTimer = window.setTimeout(() => renderLineChart(), 120);
+            resizeTimer = window.setTimeout(() => renderSalesBars(), 120);
         });
     })();
 
