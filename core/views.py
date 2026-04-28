@@ -1817,14 +1817,28 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
 
         realization_warning = None
         idx = total_steps
+        realization_progress = int(((idx - 1) / total_steps) * 100)
         _set_sync_task(
             task_id,
             {
                 "task_id": task_id,
                 "status": "running",
-                "progress": int(((idx - 1) / total_steps) * 100),
+                "progress": realization_progress,
                 "step": "Отчёты реализации",
                 "message": f"Шаг {idx}/{total_steps}: Отчёты реализации...",
+                    "finished_at": None,
+                    "result": result,
+                },
+            )
+        def _realization_heartbeat(status_message: str) -> None:
+            _set_sync_task(
+                task_id,
+                {
+                    "task_id": task_id,
+                    "status": "running",
+                    "progress": realization_progress,
+                    "step": "Отчёты реализации",
+                    "message": status_message,
                     "finished_at": None,
                     "result": result,
                 },
@@ -1838,6 +1852,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     period="weekly",
                     limit=100000,
                     respect_rate_limit=False,
+                    on_heartbeat=_realization_heartbeat,
                 )
             )
             result["realization_rows"] = int(realization_result.get("upserted_rows") or 0)

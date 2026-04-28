@@ -4,7 +4,8 @@ from datetime import date
 from datetime import datetime
 from datetime import timedelta
 import re
-from time import sleep
+from time import monotonic, sleep
+from typing import Callable
 from typing import Dict
 from typing import Iterable
 from typing import List
@@ -148,6 +149,8 @@ def sync_realization_report_detail(
     period: str = "weekly",
     limit: int = 100000,
     respect_rate_limit: bool = True,
+    on_heartbeat: Callable[[str], None] | None = None,
+    heartbeat_interval_seconds: float = 20.0,
 ) -> dict:
     """
     Синхронизирует WB reportDetailByPeriod в таблицу RealizationReportDetail.
@@ -165,6 +168,7 @@ def sync_realization_report_detail(
     pages = 0
     rrdid = 0
     return_srids: set[str] = set()
+    last_heartbeat_ts = monotonic()
     update_fields = [
         "realizationreport_id",
         "date_from",
@@ -193,6 +197,16 @@ def sync_realization_report_detail(
         "raw_payload",
     ]
 
+    def _heartbeat(message: str, *, force: bool = False) -> None:
+        nonlocal last_heartbeat_ts
+        if not on_heartbeat:
+            return
+        now_ts = monotonic()
+        if not force and (now_ts - last_heartbeat_ts) < heartbeat_interval_seconds:
+            return
+        on_heartbeat(message)
+        last_heartbeat_ts = now_ts
+
     while True:
         status, rows = client.get_report_detail_by_period(
             date_from=date_from_str,
@@ -205,6 +219,7 @@ def sync_realization_report_detail(
             break
 
         pages += 1
+        _heartbeat(f"Отчёты реализации: получена страница {pages}, строк {len(rows)}.")
         page_items: list[tuple[int, dict]] = []
         for row in rows:
             rrd_id = _to_int(_row_get(row, "rrd_id", "rrdId"))
@@ -244,11 +259,25 @@ def sync_realization_report_detail(
                 to_update.append(existing)
 
             if to_create:
-                RealizationReportDetail.objects.bulk_create(to_create, batch_size=2000)
+                for create_chunk in _iter_chunks(to_create, SQL_IN_CHUNK_SIZE):
+                    RealizationReportDetail.objects.bulk_create(create_chunk, batch_size=2000)
+                    _heartbeat(
+                        "Отчёты реализации: запись новых строк "
+                        f"({len(create_chunk)} шт., всего обработано {total_upserted + len(page_items)})."
+                    )
             if to_update:
-                RealizationReportDetail.objects.bulk_update(to_update, update_fields, batch_size=2000)
+                for update_chunk in _iter_chunks(to_update, SQL_IN_CHUNK_SIZE):
+                    RealizationReportDetail.objects.bulk_update(update_chunk, update_fields, batch_size=2000)
+                    _heartbeat(
+                        "Отчёты реализации: обновление строк "
+                        f"({len(update_chunk)} шт., всего обработано {total_upserted + len(page_items)})."
+                    )
 
             total_upserted += len(page_items)
+            _heartbeat(
+                f"Отчёты реализации: обработано {total_upserted} строк, страниц {pages}.",
+                force=True,
+            )
 
         last_rrd_id = _to_int(_row_get(rows[-1], "rrd_id", "rrdId"))
         if last_rrd_id is None or len(rows) < limit:
@@ -266,6 +295,10 @@ def sync_realization_report_detail(
                 seller=seller,
                 srid__in=srid_chunk,
             ).update(is_return=True, is_buyout=False)
+            _heartbeat(
+                "Отчёты реализации: помечены возвраты "
+                f"({len(srid_chunk)} SRID)."
+            )
 
     return {
         "pages": pages,
