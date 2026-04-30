@@ -528,7 +528,7 @@ class WBFinanceReportsClient:
                 "rrdId": rrdid,
                 "period": period,
             },
-            timeout=90,
+            timeout=61,
         )
         if response.status_code == 204:
             return (204, [])

@@ -13,6 +13,7 @@
             --line: #dbe3ec;
             --accent: #147a59;
             --chip: #eef2f7;
+            --page-shell-max-width: 1320px;
         }
         * { box-sizing: border-box; }
         body {
@@ -21,7 +22,7 @@
             background: radial-gradient(circle at top left, #d8efe6 0%, #dfe9f5 45%, var(--bg) 100%);
             color: var(--text);
         }
-        .content-wrap { max-width: 1560px; margin: 0 auto; }
+        .content-wrap { max-width: var(--page-shell-max-width); margin: 0 auto; }
         .panel { background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
         .toolbar { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
         .chip { padding: 8px 12px; border-radius: 999px; background: var(--chip); font-weight: 700; color: #334155; }
@@ -139,7 +140,36 @@
             font-variant-numeric: tabular-nums;
         }
         .empty { padding: 26px 16px; color: var(--muted); }
-        .pagination { display: flex; justify-content: center; gap: 8px; padding: 14px; border-top: 1px solid var(--line); background: #fbfdff; }
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px;
+            border-top: 1px solid var(--line);
+            background: #fbfdff;
+            flex-wrap: wrap;
+        }
+        .pagination-left {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #334155;
+            font-weight: 600;
+        }
+        .pagination-left select {
+            border: 1px solid #c8d2df;
+            border-radius: 12px;
+            background: #fff;
+            padding: 8px 32px 8px 12px;
+            font-size: 15px;
+            color: #1f2a37;
+        }
+        .pagination-nav {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
         .pagination a, .pagination span {
             min-width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px;
             border: 1px solid var(--line); text-decoration: none; color: #334155; font-weight: 600; background: #fff;
@@ -158,7 +188,7 @@
     <div class="panel">
         <div class="toolbar">
             <span class="chip" id="totalChip">Склейки ...</span>
-            <form class="search-form" id="searchForm" method="get">
+            <form class="search-form" id="searchForm" method="get" data-no-nav-loader="1">
                 <input type="text" id="searchInput" name="q" value="{{ query }}" placeholder="ID склейки / название / бренд / артикул">
                 <input class="date-input" type="date" id="dateFromInput" name="date_from" value="{{ default_date_from }}">
                 <input class="date-input" type="date" id="dateToInput" name="date_to" value="{{ default_date_to }}">
@@ -167,7 +197,7 @@
             <span class="hint" id="periodHint">Метрики за период</span>
         </div>
 
-        <div id="loadingState" class="loading-state">Загружаем склейки и рассчитываем метрики...</div>
+        <div id="loadingState" class="loading-state" hidden>Загружаем склейки и рассчитываем метрики...</div>
         <div id="errorState" class="error-state" hidden></div>
         <div id="glueList" class="glue-list" hidden></div>
         <div id="emptyState" class="empty" hidden>Склеек не найдено. Нужны карточки с одинаковым ID склейки (imtID) и данные после синхронизации.</div>
@@ -191,6 +221,10 @@
     const initialDateTo = "{{ default_date_to|escapejs }}";
     const currentUrlParams = new URLSearchParams(window.location.search);
     let currentPage = Number(currentUrlParams.get("page") || "1") || 1;
+    let currentPageSize = Number(currentUrlParams.get("page_size") || "10") || 10;
+    if (![10, 20, 30, 50].includes(currentPageSize)) {
+        currentPageSize = 10;
+    }
     let currentQuery = initialQuery;
     let currentDateFrom = currentUrlParams.get("date_from") || initialDateFrom;
     let currentDateTo = currentUrlParams.get("date_to") || initialDateTo;
@@ -286,7 +320,7 @@
     }
 
     function renderPagination(page) {
-        if (!page || Number(page.num_pages || 0) <= 1) {
+        if (!page) {
             paginationEl.hidden = true;
             paginationEl.innerHTML = "";
             return;
@@ -306,19 +340,46 @@
             prevParams.set("date_to", currentDateTo);
             nextParams.set("date_to", currentDateTo);
         }
+        prevParams.set("page_size", String(currentPageSize));
+        nextParams.set("page_size", String(currentPageSize));
         if (page.previous_page_number) {
             prevParams.set("page", page.previous_page_number);
         }
         if (page.next_page_number) {
             nextParams.set("page", page.next_page_number);
         }
+        const hasMultiplePages = Number(page.num_pages || 0) > 1;
         const prevHref = page.has_previous ? `?${prevParams.toString()}` : "#";
         const nextHref = page.has_next ? `?${nextParams.toString()}` : "#";
         paginationEl.innerHTML = `
-            <a href="${prevHref}" data-page="${page.previous_page_number || ""}" aria-disabled="${page.has_previous ? "false" : "true"}">←</a>
-            <span>${page.number}</span>
-            <a href="${nextHref}" data-page="${page.next_page_number || ""}" aria-disabled="${page.has_next ? "false" : "true"}">→</a>
+            <div class="pagination-left">
+                <span>Показать записей</span>
+                <select id="pageSizeSelect">
+                    <option value="10" ${currentPageSize === 10 ? "selected" : ""}>10</option>
+                    <option value="20" ${currentPageSize === 20 ? "selected" : ""}>20</option>
+                    <option value="30" ${currentPageSize === 30 ? "selected" : ""}>30</option>
+                    <option value="50" ${currentPageSize === 50 ? "selected" : ""}>50</option>
+                </select>
+            </div>
+            <div class="pagination-nav">
+                <a href="${prevHref}" data-page="${page.previous_page_number || ""}" aria-disabled="${hasMultiplePages && page.has_previous ? "false" : "true"}">←</a>
+                <span>${page.number}</span>
+                <a href="${nextHref}" data-page="${page.next_page_number || ""}" aria-disabled="${hasMultiplePages && page.has_next ? "false" : "true"}">→</a>
+            </div>
         `;
+        const pageSizeSelectEl = document.getElementById("pageSizeSelect");
+        if (pageSizeSelectEl) {
+            pageSizeSelectEl.addEventListener("change", () => {
+                const nextSize = Number(pageSizeSelectEl.value || "10");
+                if (!Number.isFinite(nextSize) || ![10, 20, 30, 50].includes(nextSize)) {
+                    return;
+                }
+                currentPageSize = nextSize;
+                currentPage = 1;
+                updateUrl();
+                loadGlues();
+            });
+        }
         paginationEl.hidden = false;
     }
 
@@ -331,6 +392,9 @@
             dateFromInputEl.value = currentDateFrom;
             dateToInputEl.value = currentDateTo;
             updatePeriodHint(currentDateFrom, currentDateTo);
+        }
+        if (payload.page && payload.page.page_size) {
+            currentPageSize = Number(payload.page.page_size) || currentPageSize;
         }
         errorStateEl.hidden = true;
         errorStateEl.textContent = "";
@@ -362,7 +426,7 @@
     }
 
     function setLoading() {
-        loadingStateEl.hidden = false;
+        loadingStateEl.hidden = true;
         errorStateEl.hidden = true;
         glueListEl.hidden = true;
         emptyStateEl.hidden = true;
@@ -376,6 +440,7 @@
             params.set("q", currentQuery);
         }
         params.set("page", String(currentPage));
+        params.set("page_size", String(currentPageSize));
         params.set("date_from", currentDateFrom);
         params.set("date_to", currentDateTo);
 
@@ -403,6 +468,7 @@
         if (currentPage > 1) {
             params.set("page", String(currentPage));
         }
+        params.set("page_size", String(currentPageSize));
         if (currentDateFrom) {
             params.set("date_from", currentDateFrom);
         }

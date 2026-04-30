@@ -260,14 +260,26 @@ def sync_realization_report_detail(
 
             if to_create:
                 for create_chunk in _iter_chunks(to_create, SQL_IN_CHUNK_SIZE):
-                    RealizationReportDetail.objects.bulk_create(create_chunk, batch_size=2000)
+                    try:
+                        RealizationReportDetail.objects.bulk_create(create_chunk, batch_size=2000)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "Ошибка записи новых строк отчёта реализации "
+                            f"(chunk={len(create_chunk)}, pages={pages}, upserted={total_upserted}): {exc}"
+                        ) from exc
                     _heartbeat(
                         "Отчёты реализации: запись новых строк "
                         f"({len(create_chunk)} шт., всего обработано {total_upserted + len(page_items)})."
                     )
             if to_update:
                 for update_chunk in _iter_chunks(to_update, SQL_IN_CHUNK_SIZE):
-                    RealizationReportDetail.objects.bulk_update(update_chunk, update_fields, batch_size=2000)
+                    try:
+                        RealizationReportDetail.objects.bulk_update(update_chunk, update_fields, batch_size=2000)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "Ошибка обновления строк отчёта реализации "
+                            f"(chunk={len(update_chunk)}, pages={pages}, upserted={total_upserted}): {exc}"
+                        ) from exc
                     _heartbeat(
                         "Отчёты реализации: обновление строк "
                         f"({len(update_chunk)} шт., всего обработано {total_upserted + len(page_items)})."
@@ -291,10 +303,16 @@ def sync_realization_report_detail(
     if return_srids:
         return_srid_list = list(return_srids)
         for srid_chunk in _iter_chunks(return_srid_list, SQL_IN_CHUNK_SIZE):
-            Order.objects.filter(
-                seller=seller,
-                srid__in=srid_chunk,
-            ).update(is_return=True, is_buyout=False)
+            try:
+                Order.objects.filter(
+                    seller=seller,
+                    srid__in=srid_chunk,
+                ).update(is_return=True, is_buyout=False)
+            except Exception as exc:
+                raise RuntimeError(
+                    "Ошибка обновления возвратов по SRID "
+                    f"(chunk={len(srid_chunk)}, return_srids={len(return_srid_list)}): {exc}"
+                ) from exc
             _heartbeat(
                 "Отчёты реализации: помечены возвраты "
                 f"({len(srid_chunk)} SRID)."

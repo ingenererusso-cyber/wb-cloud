@@ -20,7 +20,7 @@
             background: radial-gradient(circle at top left, #d8efe6 0%, #dfe9f5 45%, var(--bg) 100%);
             color: var(--text);
         }
-        .page { max-width: 1480px; margin: 0 auto; padding: 12px 20px 28px; }
+        .page { max-width: var(--page-shell-max-width, none); margin: 0 auto; padding: 12px 0 28px; }
         .hero {
             margin-top: 10px;
             background: var(--card);
@@ -802,8 +802,8 @@
     {% include "partials/top_nav_css.html" %}
 </head>
 <body>
+{% include "partials/top_nav.html" %}
 <div class="page">
-    {% include "partials/top_nav.html" %}
 
     <section class="hero">
         {% if product.photo_url %}

@@ -18,6 +18,7 @@
             --good: #166534;
             --bad: #991b1b;
             --shadow: 0 8px 22px rgba(19, 39, 60, 0.08);
+            --page-shell-max-width: 1320px;
         }
 
         * { box-sizing: border-box; }
@@ -34,7 +35,7 @@
             padding: 24px 14px 40px;
         }
 
-        .container { max-width: 1260px; margin: 0 auto; }
+        .container { max-width: var(--page-shell-max-width); margin: 0 auto; }
 
         .header {
             display: grid;
@@ -556,7 +557,7 @@
             setBaseState();
             tableWrapEl.hidden = true;
             rowsEl.innerHTML = "";
-            loadingStateEl.hidden = false;
+            loadingStateEl.hidden = true;
         }
 
         function setErrorState(message) {

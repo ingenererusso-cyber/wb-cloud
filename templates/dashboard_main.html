@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -11,8 +12,10 @@
             --accent: #14532d;
             --accent-2: #065f46;
             --line: rgba(19, 32, 51, 0.12);
-            --surface: rgba(255, 255, 255, 0.84);
-            --shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+            --surface: rgba(255, 255, 255, 0.86);
+            --surface-strong: rgba(255, 255, 255, 0.94);
+            --shadow: 0 18px 42px rgba(19, 32, 51, 0.14);
+            --soft-shadow: 0 12px 28px rgba(19, 32, 51, 0.08);
         }
 
         * { box-sizing: border-box; }
@@ -30,18 +33,47 @@
         }
 
         .hero {
+            max-width: var(--page-shell-max-width);
+            margin: 0 auto;
             width: 100%;
             border: 1px solid var(--line);
-            border-radius: 24px;
+            border-radius: 28px;
             background: var(--surface);
             backdrop-filter: blur(3px);
             box-shadow: var(--shadow);
-            padding: 24px;
+            padding: 28px 28px 24px;
+        }
+
+        .hero-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .hero-copy {
+            max-width: 760px;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(20, 83, 45, 0.12);
+            background: rgba(255, 255, 255, 0.74);
+            color: #166534;
+            font-size: 12px;
+            font-weight: 800;
+            box-shadow: 0 10px 22px rgba(20, 83, 45, 0.08);
         }
 
         h1 {
-            margin: 0 0 8px;
-            font-size: clamp(28px, 3.4vw, 44px);
+            margin: 0 0 10px;
+            font-size: clamp(30px, 3.8vw, 48px);
             letter-spacing: -0.02em;
         }
 
@@ -53,10 +85,10 @@
         }
 
         .metrics {
-            margin-top: 16px;
+            margin-top: 18px;
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 12px;
+            gap: 14px;
         }
 
         .hint-banner {
@@ -90,9 +122,10 @@
 
         .metric-card {
             border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.78);
-            border-radius: 14px;
-            padding: 14px 15px;
+            background: linear-gradient(180deg, var(--surface-strong) 0%, rgba(248, 252, 255, 0.88) 100%);
+            border-radius: 18px;
+            padding: 16px 16px 14px;
+            box-shadow: var(--soft-shadow);
         }
 
         .metric-card.is-loading {
@@ -106,11 +139,12 @@
             margin: 0;
             font-size: 13px;
             color: var(--muted);
+            letter-spacing: 0.01em;
         }
 
         .metric-value {
             margin: 7px 0 3px;
-            font-size: 30px;
+            font-size: 32px;
             font-weight: 800;
             letter-spacing: -0.02em;
             color: #0f5132;
@@ -123,9 +157,9 @@
         }
 
         .reminders {
-            margin-top: 18px;
+            margin-top: 22px;
             display: grid;
-            gap: 14px;
+            gap: 16px;
         }
 
         .reminders-head {
@@ -138,7 +172,7 @@
 
         .reminders-title {
             margin: 0;
-            font-size: 22px;
+            font-size: 24px;
             letter-spacing: -0.02em;
         }
 
@@ -157,10 +191,10 @@
 
         .reminder-group {
             border: 1px solid var(--line);
-            border-radius: 18px;
-            background: rgba(255, 255, 255, 0.76);
-            padding: 16px;
-            box-shadow: 0 12px 28px rgba(19, 32, 51, 0.08);
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 252, 255, 0.84) 100%);
+            padding: 18px;
+            box-shadow: var(--soft-shadow);
         }
 
         .reminder-group-head {
@@ -208,9 +242,9 @@
             grid-template-columns: 72px 1fr;
             gap: 12px;
             padding: 16px;
-            border-radius: 18px;
+            border-radius: 20px;
             border: 1px solid rgba(19, 32, 51, 0.12);
-            background: linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(243, 249, 255, 0.94) 100%);
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.99) 0%, rgba(243, 249, 255, 0.95) 100%);
             box-shadow: 0 14px 26px rgba(19, 32, 51, 0.12);
             overflow: visible;
             transition: transform .18s ease, opacity .18s ease, box-shadow .18s ease;
@@ -438,12 +472,203 @@
             color: #991b1b;
         }
 
-        .trend-card {
-            margin-top: 12px;
+        .orders-feed {
+            margin-top: 20px;
             border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.82);
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 252, 255, 0.9) 100%);
+            padding: 16px;
+            box-shadow: var(--soft-shadow);
+        }
+
+        .orders-feed-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .orders-feed-title {
+            margin: 0;
+            font-size: 22px;
+            letter-spacing: -0.01em;
+        }
+
+        .orders-feed-subtitle {
+            margin: 4px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .orders-feed-track {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+            scrollbar-width: thin;
+        }
+
+        .order-tile {
+            flex: 0 0 360px;
+            border: 1px solid rgba(19, 32, 51, 0.1);
             border-radius: 14px;
-            padding: 14px 15px;
+            background: #fff;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: 116px 1fr;
+            gap: 12px;
+        }
+
+        .order-thumb {
+            width: 116px;
+            height: 156px;
+            border-radius: 8px;
+            border: 1px solid #dbe3ec;
+            object-fit: cover;
+            background: #f1f5f9;
+        }
+
+        .order-thumb-fallback {
+            width: 116px;
+            height: 156px;
+            border-radius: 8px;
+            border: 1px dashed #dbe3ec;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+            font-size: 11px;
+            background: #f8fafc;
+        }
+
+        .order-title {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.25;
+            color: #1e293b;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .order-meta {
+            margin-top: 4px;
+            color: #64748b;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        .order-vendor {
+            margin-top: 6px;
+            color: #1e293b;
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .order-pills {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .order-pill {
+            border: 1px solid #dbe3ec;
+            border-radius: 999px;
+            padding: 2px 7px;
+            font-size: 11px;
+            color: #334155;
+            background: #fff;
+        }
+
+        .order-pill-fbo {
+            border-color: #86efac;
+            color: #166534;
+            background: #dcfce7;
+        }
+
+        .order-pill-fbs {
+            border-color: #bfdbfe;
+            color: #1d4ed8;
+            background: #dbeafe;
+        }
+
+        .orders-feed-foot {
+            margin-top: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .orders-feed-more {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .orders-feed-more[disabled] {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        .order-load-tile {
+            flex: 0 0 240px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 14px;
+            background: #f8fbff;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .order-load-btn {
+            width: 100%;
+            min-height: 98px;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            background: #fff;
+            color: #334155;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            padding: 10px;
+        }
+
+        .order-load-btn[disabled] {
+            opacity: 0.65;
+            cursor: default;
+        }
+
+        .orders-feed-empty,
+        .orders-feed-error {
+            color: var(--muted);
+            font-size: 13px;
+            padding: 6px 0;
+        }
+
+        .orders-feed-error {
+            color: #b91c1c;
+        }
+
+        .trend-card {
+            margin-top: 18px;
+            border: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 252, 255, 0.86) 100%);
+            border-radius: 20px;
+            padding: 18px 18px 16px;
+            box-shadow: var(--soft-shadow);
         }
 
         .trend-head {
@@ -457,7 +682,7 @@
 
         .trend-title {
             margin: 0;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: 800;
             color: #1e293b;
         }
@@ -502,15 +727,15 @@
         .trend-kpis {
             display: grid;
             grid-template-columns: repeat(2, minmax(180px, 1fr));
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 12px;
+            margin-bottom: 12px;
         }
 
         .trend-kpi {
             border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 10px;
-            background: #fff;
+            border-radius: 14px;
+            padding: 12px 12px 11px;
+            background: rgba(255, 255, 255, 0.92);
         }
 
         .trend-kpi-label {
@@ -581,53 +806,19 @@
             cursor: pointer;
         }
 
-        .chart-grid {
-            margin-top: 12px;
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 12px;
-        }
-
-        .chart-card {
-            border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.78);
-            border-radius: 14px;
-            padding: 14px 15px;
-        }
-
-        .chart-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 8px;
-            gap: 8px;
-        }
-
-        .chart-title {
-            margin: 0;
-            font-size: 13px;
-            color: var(--muted);
-        }
-
-        .chart-range {
-            margin: 0;
-            font-size: 12px;
-            color: var(--muted);
-        }
-
         .line-wrap {
-            height: 230px;
-            border-radius: 10px;
-            background: linear-gradient(180deg, rgba(6, 95, 70, 0.08) 0%, rgba(6, 95, 70, 0.02) 100%);
+            height: 280px;
+            border-radius: 14px;
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.10), rgba(255,255,255,0.96) 48%),
+                linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(248,252,255,0.88) 100%);
             border: 1px solid rgba(6, 95, 70, 0.12);
             padding: 8px;
-            overflow-x: auto;
-            overflow-y: hidden;
+            overflow: hidden;
         }
 
-        .line-wrap svg {
+        .trend-chart-host {
             width: 100%;
-            min-width: 900px;
             height: 100%;
             display: block;
         }
@@ -638,6 +829,17 @@
             min-height: 120px;
             color: var(--muted);
             font-size: 13px;
+        }
+
+        .dashboard-empty {
+            margin-top: 16px;
+            border: 1px dashed rgba(19, 32, 51, 0.16);
+            border-radius: 18px;
+            padding: 18px 16px;
+            background: rgba(255, 255, 255, 0.72);
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
         }
 
         @media (max-width: 720px) {
@@ -653,47 +855,64 @@
             .deck-thumb, .deck-thumb-fallback { width: 64px; height: 84px; }
         }
     </style>
+    <script src="{% static 'vendor/echarts/echarts.min.js' %}"></script>
+    <script src="{% static 'js/vendra-charts.js' %}"></script>
 </head>
 <body>
     {% include "partials/top_nav_css.html" %}
     {% include "partials/top_nav.html" with enable_sync_button=True %}
 
     <main class="hero">
-        <h1>Главная</h1>
-        <p class="subtitle">Ключевые показатели магазина за последние 30 дней.</p>
+        <div class="hero-head">
+            <div class="hero-copy">
+                <h1>Главная</h1>
+                <p class="subtitle">Ключевые показатели магазина, сигналы для действий и динамика продаж в одном рабочем дашборде.</p>
+            </div>
+            <div class="hero-badge">Dashboard Home</div>
+        </div>
         <div id="sync-status-banner" class="hint-banner hint-banner-info"></div>
 
         <section class="metrics">
-            <article class="metric-card is-loading">
+            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
                 <p class="metric-title">Выручка (30 дней)</p>
                 <p class="metric-value" id="metric-revenue">—</p>
-                <p class="metric-meta" id="metric-avg-check">Загружаем...</p>
+                <p class="metric-meta" id="metric-avg-check">Нет данных</p>
             </article>
-            <article class="metric-card is-loading">
+            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
                 <p class="metric-title">Заказы / Выкупы</p>
                 <p class="metric-value" id="metric-orders-buyouts">—</p>
-                <p class="metric-meta" id="metric-buyout-rate">Загружаем...</p>
+                <p class="metric-meta" id="metric-buyout-rate">Нет данных</p>
             </article>
-            <article class="metric-card is-loading">
+            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
                 <p class="metric-title">Доля локальных заказов</p>
                 <p class="metric-value" id="metric-local-share">—</p>
                 <p class="metric-meta">По всем заказам за 30 дней</p>
             </article>
-            <article class="metric-card is-loading">
+            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
                 <p class="metric-title">Остатки FBO / Остатки FBS</p>
                 <p class="metric-value" id="metric-stocks">—</p>
                 <p class="metric-meta">Текущие остатки по складам WB и продавца</p>
             </article>
-            <article class="metric-card is-loading">
+            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
                 <p class="metric-title">Расход на рекламу (30 дней)</p>
                 <p class="metric-value" id="metric-ad-spend">—</p>
-                <p class="metric-meta" id="metric-active-ads">Загружаем...</p>
+                <p class="metric-meta" id="metric-active-ads">Нет данных</p>
             </article>
-            <article class="metric-card is-loading">
+            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
                 <p class="metric-title">Последняя синхронизация</p>
                 <p class="metric-value" id="metric-last-sync" style="font-size:22px;">—</p>
             </article>
         </section>
+
+        {% if not has_dashboard_data %}
+            <div class="dashboard-empty">
+                {% if missing_api_token %}
+                    Данных пока нет. Добавьте API-ключ и запустите первую синхронизацию — после этого на главной появятся показатели, сигналы и графики.
+                {% else %}
+                    Данных пока нет. Запустите первую синхронизацию, и после ее завершения на главной появятся показатели, сигналы и графики.
+                {% endif %}
+            </div>
+        {% endif %}
 
         <section class="reminders">
             <div class="reminders-head">
@@ -702,10 +921,29 @@
                     <p class="reminders-subtitle">Сервис собирает карточки-задачи, где сейчас нужно ваше участие: пополнить товар, проверить склейки и другие важные сигналы.</p>
                 </div>
             </div>
-            <div id="reminders-loading" class="reminders-loading">Собираем сигналы, требующие внимания...</div>
-            <div id="reminders-error" class="reminders-error" style="display:none;"></div>
-            <div class="reminder-groups" id="reminder-groups" style="display:none;"></div>
-            <div id="reminders-empty" class="deck-empty" style="display:none;">Когда появятся товары без остатка, рискованные склейки или другие сигналы, они появятся здесь отдельными колодами.</div>
+            {% if has_dashboard_data %}
+                <div id="reminders-loading" class="reminders-loading">Собираем сигналы, требующие внимания...</div>
+                <div id="reminders-error" class="reminders-error" style="display:none;"></div>
+                <div class="reminder-groups" id="reminder-groups" style="display:none;"></div>
+                <div id="reminders-empty" class="deck-empty" style="display:none;">Когда появятся товары без остатка, рискованные склейки или другие сигналы, они появятся здесь отдельными колодами.</div>
+            {% else %}
+                <div class="deck-empty" style="display:block;">После первой синхронизации здесь появятся карточки с товарами без остатка, рискованными склейками и другими сигналами.</div>
+            {% endif %}
+        </section>
+
+        <section class="orders-feed">
+            <div class="orders-feed-head">
+                <div>
+                    <h2 class="orders-feed-title">Лента заказов</h2>
+                    <p class="orders-feed-subtitle">Последние заказы, новые слева. Листайте по горизонтали и подгружайте следующие 10.</p>
+                </div>
+            </div>
+            <div id="orders-feed-error" class="orders-feed-error" style="display:none;"></div>
+            <div id="orders-feed-empty" class="orders-feed-empty" style="display:none;">Заказов пока нет.</div>
+            <div id="orders-feed-track" class="orders-feed-track"></div>
+            <div class="orders-feed-foot">
+                <span id="orders-feed-count" class="muted"></span>
+            </div>
         </section>
 
         <section class="trend-card" id="dashboard-trend-card">
@@ -742,20 +980,23 @@
                 <button type="button" id="trend-retry-btn">Повторить</button>
             </div>
             <div class="line-wrap" id="trend-line-wrap">
-                <svg id="trend-chart"></svg>
+                <div id="trend-chart" class="trend-chart-host"></div>
             </div>
         </section>
     </main>
 
-    {{ running_sync_task|json_script:"running-sync-task-data" }}
+    {{ has_dashboard_data|json_script:"dashboard-has-data" }}
 
     <script>
         (function () {
+            const hasDashboardData = JSON.parse(
+                document.getElementById("dashboard-has-data")?.textContent || "false"
+            );
             const reminderGroupsRoot = document.getElementById("reminder-groups");
             const remindersLoadingEl = document.getElementById("reminders-loading");
             const remindersErrorEl = document.getElementById("reminders-error");
             const remindersEmptyEl = document.getElementById("reminders-empty");
-            const trendSvg = document.getElementById("trend-chart");
+            const trendChartHost = document.getElementById("trend-chart");
             const trendWrap = document.getElementById("trend-line-wrap");
             const trendLoading = document.getElementById("trend-loading");
             const trendError = document.getElementById("trend-error");
@@ -767,11 +1008,21 @@
             const trendPreviousCaption = document.getElementById("trend-previous-caption");
             const periodControl = document.getElementById("trend-period-control");
             const metricControl = document.getElementById("trend-metric-control");
+            const ordersFeedTrack = document.getElementById("orders-feed-track");
+            const ordersFeedCount = document.getElementById("orders-feed-count");
+            const ordersFeedEmpty = document.getElementById("orders-feed-empty");
+            const ordersFeedError = document.getElementById("orders-feed-error");
 
             const trendState = {
                 period: "14d",
                 metric: "orders",
                 requestId: 0,
+            };
+            const ordersFeedState = {
+                offset: 0,
+                total: 0,
+                hasMore: true,
+                isLoading: false,
             };
 
             function formatMoney(value) {
@@ -788,6 +1039,18 @@
                     .replace(/>/g, "&gt;")
                     .replace(/"/g, "&quot;")
                     .replace(/'/g, "&#39;");
+            }
+
+            function formatDateShort(isoValue, fallbackLabel) {
+                if (!isoValue) return fallbackLabel || "-";
+                const dt = new Date(isoValue);
+                if (Number.isNaN(dt.getTime())) return fallbackLabel || "-";
+                return dt.toLocaleString("ru-RU", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                });
             }
 
             function fillMetricCard(cardId, value, metaId, metaText) {
@@ -809,6 +1072,119 @@
                 fillMetricCard("metric-stocks", `${summary.fbo_stock_total} / ${summary.fbs_stock_total}`);
                 fillMetricCard("metric-ad-spend", `${formatMoney(summary.ad_spend_30d)} ₽`, "metric-active-ads", `Активных РК: ${summary.active_ads_count || 0}`);
                 fillMetricCard("metric-last-sync", summary.last_sync_at_label || "не было");
+            }
+
+            function buildOrderTileHtml(row) {
+                const photoHtml = row.photo_url
+                    ? `<img class="order-thumb" src="${escapeHtml(row.photo_url)}" alt="${escapeHtml(row.title || "")}">`
+                    : '<div class="order-thumb-fallback">Нет фото</div>';
+                const statusPills = [];
+                const fulfillment = (row.fulfillment || "").toUpperCase() === "FBO" ? "FBO" : "FBS";
+                statusPills.push(`<span class="order-pill ${fulfillment === "FBO" ? "order-pill-fbo" : "order-pill-fbs"}">${fulfillment}</span>`);
+                if (row.is_cancel) statusPills.push('<span class="order-pill">Отмена</span>');
+                else if (row.is_buyout) statusPills.push('<span class="order-pill">Выкуп</span>');
+                if (row.warehouse_name) {
+                    statusPills.push(`<span class="order-pill">${escapeHtml(row.warehouse_name)}</span>`);
+                }
+                return `
+                    <article class="order-tile">
+                        ${photoHtml}
+                        <div>
+                            <p class="order-title">${escapeHtml(row.title || row.supplier_article || `nmID ${row.nm_id}`)}</p>
+                            <div class="order-meta">
+                                ${escapeHtml(formatDateShort(row.order_date, row.order_date_label))}
+                            </div>
+                            <div class="order-vendor">${escapeHtml(row.vendor_code || row.supplier_article || "-")}</div>
+                            <div class="order-pills">
+                                ${statusPills.join("")}
+                                <span class="order-pill">${Number(row.order_price || 0).toFixed(2)} ₽</span>
+                            </div>
+                        </div>
+                    </article>
+                `;
+            }
+
+            function syncOrdersFeedControls() {
+                if (ordersFeedCount) {
+                    ordersFeedCount.textContent = ordersFeedState.total > 0
+                        ? `Показано ${ordersFeedState.offset} из ${ordersFeedState.total}`
+                        : "";
+                }
+                const ordersFeedMoreBtn = document.getElementById("orders-feed-more");
+                if (ordersFeedMoreBtn) {
+                    ordersFeedMoreBtn.disabled = ordersFeedState.isLoading || !ordersFeedState.hasMore;
+                    if (ordersFeedState.isLoading) {
+                        ordersFeedMoreBtn.textContent = "Загрузка...";
+                    } else if (ordersFeedState.hasMore) {
+                        ordersFeedMoreBtn.textContent = "Загрузить ещё 10";
+                    } else {
+                        ordersFeedMoreBtn.textContent = "Конец ленты";
+                    }
+                    ordersFeedMoreBtn.style.display = ordersFeedState.total > 0 ? "block" : "none";
+                }
+            }
+
+            async function loadOrdersFeedChunk(reset = false) {
+                if (!ordersFeedTrack || ordersFeedState.isLoading) return;
+                if (reset) {
+                    ordersFeedState.offset = 0;
+                    ordersFeedState.total = 0;
+                    ordersFeedState.hasMore = true;
+                    ordersFeedTrack.innerHTML = "";
+                    ordersFeedTrack.insertAdjacentHTML(
+                        "beforeend",
+                        `
+                            <article class="order-load-tile" id="orders-load-tile">
+                                <button id="orders-feed-more" class="order-load-btn" type="button" data-no-nav-loader="1">Загрузить ещё 10</button>
+                            </article>
+                        `
+                    );
+                }
+                const loadTileEl = document.getElementById("orders-load-tile");
+                ordersFeedState.isLoading = true;
+                if (ordersFeedError) {
+                    ordersFeedError.style.display = "none";
+                    ordersFeedError.textContent = "";
+                }
+                if (ordersFeedEmpty) ordersFeedEmpty.style.display = "none";
+                syncOrdersFeedControls();
+                try {
+                    const url = `{% url 'dashboard_orders_feed_api' %}?offset=${ordersFeedState.offset}&limit=10`;
+                    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) {
+                        throw new Error(data.error || "Не удалось загрузить ленту заказов");
+                    }
+                    const rows = Array.isArray(data.rows) ? data.rows : [];
+                    if (rows.length === 0 && ordersFeedState.offset === 0) {
+                        if (ordersFeedEmpty) ordersFeedEmpty.style.display = "block";
+                        ordersFeedState.hasMore = false;
+                        ordersFeedState.total = Number(data.total || 0);
+                        if (loadTileEl) loadTileEl.style.display = "none";
+                        syncOrdersFeedControls();
+                        return;
+                    }
+                    if (loadTileEl) {
+                        loadTileEl.insertAdjacentHTML("beforebegin", rows.map(buildOrderTileHtml).join(""));
+                    } else {
+                        ordersFeedTrack.insertAdjacentHTML("beforeend", rows.map(buildOrderTileHtml).join(""));
+                    }
+                    ordersFeedState.offset = Number(data.next_offset || ordersFeedState.offset + rows.length);
+                    ordersFeedState.total = Number(data.total || ordersFeedState.total || ordersFeedState.offset);
+                    ordersFeedState.hasMore = Boolean(data.has_more);
+                    if (loadTileEl) {
+                        loadTileEl.style.display = ordersFeedState.hasMore ? "flex" : "none";
+                    }
+                    syncOrdersFeedControls();
+                } catch (err) {
+                    if (ordersFeedError) {
+                        ordersFeedError.textContent = err && err.message ? err.message : "Не удалось загрузить ленту заказов.";
+                        ordersFeedError.style.display = "block";
+                    }
+                } finally {
+                    ordersFeedState.isLoading = false;
+                    syncOrdersFeedControls();
+                }
             }
 
             function buildReminderGroupsHtml(groups) {
@@ -917,67 +1293,14 @@
             }
 
             function renderTrendChart(data) {
-                if (!trendSvg || !trendWrap) return;
-                const labels = Array.isArray(data.labels) ? data.labels : [];
-                const current = Array.isArray(data.current_values) ? data.current_values.map((v) => Number(v || 0)) : [];
-                const previous = Array.isArray(data.previous_values) ? data.previous_values.map((v) => Number(v || 0)) : [];
-                const pointsCount = Math.min(labels.length, current.length, previous.length);
-                if (!pointsCount) {
-                    trendWrap.innerHTML = '<div class="chart-empty">Недостаточно данных</div>';
-                    return;
-                }
-                if (!trendWrap.querySelector("svg")) {
-                    trendWrap.innerHTML = '<svg id="trend-chart"></svg>';
-                }
-                const svg = trendWrap.querySelector("svg");
-                const width = 1200;
-                const height = 230;
-                const left = 52;
-                const right = 20;
-                const top = 22;
-                const bottom = 38;
-                const chartW = width - left - right;
-                const chartH = height - top - bottom;
-                const maxY = Math.max(1, ...current.slice(0, pointsCount), ...previous.slice(0, pointsCount));
-                const x = (i) => left + (chartW * i) / Math.max(1, pointsCount - 1);
-                const y = (v) => top + chartH - (Number(v || 0) / maxY) * chartH;
-
-                const yTicks = Array.from({ length: 5 }, (_, idx) => {
-                    const tick = (maxY * idx) / 4;
-                    const yy = y(tick);
-                    return `
-                        <line x1="${left}" y1="${yy}" x2="${left + chartW}" y2="${yy}" stroke="rgba(19,32,51,0.1)" stroke-width="1"/>
-                        <text x="${left - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#64748b">${Math.round(tick)}</text>
-                    `;
-                }).join("");
-
-                const prevPoly = Array.from({ length: pointsCount }, (_, i) => `${x(i)},${y(previous[i])}`).join(" ");
-                const currPoly = Array.from({ length: pointsCount }, (_, i) => `${x(i)},${y(current[i])}`).join(" ");
-                const xLabels = Array.from({ length: pointsCount }, (_, i) => {
-                    if (i % 2 !== 0 && i !== pointsCount - 1) return "";
-                    return `<text x="${x(i)}" y="${height - 10}" text-anchor="middle" font-size="11" fill="#5a6778">${labels[i]}</text>`;
-                }).join("");
-                const dots = Array.from({ length: pointsCount }, (_, i) => {
-                    return `
-                        <circle cx="${x(i)}" cy="${y(current[i])}" r="4.2" fill="#3657d4">
-                            <title>${labels[i]}: текущий ${current[i]}, предыдущий ${previous[i]}</title>
-                        </circle>
-                    `;
-                }).join("");
-
-                svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-                svg.innerHTML = `
-                    <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"/>
-                    <line x1="${left}" y1="${top}" x2="${left}" y2="${top + chartH}" stroke="rgba(19,32,51,0.35)" stroke-width="1"/>
-                    <line x1="${left}" y1="${top + chartH}" x2="${left + chartW}" y2="${top + chartH}" stroke="rgba(19,32,51,0.35)" stroke-width="1"/>
-                    ${yTicks}
-                    <polyline fill="none" stroke="#e879c9" stroke-width="2.2" stroke-opacity="0.85" points="${prevPoly}" />
-                    <polyline fill="none" stroke="#3657d4" stroke-width="3" points="${currPoly}" />
-                    ${dots}
-                    <text x="${left}" y="14" font-size="12" fill="#3657d4">Текущий период</text>
-                    <text x="${left + 160}" y="14" font-size="12" fill="#e879c9">Предыдущий период</text>
-                    ${xLabels}
-                `;
+                if (!trendChartHost || !trendWrap) return;
+                window.VendraCharts.renderComparisonTrendChart(trendChartHost, data, {
+                    currentColor: "#14532d",
+                    previousColor: "#94a3b8",
+                    currentLabel: "Текущий период",
+                    previousLabel: "Предыдущий период",
+                    emptyText: "Недостаточно данных",
+                });
             }
 
             function renderKpis(data) {
@@ -1041,6 +1364,15 @@
 
             trendRetryBtn?.addEventListener("click", loadTrendData);
             async function loadDashboardTopToBottom() {
+                if (!hasDashboardData) {
+                    document.querySelectorAll(".metric-card").forEach((cardEl) => cardEl.classList.remove("is-loading"));
+                    fillMetricCard("metric-revenue", "—", "metric-avg-check", "Появится после первой синхронизации");
+                    fillMetricCard("metric-orders-buyouts", "—", "metric-buyout-rate", "Появится после первой синхронизации");
+                    fillMetricCard("metric-local-share", "—");
+                    fillMetricCard("metric-stocks", "—");
+                    fillMetricCard("metric-ad-spend", "—", "metric-active-ads", "Появится после первой синхронизации");
+                    fillMetricCard("metric-last-sync", "не было");
+                }
                 try {
                     await loadDashboardSummary();
                 } catch (_err) {
@@ -1062,6 +1394,7 @@
                     }
                 }
 
+                await loadOrdersFeedChunk(true);
                 loadTrendData();
             }
 
@@ -1167,16 +1500,8 @@
                 }
             });
 
-            if (window.__globalSyncWidgetInstalled) {
-                return;
-            }
-
-            const syncBtn = document.getElementById("sync-orders-btn");
             const syncBanner = document.getElementById("sync-status-banner");
             const syncLastAt = document.getElementById("sync-last-at");
-            const runningSyncTaskData = JSON.parse(
-                document.getElementById("running-sync-task-data")?.textContent || "null"
-            );
 
             function setSyncBanner(text, mode) {
                 if (!syncBanner) return;
@@ -1186,81 +1511,11 @@
                 syncBanner.textContent = text;
             }
 
-            async function pollSyncStatus(taskId) {
-                const statusUrl = `{% url 'sync_orders_status_api' %}?task_id=${encodeURIComponent(taskId)}`;
-                try {
-                    const res = await fetch(statusUrl, { headers: { "Accept": "application/json" } });
-                    const data = await res.json();
-                    if (!res.ok) {
-                        setSyncBanner(`Ошибка статуса: ${data.error || "не удалось получить статус"}`, "hint-banner-error");
-                        if (syncBtn) syncBtn.disabled = false;
-                        return;
-                    }
-
-                    const progress = Number(data.progress || 0);
-                    const step = data.step ? `${data.step}. ` : "";
-                    setSyncBanner(`${step}${data.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
-
-                    if (data.status === "running") {
-                        window.setTimeout(() => pollSyncStatus(taskId), 2000);
-                        return;
-                    }
-
-                    if (data.status === "success") {
-                        setSyncBanner(data.message || "Синхронизация завершена.", "hint-banner-success");
-                        if (syncLastAt) {
-                            const finishedAt = data.finished_at ? new Date(data.finished_at) : new Date();
-                            const text = Number.isNaN(finishedAt.getTime())
-                                ? "Последняя синхронизация: только что"
-                                : `Последняя синхронизация: ${finishedAt.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`;
-                            syncLastAt.textContent = text;
-                        }
-                    } else {
-                        setSyncBanner(data.message || "Ошибка синхронизации.", "hint-banner-error");
-                    }
-                    if (syncBtn) syncBtn.disabled = false;
-                } catch (_err) {
-                    setSyncBanner("Ошибка сети при проверке статуса синхронизации.", "hint-banner-error");
-                    if (syncBtn) syncBtn.disabled = false;
-                }
-            }
-
-            async function startSyncOrders() {
-                if (!syncBtn) return;
-                syncBtn.disabled = true;
-                setSyncBanner("Запускаю синхронизацию...", "hint-banner-info");
-                try {
-                    const res = await fetch("{% url 'sync_orders_start_api' %}", {
-                        method: "POST",
-                        headers: {
-                            "X-CSRFToken": getCookie("csrftoken"),
-                            "Accept": "application/json",
-                        },
-                    });
-                    const data = await res.json();
-                    if (!res.ok) {
-                        setSyncBanner(`Ошибка запуска: ${data.error || "не удалось запустить синхронизацию"}`, "hint-banner-error");
-                        syncBtn.disabled = false;
-                        return;
-                    }
-                    pollSyncStatus(data.task_id);
-                } catch (err) {
-                    setSyncBanner(`Ошибка сети при запуске синхронизации: ${err && err.message ? err.message : "unknown"}`, "hint-banner-error");
-                    syncBtn.disabled = false;
-                }
-            }
-
-            if (syncBtn) {
-                syncBtn.addEventListener("click", startSyncOrders);
-            }
-
-            if (runningSyncTaskData && runningSyncTaskData.task_id) {
-                const progress = Number(runningSyncTaskData.progress || 0);
-                const step = runningSyncTaskData.step ? `${runningSyncTaskData.step}. ` : "";
-                setSyncBanner(`${step}${runningSyncTaskData.message || "Синхронизация..."} (${progress}%)`, "hint-banner-info");
-                if (syncBtn) syncBtn.disabled = true;
-                pollSyncStatus(runningSyncTaskData.task_id);
-            }
+            document.addEventListener("click", (event) => {
+                const btn = event.target.closest("#orders-feed-more");
+                if (!btn) return;
+                loadOrdersFeedChunk(false);
+            });
 
             loadDashboardTopToBottom();
         })();

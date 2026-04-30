@@ -5,7 +5,7 @@
             <img class="home-logo-img" src="{% static 'img/vendra-logo.png' %}" alt="Vendra">
         </a>
 
-        <div class="menu-item">
+        <div class="menu-item" data-overflow-candidate="1">
             <a class="menu-link" href="{% url 'product_cards_report' %}">Товары и цены</a>
             <div class="mega">
                 <div class="mega-grid">
@@ -18,7 +18,7 @@
             </div>
         </div>
 
-        <div class="menu-item">
+        <div class="menu-item" data-overflow-candidate="1">
             <a class="menu-link" href="{% url 'supply_recommendations_report' %}">Поставки и заказы</a>
             <div class="mega">
                 <div class="mega-grid">
@@ -33,13 +33,15 @@
             </div>
         </div>
 
-        <div class="menu-item">
-            <a class="menu-link" href="{% url 'analytics_logistics' %}">Аналитика</a>
+        <div class="menu-item" data-overflow-candidate="1">
+            <a class="menu-link" href="{% url 'logistics_dashboard' %}">Аналитика</a>
             <div class="mega">
                 <div class="mega-grid">
                     <div class="mega-col">
                         <h4>Дашборд</h4>
-                        <a href="{% url 'analytics_logistics' %}">Логистика и ИЛ</a>
+                        <a href="{% url 'logistics_dashboard' %}">Логистика и ИЛ</a>
+                        <a href="{% url 'analytics_paid_storage' %}">Платное хранение</a>
+                        <a href="{% url 'analytics_money_in_goods' %}">Сколько денег в товаре</a>
                     </div>
                     <div class="mega-col">
                         <h4>Справочники</h4>
@@ -49,8 +51,20 @@
             </div>
         </div>
 
+        <div class="menu-item" data-overflow-candidate="1">
+            <a class="menu-link" href="{% url 'wb_promotion_campaigns' %}">Продвижение</a>
+            <div class="mega">
+                <div class="mega-grid">
+                    <div class="mega-col">
+                        <h4>WB Продвижение</h4>
+                        <a href="{% url 'wb_promotion_campaigns' %}">Рекламные кампании</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {% if request.user.is_superuser %}
-        <div class="menu-item">
+        <div class="menu-item" data-overflow-candidate="1">
             <a class="menu-link" href="{% url 'support_chat_admin' %}">Администрирование</a>
             <div class="mega">
                 <div class="mega-grid">
@@ -63,34 +77,48 @@
         </div>
         {% endif %}
 
+        <div class="menu-item menu-item-more" id="top-nav-more-item" style="display:none;">
+            <button class="menu-link more-trigger" type="button" aria-haspopup="true" aria-expanded="false" id="top-nav-more-trigger">⋯</button>
+            <div class="mega mega-more" id="top-nav-more-menu">
+                <div class="mega-grid" id="top-nav-more-content"></div>
+            </div>
+        </div>
+
         <div class="nav-spacer"></div>
-        <div class="sync-control">
-            <button class="btn" type="button" id="sync-orders-btn">Синхронизировать данные</button>
-            <span class="sync-meta" id="sync-last-at">
-                {% if last_sync_at %}
-                    Последняя синхронизация: {{ last_sync_at|date:"d.m.Y H:i" }}
-                {% else %}
-                    Последняя синхронизация: не было
-                {% endif %}
-            </span>
-            <span class="sync-meta" id="sync-inline-status" style="display:none;"></span>
-        </div>
-        <div class="feedback-inline">
-            <a class="btn btn-ghost support-chat-btn" href="{% url 'support_chat' %}" id="support-chat-btn">
-                Чат с поддержкой
-                <span class="support-chat-badge" id="support-chat-unread-badge" style="display:none;">0</span>
-            </a>
-        </div>
-        <div class="account-menu" id="account-menu">
-            <button class="account-menu-trigger" id="account-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                Аккаунт: {{ request.user.username }}
-            </button>
-            <div class="account-menu-dropdown" id="account-menu-dropdown" role="menu" aria-label="Меню аккаунта">
-                <a class="account-menu-item" href="{% url 'account_settings' %}" role="menuitem">Настройки</a>
-                <form method="post" action="{% url 'logout' %}">
-                    {% csrf_token %}
-                    <button class="account-menu-item account-menu-item-btn" type="submit" role="menuitem">Выйти</button>
-                </form>
+        <div class="nav-right-cluster">
+            <div class="sync-control">
+                <button class="btn" type="button" id="sync-orders-btn" aria-label="Синхронизировать данные">
+                    <span class="sync-btn-icon" aria-hidden="true">↻</span>
+                    <span class="sync-btn-label">Синхронизировать данные</span>
+                </button>
+                <span class="sync-meta" id="sync-last-at">
+                    {% if last_sync_at %}
+                        Последняя синхронизация: {{ last_sync_at|date:"d.m.Y H:i" }}
+                    {% else %}
+                        Последняя синхронизация: не было
+                    {% endif %}
+                </span>
+                <span class="sync-meta" id="sync-inline-status" style="display:none;"></span>
+            </div>
+            <div class="feedback-inline">
+                <a class="btn btn-ghost support-chat-btn" href="{% url 'support_chat' %}" id="support-chat-btn">
+                    <span class="support-chat-icon" aria-hidden="true">?</span>
+                    <span class="support-chat-label">Чат с поддержкой</span>
+                    <span class="support-chat-badge" id="support-chat-unread-badge" style="display:none;">0</span>
+                </a>
+            </div>
+            <div class="account-menu" id="account-menu">
+                <button class="account-menu-trigger" id="account-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                    <span class="account-menu-icon" aria-hidden="true">👤</span>
+                    <span class="account-menu-label">Аккаунт: {{ request.user.username }}</span>
+                </button>
+                <div class="account-menu-dropdown" id="account-menu-dropdown" role="menu" aria-label="Меню аккаунта">
+                    <a class="account-menu-item" href="{% url 'account_settings' %}" role="menuitem">Настройки</a>
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+                        <button class="account-menu-item account-menu-item-btn" type="submit" role="menuitem">Выйти</button>
+                    </form>
+                </div>
             </div>
         </div>
     </nav>
@@ -167,6 +195,87 @@
 </script>
 
 <script>
+    (function navOverflowSetup() {
+        const nav = document.querySelector(".wb-nav");
+        const moreItem = document.getElementById("top-nav-more-item");
+        const moreContent = document.getElementById("top-nav-more-content");
+        if (!nav || !moreItem || !moreContent) {
+            return;
+        }
+
+        const candidates = Array.from(nav.querySelectorAll('.menu-item[data-overflow-candidate="1"]'));
+        if (!candidates.length) {
+            return;
+        }
+
+        function buildOverflowSections(hiddenItems) {
+            if (!hiddenItems.length) {
+                moreContent.innerHTML = "";
+                return;
+            }
+            const sections = hiddenItems.map((item) => {
+                const topLink = item.querySelector(":scope > .menu-link");
+                const title = (topLink?.textContent || "").trim() || "Раздел";
+                const href = topLink?.getAttribute("href") || "#";
+                const subLinks = Array.from(item.querySelectorAll(".mega-col a"));
+                const subLinksHtml = subLinks.length
+                    ? subLinks.map((a) => `<a href="${a.getAttribute("href") || "#"}">${a.textContent || ""}</a>`).join("")
+                    : `<a href="${href}">Открыть раздел</a>`;
+                return `
+                    <div class="mega-col">
+                        <h4>${title}</h4>
+                        ${subLinksHtml}
+                    </div>
+                `;
+            });
+            moreContent.innerHTML = sections.join("");
+        }
+
+        function resetVisibility() {
+            candidates.forEach((item) => {
+                item.classList.remove("is-overflow-hidden");
+                item.style.display = "";
+            });
+            moreItem.style.display = "none";
+            moreContent.innerHTML = "";
+        }
+
+        function updateOverflow() {
+            resetVisibility();
+            moreItem.style.display = "";
+            const hidden = [];
+            for (let i = candidates.length - 1; i >= 0; i -= 1) {
+                if (nav.scrollWidth <= nav.clientWidth) break;
+                const item = candidates[i];
+                item.classList.add("is-overflow-hidden");
+                item.style.display = "none";
+                hidden.unshift(item);
+            }
+            if (!hidden.length) {
+                moreItem.style.display = "none";
+                return;
+            }
+            buildOverflowSections(hidden);
+        }
+
+        let rafId = null;
+        function scheduleUpdate() {
+            if (rafId) {
+                window.cancelAnimationFrame(rafId);
+            }
+            rafId = window.requestAnimationFrame(() => {
+                rafId = null;
+                updateOverflow();
+            });
+        }
+
+        window.addEventListener("resize", scheduleUpdate);
+        window.addEventListener("load", scheduleUpdate);
+        scheduleUpdate();
+    })();
+</script>
+
+<script>
     (function topNavSyncWidget() {
         if (window.__globalSyncWidgetInstalled) {
             return;
@@ -221,7 +330,10 @@
 
         function setButtonState(isBusy) {
             syncBtn.disabled = Boolean(isBusy);
-            syncBtn.textContent = isBusy ? "Идет синхронизация..." : "Синхронизировать данные";
+            const syncBtnLabel = syncBtn.querySelector(".sync-btn-label");
+            if (syncBtnLabel) {
+                syncBtnLabel.textContent = isBusy ? "Идет синхронизация..." : "Синхронизировать данные";
+            }
             syncBtn.classList.toggle("sync-busy", Boolean(isBusy));
             if (!isBusy) {
                 syncBtn.style.setProperty("--sync-progress", "0%");
@@ -604,6 +716,7 @@
 
 <script>
     (function navigationLoadingSetup() {
+        return;
         const overlay = document.getElementById("nav-loading-overlay");
         if (!overlay) {
             return;

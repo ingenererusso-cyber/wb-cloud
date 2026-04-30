@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -32,6 +33,8 @@
         }
 
         .hero {
+            max-width: var(--page-shell-max-width);
+            margin: 0 auto;
             width: 100%;
             border: 1px solid var(--line);
             border-radius: 24px;
@@ -178,9 +181,10 @@
         .chart-card {
             margin-top: 12px;
             border: 1px solid var(--line);
-            background: rgba(255, 255, 255, 0.72);
-            border-radius: 14px;
-            padding: 14px 15px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(248, 252, 255, 0.82) 100%);
+            border-radius: 18px;
+            padding: 16px 16px 14px;
+            box-shadow: 0 12px 28px rgba(19, 32, 51, 0.08);
         }
 
         .chart-head {
@@ -222,23 +226,19 @@
         }
 
         .chart-wrap {
-            height: 220px;
-            border-radius: 10px;
-            background: linear-gradient(180deg, rgba(6, 95, 70, 0.08) 0%, rgba(6, 95, 70, 0.02) 100%);
+            height: 280px;
+            border-radius: 14px;
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.10), rgba(255,255,255,0.96) 48%),
+                linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(248,252,255,0.88) 100%);
             border: 1px solid rgba(6, 95, 70, 0.12);
             padding: 8px;
-        }
-
-        .chart-wrap--line {
-            overflow-x: auto;
-            overflow-y: hidden;
-        }
-
-        .chart-wrap--line svg {
-            width: 100%;
-            min-width: 900px;
-            height: 100%;
             overflow: hidden;
+        }
+
+        .chart-host {
+            width: 100%;
+            height: 100%;
             display: block;
         }
 
@@ -251,44 +251,10 @@
             font-size: 13px;
         }
 
-        .bar-chart {
-            display: grid;
-            gap: 10px;
-            padding: 4px 2px;
-        }
-
-        .bar-row {
-            display: grid;
-            grid-template-columns: minmax(110px, 1.1fr) minmax(160px, 3fr) auto;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .bar-label {
-            font-size: 12px;
-            color: var(--ink);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .bar-track {
-            height: 14px;
-            border-radius: 999px;
-            background: rgba(19, 32, 51, 0.1);
-            overflow: hidden;
-        }
-
-        .bar-fill {
-            height: 100%;
-            border-radius: 999px;
-            background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%);
-        }
-
-        .bar-value {
+        .chart-note {
+            margin: 4px 0 8px;
             font-size: 12px;
             color: var(--muted);
-            white-space: nowrap;
         }
 
         .btn {
@@ -382,8 +348,8 @@
                 <p class="chart-title">Динамика % локальных заказов по полным неделям</p>
                 <p id="local-orders-range" class="chart-range">Загрузка...</p>
             </div>
-            <div class="chart-wrap chart-wrap--line">
-                <svg id="local-orders-chart"></svg>
+            <div class="chart-wrap">
+                <div id="local-orders-chart" class="chart-host"></div>
             </div>
         </section>
         <section class="chart-card">
@@ -398,8 +364,9 @@
                 </p>
                 <p id="fact-localization-range" class="chart-range">Загрузка...</p>
             </div>
-            <div class="chart-wrap chart-wrap--line">
-                <svg id="fact-localization-index-chart"></svg>
+            <div id="fact-localization-note" class="chart-note"></div>
+            <div class="chart-wrap">
+                <div id="fact-localization-index-chart" class="chart-host"></div>
             </div>
         </section>
         <section class="chart-card">
@@ -407,8 +374,9 @@
                 <p class="chart-title">Теоретический индекс локализации (13 недель, аппроксимация WB)</p>
                 <p id="theoretical-localization-range" class="chart-range">Загрузка...</p>
             </div>
-            <div class="chart-wrap chart-wrap--line">
-                <svg id="theoretical-localization-index-chart"></svg>
+            <div id="theoretical-localization-note" class="chart-note"></div>
+            <div class="chart-wrap">
+                <div id="theoretical-localization-index-chart" class="chart-host"></div>
             </div>
         </section>
         <section class="chart-card">
@@ -416,8 +384,9 @@
                 <p class="chart-title">Теоретический индекс распределения продаж (ИРП, 13 недель)</p>
                 <p id="theoretical-irp-range" class="chart-range">Загрузка...</p>
             </div>
-            <div class="chart-wrap chart-wrap--line">
-                <svg id="theoretical-irp-chart"></svg>
+            <div id="theoretical-irp-note" class="chart-note"></div>
+            <div class="chart-wrap">
+                <div id="theoretical-irp-chart" class="chart-host"></div>
             </div>
         </section>
         <section class="chart-card">
@@ -426,233 +395,79 @@
                 <p id="top-non-local-range" class="chart-range">Загрузка...</p>
             </div>
             <div class="chart-wrap">
-                <div id="non-local-districts-chart" class="bar-chart"></div>
+                <div id="non-local-districts-chart" class="chart-host"></div>
             </div>
         </section>
     </main>
     {{ running_sync_task|json_script:"running-sync-task-data" }}
+    <script src="{% static 'vendor/echarts/echarts.min.js' %}"></script>
+    <script src="{% static 'js/vendra-charts.js' %}"></script>
     <script>
-        function renderLineChart(config) {
-            const svg = document.getElementById(config.svgId);
-            const points = (config.data && config.data.points) ? config.data.points : [];
-            const getNumeric = (value) => {
-                if (value === null || value === undefined || value === "") {
-                    return null;
-                }
-                const num = Number(value);
-                return Number.isFinite(num) ? num : null;
-            };
-
-            if (!points.length) {
-                const emptyText = config.emptyText
-                    || (config.data && config.data.no_data_reason)
-                    || "Нет данных для графика";
-                svg.outerHTML = `<div class="chart-empty">${emptyText}</div>`;
-                return;
-            }
-
-            const width = Math.max(320, Math.floor(svg.clientWidth || 1000));
-            const height = Math.max(180, Math.floor(svg.clientHeight || 260));
-            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-            svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
-            const padX = 52;
-            const padY = 22;
-            const innerW = width - padX * 2;
-            const innerH = height - padY * 2;
-            const xStep = points.length > 1 ? innerW / (points.length - 1) : 0;
-
-            const values = points
-                .map((p) => getNumeric(p[config.valueKey]))
-                .filter((v) => v !== null);
-
-            if (!values.length) {
-                svg.outerHTML = '<div class="chart-empty">Нет данных для графика</div>';
-                return;
-            }
-
-            const rawMin = Math.min(...values);
-            const rawMax = Math.max(...values);
-            const baseRange = Math.max(rawMax - rawMin, Number(config.minRange || 1));
-            const padRatio = Number(config.padRatio ?? 0.12);
-            const pad = baseRange * padRatio;
-
-            let minVal = rawMin - pad;
-            let maxVal = rawMax + pad;
-
-            if (config.lowerBound !== undefined && config.lowerBound !== null) {
-                minVal = Math.max(minVal, Number(config.lowerBound));
-            }
-            if (config.upperBound !== undefined && config.upperBound !== null) {
-                maxVal = Math.min(maxVal, Number(config.upperBound));
-            }
-
-            let valueRange = maxVal - minVal;
-            const minRange = Number(config.minRange || 1);
-            if (valueRange < minRange) {
-                const mid = (maxVal + minVal) / 2;
-                minVal = mid - minRange / 2;
-                maxVal = mid + minRange / 2;
-                if (config.lowerBound !== undefined && config.lowerBound !== null && minVal < Number(config.lowerBound)) {
-                    minVal = Number(config.lowerBound);
-                    maxVal = minVal + minRange;
-                }
-                if (config.upperBound !== undefined && config.upperBound !== null && maxVal > Number(config.upperBound)) {
-                    maxVal = Number(config.upperBound);
-                    minVal = maxVal - minRange;
-                }
-                valueRange = maxVal - minVal;
-            }
-
-            const coords = points.map((p, idx) => {
-                const x = padX + idx * xStep;
-                const rawValue = getNumeric(p[config.valueKey]);
-                const clampedValue = rawValue === null
-                    ? null
-                    : Math.min(maxVal, Math.max(minVal, rawValue));
-                const y = rawValue === null
-                    ? (height - padY)
-                    : padY + (1 - ((clampedValue - minVal) / valueRange)) * innerH;
-                return { x, y, ...p };
-            });
-
-            const line = coords.map((p) => `${p.x},${p.y}`).join(" ");
-            const area = `${padX},${height - padY} ${line} ${padX + innerW},${height - padY}`;
-
-            const tickCount = 5;
-            const yTicks = Array.from({ length: tickCount }, (_, idx) => {
-                    const k = idx / (tickCount - 1);
-                    return minVal + (maxVal - minVal) * k;
-                })
-                .map((tick) => {
-                    const y = padY + (1 - ((tick - minVal) / valueRange)) * innerH;
-                    const label = config.tickFormatter ? config.tickFormatter(tick) : tick.toFixed(1);
-                    return `
-                        <line x1="${padX}" y1="${y}" x2="${padX + innerW}" y2="${y}" stroke="rgba(19,32,51,0.14)" stroke-width="1"/>
-                        <text x="${padX - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5a6778">${label}</text>
-                    `;
-                })
-                .join("");
-
-            const xLabels = coords
-                .filter((_, idx) => idx === 0 || idx === coords.length - 1 || idx % 3 === 0)
-                .map((p) => `
-                    <text x="${p.x}" y="${height - 6}" text-anchor="middle" font-size="11" fill="#5a6778">${p.label}</text>
-                `)
-                .join("");
-
-            const dots = coords
-                .map((p) => `
-                    <circle cx="${p.x}" cy="${p.y}" r="5.6" fill="#0f5132" stroke="#ffffff" stroke-width="1.4">
-                        <title>${config.titleFormatter(p)}</title>
-                    </circle>
-                `)
-                .join("");
-
-            svg.innerHTML = `
-                ${yTicks}
-                <polygon points="${area}" fill="rgba(15,81,50,0.14)"></polygon>
-                <polyline points="${line}" fill="none" stroke="#0f5132" stroke-width="3"></polyline>
-                ${dots}
-                ${xLabels}
-            `;
-        }
-
         let localOrdersTrendData = {"points": []};
         let factLocalizationIndexTrendData = {"points": []};
         let theoreticalLocalizationIndexTrendData = {"points": []};
         let theoreticalIrpTrendData = {"points": []};
         let topNonLocalDistrictsData = {"points": []};
         function renderAllLineCharts() {
-            renderLineChart({
-                svgId: "local-orders-chart",
-                data: localOrdersTrendData,
+            window.VendraCharts.renderLineTrendChart(document.getElementById("local-orders-chart"), localOrdersTrendData.points || [], {
                 valueKey: "percent",
-                lowerBound: 0,
-                upperBound: 100,
-                minRange: 18,
-                padRatio: 0.1,
+                min: 0,
+                max: 100,
                 tickFormatter: (v) => `${Math.round(v)}%`,
-                titleFormatter: (p) => `${p.label}: ${p.percent}% (${p.local_orders}/${p.total_orders})`,
+                tooltipFormatter: (p) => `<strong>${p.label}</strong><br>${Number(p.percent || 0).toFixed(2)}%<br>Локальные: ${p.local_orders || 0} из ${p.total_orders || 0}`,
+                emptyText: localOrdersTrendData.no_data_reason || "Нет данных для графика",
             });
 
-            renderLineChart({
-                svgId: "fact-localization-index-chart",
-                data: factLocalizationIndexTrendData,
+            window.VendraCharts.renderLineTrendChart(document.getElementById("fact-localization-index-chart"), factLocalizationIndexTrendData.points || [], {
                 valueKey: "fact_index",
-                lowerBound: 0.75,
-                upperBound: 2.0,
-                minRange: 0.22,
-                padRatio: 0.14,
+                min: 0.75,
+                max: 2.0,
                 tickFormatter: (v) => v.toFixed(2),
-                titleFormatter: (p) =>
-                    [
-                        `${p.label}: ${Number(p.fact_index).toFixed(3)} (строк: ${p.rows_considered})`,
-                        `Факт (raw): ${Number(p.actual_raw_logistics_sum || 0).toFixed(2)}`,
-                        `ИРП-компонент: ${Number(p.irp_component_sum || 0).toFixed(2)}`,
-                        `Факт (после вычета ИРП): ${Number(p.actual_adjusted_logistics_sum || p.actual_logistics_sum || 0).toFixed(2)}`,
-                        `Теория: ${Number(p.theoretical_logistics_sum || 0).toFixed(2)}`,
-                    ].join("\n"),
+                colorMain: "#166534",
+                tooltipFormatter: (p) => [
+                    `<strong>${p.label}</strong>`,
+                    `Индекс: ${Number(p.fact_index || 0).toFixed(3)}`,
+                    `Строк: ${p.rows_considered || 0}`,
+                    `Факт raw: ${Number(p.actual_raw_logistics_sum || 0).toFixed(2)}`,
+                    `ИРП-компонент: ${Number(p.irp_component_sum || 0).toFixed(2)}`,
+                    `Факт после вычета ИРП: ${Number(p.actual_adjusted_logistics_sum || p.actual_logistics_sum || 0).toFixed(2)}`,
+                    `Теория: ${Number(p.theoretical_logistics_sum || 0).toFixed(2)}`,
+                ].join("<br>"),
+                emptyText: factLocalizationIndexTrendData.no_data_reason || "Нет данных для графика",
             });
 
-            renderLineChart({
-                svgId: "theoretical-localization-index-chart",
-                data: theoreticalLocalizationIndexTrendData,
+            window.VendraCharts.renderLineTrendChart(document.getElementById("theoretical-localization-index-chart"), theoreticalLocalizationIndexTrendData.points || [], {
                 valueKey: "theoretical_index",
-                lowerBound: 0.75,
-                upperBound: 2.0,
-                minRange: 0.22,
-                padRatio: 0.14,
+                min: 0.75,
+                max: 2.0,
                 tickFormatter: (v) => v.toFixed(2),
-                titleFormatter: (p) => `${p.label}: ${Number(p.theoretical_index).toFixed(3)} (13н заказов: ${p.orders_total_13w})`,
+                colorMain: "#147a59",
+                tooltipFormatter: (p) => `<strong>${p.label}</strong><br>Индекс: ${Number(p.theoretical_index || 0).toFixed(3)}<br>13н заказов: ${p.orders_total_13w || 0}`,
                 emptyText: theoreticalLocalizationIndexTrendData.no_data_reason,
             });
 
-            renderLineChart({
-                svgId: "theoretical-irp-chart",
-                data: theoreticalIrpTrendData,
+            window.VendraCharts.renderLineTrendChart(document.getElementById("theoretical-irp-chart"), theoreticalIrpTrendData.points || [], {
                 valueKey: "theoretical_irp_percent",
-                lowerBound: 0,
-                upperBound: 5,
-                minRange: 0.6,
-                padRatio: 0.12,
+                min: 0,
+                max: 5,
                 tickFormatter: (v) => `${Number(v).toFixed(2)}%`,
-                titleFormatter: (p) =>
-                    `${p.label}: ${Number(p.theoretical_irp_percent || 0).toFixed(3)}% (13н заказов: ${p.orders_total_13w || 0})`,
+                colorMain: "#0f766e",
+                tooltipFormatter: (p) => `<strong>${p.label}</strong><br>ИРП: ${Number(p.theoretical_irp_percent || 0).toFixed(3)}%<br>13н заказов: ${p.orders_total_13w || 0}`,
+                emptyText: theoreticalIrpTrendData.no_data_reason || "Нет данных для графика",
             });
         }
-
-        let chartResizeTimer = null;
-        window.addEventListener("resize", () => {
-            if (chartResizeTimer) {
-                window.clearTimeout(chartResizeTimer);
-            }
-            chartResizeTimer = window.setTimeout(() => {
-                renderAllLineCharts();
-            }, 120);
-        });
 
         function renderTopNonLocalDistricts(data) {
             const container = document.getElementById("non-local-districts-chart");
             const points = (data && data.points) ? data.points : [];
-            if (!points.length) {
-                container.outerHTML = '<div class="chart-empty">Недостаточно данных для диаграммы</div>';
-                return;
-            }
-
-            const maxValue = Math.max(...points.map((p) => Number(p.non_local_orders) || 0), 1);
-            container.innerHTML = points
-                .map((p) => {
-                    const value = Number(p.non_local_orders) || 0;
-                    const width = Math.max((value / maxValue) * 100, 2);
-                    return `
-                        <div class="bar-row">
-                            <div class="bar-label" title="${p.district_name}">${p.district_name}</div>
-                            <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
-                            <div class="bar-value">${value} (${p.non_local_share}%)</div>
-                        </div>
-                    `;
-                })
-                .join("");
+            window.VendraCharts.renderHorizontalBarChart(container, points, {
+                categoryKey: "district_name",
+                valueKey: "non_local_orders",
+                colorMain: "#b91c1c",
+                labelFormatter: (p, value) => `${value} (${p.non_local_share}%)`,
+                tooltipFormatter: (p, value) => `<strong>${p.district_name}</strong><br>Нелокальные заказы: ${value}<br>Доля: ${p.non_local_share}%`,
+                emptyText: data.no_data_reason || "Недостаточно данных для диаграммы",
+            });
         }
 
         function formatRangeLabel(data) {
@@ -721,6 +536,12 @@
                 setRange("theoretical-localization-range", formatRangeLabel(theoreticalLocalizationIndexTrendData));
                 setRange("theoretical-irp-range", formatRangeLabel(theoreticalIrpTrendData));
                 setRange("top-non-local-range", formatRangeLabel(topNonLocalDistrictsData));
+                const factNoteEl = document.getElementById("fact-localization-note");
+                const theoryLocNoteEl = document.getElementById("theoretical-localization-note");
+                const irpNoteEl = document.getElementById("theoretical-irp-note");
+                if (factNoteEl) factNoteEl.textContent = factLocalizationIndexTrendData.no_data_reason || "";
+                if (theoryLocNoteEl) theoryLocNoteEl.textContent = theoreticalLocalizationIndexTrendData.no_data_reason || "";
+                if (irpNoteEl) irpNoteEl.textContent = theoreticalIrpTrendData.no_data_reason || "";
 
                 renderAllLineCharts();
                 renderTopNonLocalDistricts(topNonLocalDistrictsData);

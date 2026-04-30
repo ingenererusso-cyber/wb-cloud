@@ -1,0 +1,167 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сколько денег в товаре</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: "Trebuchet MS", "Segoe UI", sans-serif; background: #f5f8ff; color: #132033; }
+        .hero { max-width: var(--page-shell-max-width); margin: 0 auto; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 20px; background: #fff; padding: 24px; }
+        h1 { margin: 0 0 8px; }
+        .subtitle { margin: 0; color: #5a6778; }
+        .alert { margin-top: 12px; border: 1px solid #f6d365; background: #fffbeb; color: #92400e; border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+        .cards { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+        .card { border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; background: #fff; padding: 12px; }
+        .label { color: #5a6778; font-size: 12px; margin: 0 0 6px; }
+        .value { margin: 0; font-size: 26px; font-weight: 700; color: #14532d; }
+        .section { margin-top: 16px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; background: #fff; padding: 14px; }
+        .section-title { margin: 0 0 10px; font-size: 18px; }
+        details { border: 1px solid rgba(19, 32, 51, 0.1); border-radius: 12px; margin: 8px 0; background: #fcfdff; }
+        summary { cursor: pointer; list-style: none; padding: 10px 12px; display: flex; justify-content: space-between; gap: 10px; font-weight: 700; }
+        summary::-webkit-details-marker { display: none; }
+        .meta { color: #5a6778; font-weight: 400; font-size: 12px; }
+        .table-wrap { padding: 0 12px 12px; overflow: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 860px; }
+        th, td { border-bottom: 1px solid rgba(19, 32, 51, 0.08); text-align: left; padding: 8px; font-size: 13px; }
+        th { color: #5a6778; font-size: 12px; }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .empty { color: #5a6778; font-size: 14px; }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+    {% with enable_sync_button=True %}
+        {% include "partials/top_nav.html" %}
+    {% endwith %}
+    <main class="hero">
+        <h1>Сколько денег в товаре</h1>
+        <p class="subtitle">Оценка стоимости остатков по всем складам отдельно для FBO и FBS.</p>
+
+        <div class="alert">
+            Закупочную стоимость можно точно посчитать только когда заполнена закупочная цена у всех товаров.
+            Сейчас заполнено: {{ purchase_completion_percent }}% ({{ purchase_filled_count }}/{{ products_total_count }} товаров).
+            {% if can_calculate_full_purchase %}
+                Закупочная стоимость рассчитана полностью.
+            {% else %}
+                Ниже показывается <strong>оценочная стоимость по цене продажи</strong> и частичная закупочная стоимость только по товарам с заполненной закупкой.
+            {% endif %}
+        </div>
+
+        <section class="cards">
+            <article class="card">
+                <p class="label">Оценочная стоимость (цена продажи), всего</p>
+                <p class="value">{{ grand_totals.estimated_sale_value|floatformat:2 }} ₽</p>
+            </article>
+            <article class="card">
+                <p class="label">FBO: оценочная стоимость</p>
+                <p class="value">{{ fbo_totals.estimated_sale_value|floatformat:2 }} ₽</p>
+            </article>
+            <article class="card">
+                <p class="label">FBS: оценочная стоимость</p>
+                <p class="value">{{ fbs_totals.estimated_sale_value|floatformat:2 }} ₽</p>
+            </article>
+            <article class="card">
+                <p class="label">Закупочная (из заполненных), всего</p>
+                <p class="value">{{ grand_totals.known_purchase_value|floatformat:2 }} ₽</p>
+            </article>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">FBO по складам</h2>
+            {% if fbo_warehouses %}
+                {% for wh in fbo_warehouses %}
+                    <details>
+                        <summary>
+                            <span>{{ wh.warehouse_name }}</span>
+                            <span class="meta">
+                                {{ wh.total_units }} шт. · оценка {{ wh.estimated_sale_value|floatformat:2 }} ₽ · закупка (из заполненных) {{ wh.known_purchase_value|floatformat:2 }} ₽
+                            </span>
+                        </summary>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>nmID</th>
+                                        <th>Артикул продавца</th>
+                                        <th>Товар</th>
+                                        <th class="num">Остаток</th>
+                                        <th class="num">Цена продажи</th>
+                                        <th class="num">Оценка (продажа)</th>
+                                        <th class="num">Закупка</th>
+                                        <th class="num">Сумма закупки</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in wh.items %}
+                                        <tr>
+                                            <td>{{ item.nm_id }}</td>
+                                            <td>{{ item.vendor_code|default:"-" }}</td>
+                                            <td>{{ item.title|default:"-" }}</td>
+                                            <td class="num">{{ item.qty }}</td>
+                                            <td class="num">{{ item.sale_price|floatformat:2 }} ₽</td>
+                                            <td class="num">{{ item.estimated_sale_value|floatformat:2 }} ₽</td>
+                                            <td class="num">{% if item.purchase_price is not None %}{{ item.purchase_price|floatformat:2 }} ₽{% else %}-{% endif %}</td>
+                                            <td class="num">{% if item.estimated_purchase_value is not None %}{{ item.estimated_purchase_value|floatformat:2 }} ₽{% else %}-{% endif %}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                {% endfor %}
+            {% else %}
+                <div class="empty">Нет остатков FBO.</div>
+            {% endif %}
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">FBS по складам</h2>
+            {% if fbs_warehouses %}
+                {% for wh in fbs_warehouses %}
+                    <details>
+                        <summary>
+                            <span>{{ wh.warehouse_name }}</span>
+                            <span class="meta">
+                                {{ wh.total_units }} шт. · оценка {{ wh.estimated_sale_value|floatformat:2 }} ₽ · закупка (из заполненных) {{ wh.known_purchase_value|floatformat:2 }} ₽
+                            </span>
+                        </summary>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>nmID</th>
+                                        <th>Артикул продавца</th>
+                                        <th>Товар</th>
+                                        <th class="num">Остаток</th>
+                                        <th class="num">Цена продажи</th>
+                                        <th class="num">Оценка (продажа)</th>
+                                        <th class="num">Закупка</th>
+                                        <th class="num">Сумма закупки</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in wh.items %}
+                                        <tr>
+                                            <td>{{ item.nm_id }}</td>
+                                            <td>{{ item.vendor_code|default:"-" }}</td>
+                                            <td>{{ item.title|default:"-" }}</td>
+                                            <td class="num">{{ item.qty }}</td>
+                                            <td class="num">{{ item.sale_price|floatformat:2 }} ₽</td>
+                                            <td class="num">{{ item.estimated_sale_value|floatformat:2 }} ₽</td>
+                                            <td class="num">{% if item.purchase_price is not None %}{{ item.purchase_price|floatformat:2 }} ₽{% else %}-{% endif %}</td>
+                                            <td class="num">{% if item.estimated_purchase_value is not None %}{{ item.estimated_purchase_value|floatformat:2 }} ₽{% else %}-{% endif %}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                {% endfor %}
+            {% else %}
+                <div class="empty">Нет остатков FBS или отсутствует связка chrtId → nmID.</div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

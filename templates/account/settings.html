@@ -1,18 +1,25 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Настройки аккаунта</title>
+    {% include "partials/top_nav_css.html" %}
     <style>
         :root {
             --ink: #132033;
             --muted: #5a6778;
             --line: rgba(19, 32, 51, 0.14);
             --surface: rgba(255, 255, 255, 0.88);
+            --surface-strong: rgba(255, 255, 255, 0.96);
             --ok-bg: #dcfce7;
             --ok-ink: #166534;
             --accent: #14532d;
+            --accent-2: #065f46;
+            --shadow: 0 18px 42px rgba(19, 32, 51, 0.14);
+            --soft-shadow: 0 12px 28px rgba(19, 32, 51, 0.08);
+            --page-shell-max-width: 1320px;
         }
 
         * { box-sizing: border-box; }
@@ -26,37 +33,56 @@
                 radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
                 radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
                 linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
-            display: grid;
-            place-items: center;
             padding: 18px;
         }
 
         .card {
-            width: min(760px, 100%);
+            width: min(var(--page-shell-max-width), 100%);
+            margin: 0 auto;
             border: 1px solid var(--line);
-            border-radius: 20px;
+            border-radius: 28px;
             background: var(--surface);
-            padding: 22px 20px;
+            box-shadow: var(--shadow);
+            padding: 24px;
             overflow-x: hidden;
         }
 
         .head {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            gap: 10px;
+            align-items: flex-start;
+            gap: 14px;
             flex-wrap: wrap;
         }
 
         h1 {
-            margin: 0;
-            font-size: 28px;
+            margin: 0 0 8px;
+            font-size: clamp(28px, 3.8vw, 42px);
+            letter-spacing: -0.02em;
         }
 
         .muted {
             margin: 8px 0 0;
             color: var(--muted);
             font-size: 14px;
+        }
+
+        .hero-copy {
+            max-width: 720px;
+        }
+
+        .hero-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(20, 83, 45, 0.12);
+            background: rgba(255, 255, 255, 0.74);
+            color: #166534;
+            font-size: 12px;
+            font-weight: 800;
+            box-shadow: 0 10px 22px rgba(20, 83, 45, 0.08);
         }
 
         .helper-row {
@@ -68,11 +94,96 @@
 
         .ok {
             margin-top: 12px;
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 10px 12px;
             background: var(--ok-bg);
             color: var(--ok-ink);
             font-size: 14px;
+        }
+
+        .settings-shell {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .settings-sidebar {
+            position: sticky;
+            top: 18px;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: linear-gradient(180deg, var(--surface-strong) 0%, rgba(248, 252, 255, 0.9) 100%);
+            box-shadow: var(--soft-shadow);
+            padding: 16px;
+        }
+
+        .sidebar-title {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 800;
+            color: #1e293b;
+            letter-spacing: 0.01em;
+        }
+
+        .sidebar-subtitle {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .settings-nav {
+            margin-top: 14px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .settings-nav-btn {
+            width: 100%;
+            text-align: left;
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            background: rgba(255, 255, 255, 0.84);
+            color: var(--ink);
+            border-radius: 14px;
+            padding: 12px 13px;
+            cursor: pointer;
+            transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+        }
+
+        .settings-nav-btn.is-active {
+            border-color: rgba(20, 83, 45, 0.2);
+            background: linear-gradient(135deg, rgba(20, 83, 45, 0.1) 0%, rgba(6, 95, 70, 0.04) 100%);
+            box-shadow: 0 10px 22px rgba(20, 83, 45, 0.08);
+        }
+
+        .settings-nav-btn-title {
+            display: block;
+            font-size: 14px;
+            font-weight: 800;
+            color: #1e293b;
+        }
+
+        .settings-nav-btn-meta {
+            display: block;
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .settings-main {
+            display: grid;
+            gap: 16px;
+        }
+
+        .settings-panel {
+            display: none;
+        }
+
+        .settings-panel.is-active {
+            display: block;
         }
 
         .field {
@@ -80,32 +191,72 @@
         }
 
         .section-card {
-            margin-top: 16px;
             border: 1px solid var(--line);
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.78);
-            padding: 14px;
+            border-radius: 20px;
+            background: linear-gradient(180deg, var(--surface-strong) 0%, rgba(248, 252, 255, 0.88) 100%);
+            padding: 18px;
+            box-shadow: var(--soft-shadow);
         }
 
         .section-title {
             margin: 0;
-            font-size: 16px;
-            font-weight: 700;
+            font-size: 20px;
+            font-weight: 800;
             color: var(--ink);
+            letter-spacing: -0.02em;
         }
 
         .section-subtitle {
             margin: 6px 0 0;
             color: var(--muted);
             font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .section-grid {
+            margin-top: 14px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .info-tile {
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.82);
+            padding: 14px;
+        }
+
+        .info-tile-label {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .info-tile-value {
+            margin: 8px 0 0;
+            font-size: 24px;
+            font-weight: 800;
+            color: #0f5132;
+        }
+
+        .deck-empty {
+            margin-top: 14px;
+            border: 1px dashed rgba(19, 32, 51, 0.16);
+            border-radius: 16px;
+            padding: 16px 14px;
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
         }
 
         .danger-card {
-            margin-top: 16px;
             border: 1px solid #fecaca;
-            border-radius: 14px;
-            background: #fff5f5;
-            padding: 14px;
+            border-radius: 20px;
+            background: linear-gradient(180deg, #fff7f7 0%, #fff2f2 100%);
+            padding: 18px;
+            box-shadow: 0 12px 28px rgba(127, 29, 29, 0.06);
         }
 
         .danger-title {
@@ -132,11 +283,12 @@
             width: 100%;
             min-width: 0;
             border: 1px solid var(--line);
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 10px 12px;
             font-size: 14px;
             overflow: hidden;
             text-overflow: ellipsis;
+            background: rgba(255, 255, 255, 0.94);
         }
         input[type="checkbox"] {
             display: inline-block;
@@ -154,10 +306,10 @@
 
         .btn {
             text-decoration: none;
-            border: 1px solid #b8c6d8;
-            background: #eef5ff;
+            border: 1px solid #c8d4e2;
+            background: #f7fbff;
             color: var(--ink);
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 10px 14px;
             font-size: 14px;
             cursor: pointer;
@@ -166,7 +318,7 @@
 
         .btn-primary {
             border-color: var(--accent);
-            background: var(--accent);
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
             color: #fff;
             font-weight: 700;
         }
@@ -183,7 +335,7 @@
         }
 
         .bottom-exit {
-            margin-top: 14px;
+            margin-top: 0;
             display: flex;
             justify-content: flex-end;
         }
@@ -269,27 +421,55 @@
             font-size: 14px;
             line-height: 1.45;
         }
+
+        @media (max-width: 980px) {
+            .settings-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .settings-sidebar {
+                position: static;
+            }
+
+            .settings-nav {
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            }
+        }
+
+        @media (max-width: 720px) {
+            body {
+                padding: 12px;
+            }
+
+            .card {
+                padding: 16px;
+                border-radius: 18px;
+            }
+
+            .settings-nav {
+                grid-template-columns: 1fr;
+            }
+
+            .section-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
+    {% include "partials/top_nav.html" %}
     <main class="card">
         <div class="head">
-            <h1>Настройки аккаунта</h1>
+            <div class="hero-copy">
+                <div class="hero-kicker">Account Settings</div>
+                <h1>Настройки аккаунта</h1>
+                <p class="muted">Управление доступом, API, синхронизацией и опасными действиями без перегруженного экрана.</p>
+            </div>
             <a class="btn btn-primary" href="{% url 'home' %}">На главную</a>
         </div>
         <p class="muted">Пользователь: {{ request.user.username }}</p>
 
         {% if subscription %}
-        <div class="section-card">
-            <h2 class="section-title">Доступ и подписка</h2>
-            <p class="section-subtitle">
-                Статус: {{ subscription.status_label }} · План: {{ subscription.plan_label }}
-                {% if subscription.access_expires_at %}· Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}
-            </p>
-            <div class="actions">
-                <a class="btn btn-primary" href="{% url 'pricing_page' %}">Тарифы и продление</a>
-            </div>
-        </div>
         {% endif %}
 
         {% if saved %}
@@ -301,75 +481,132 @@
             {% endfor %}
         {% endif %}
 
-        <div class="helper-row">
-            <button id="openApiGuide" class="btn" type="button">Инструкция по созданию ключа API</button>
-        </div>
+        <div class="settings-shell">
+            <aside class="settings-sidebar">
+                <h2 class="sidebar-title">Разделы</h2>
+                <p class="sidebar-subtitle">Переключайтесь между блоками, чтобы не держать все настройки в одном длинном экране.</p>
+                <nav class="settings-nav" aria-label="Разделы настроек">
+                    <button class="settings-nav-btn is-active" type="button" data-settings-target="section-access">
+                        <span class="settings-nav-btn-title">Доступ и подписка</span>
+                        <span class="settings-nav-btn-meta">Статус тарифа и доступ в сервис</span>
+                    </button>
+                    <button class="settings-nav-btn" type="button" data-settings-target="section-api">
+                        <span class="settings-nav-btn-title">API и подключение</span>
+                        <span class="settings-nav-btn-meta">Токен WB и инструкция по настройке</span>
+                    </button>
+                    <button class="settings-nav-btn" type="button" data-settings-target="section-sync">
+                        <span class="settings-nav-btn-title">Авто-синхронизация</span>
+                        <span class="settings-nav-btn-meta">Ежедневный запуск по расписанию</span>
+                    </button>
+                    <button class="settings-nav-btn" type="button" data-settings-target="section-danger">
+                        <span class="settings-nav-btn-title">Опасные действия</span>
+                        <span class="settings-nav-btn-meta">Удаление данных и аккаунта</span>
+                    </button>
+                </nav>
+            </aside>
 
-        <div class="section-card">
-            <h2 class="section-title">Подключение по API</h2>
-            <p class="section-subtitle">Для полного функционала и точных расчетов.</p>
-            <form method="post">
-                {% csrf_token %}
-                <div class="field">
-                    <label for="api_token">API-ключ Wildberries</label>
-                    <input
-                        id="api_token"
-                        name="api_token"
-                        type="password"
-                        value=""
-                        autocomplete="new-password"
-                        placeholder="{% if seller.has_api_token %}Ключ сохранён (скрыт){% else %}Вставьте API-ключ{% endif %}"
-                    >
-                </div>
-                {% if seller.has_api_token %}
-                    <p class="muted">Текущий ключ: {{ seller.api_token_masked }}</p>
-                {% endif %}
-                <div class="actions">
-                    <button class="btn btn-primary" type="submit">Сохранить</button>
-                </div>
-            </form>
-        </div>
+            <div class="settings-main">
+                <section id="section-access" class="section-card settings-panel is-active" data-settings-panel="section-access">
+                    <h2 class="section-title">Доступ и подписка</h2>
+                    <p class="section-subtitle">Здесь видно, какой у вас статус доступа и когда требуется продление.</p>
+                    {% if subscription %}
+                        <div class="section-grid">
+                            <div class="info-tile">
+                                <p class="info-tile-label">Статус</p>
+                                <p class="info-tile-value">{{ subscription.status_label }}</p>
+                            </div>
+                            <div class="info-tile">
+                                <p class="info-tile-label">Текущий план</p>
+                                <p class="info-tile-value">{{ subscription.plan_label }}</p>
+                            </div>
+                            <div class="info-tile">
+                                <p class="info-tile-label">Доступ до</p>
+                                <p class="info-tile-value" style="font-size:20px;">
+                                    {% if subscription.access_expires_at %}
+                                        {{ subscription.access_expires_at|date:"d.m.Y H:i" }}
+                                    {% else %}
+                                        Без ограничения
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="actions">
+                            <a class="btn btn-primary" href="{% url 'pricing_page' %}">Тарифы и продление</a>
+                        </div>
+                    {% else %}
+                        <div class="deck-empty">Информация о подписке пока недоступна.</div>
+                    {% endif %}
+                </section>
 
-        <div class="section-card">
-            <h2 class="section-title">Настройка авто-синхронизации</h2>
-            <p class="section-subtitle">Ежедневный автозапуск общего синка по выбранному времени.</p>
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="save_auto_sync">
-                <div class="field">
-                    <label>
-                        <input type="checkbox" name="auto_sync_enabled" value="1" {% if auto_sync_enabled %}checked{% endif %}>
-                        Включить ежедневную авто-синхронизацию
-                    </label>
-                </div>
-                <div class="field">
-                    <label for="auto_sync_time">Время запуска (по серверному времени)</label>
-                    <input id="auto_sync_time" name="auto_sync_time" type="time" value="{{ auto_sync_time|default:'09:00' }}">
-                </div>
-                {% if auto_sync_last_run_date %}
-                    <p class="muted">Последний автозапуск: {{ auto_sync_last_run_date }}</p>
-                {% endif %}
-                <div class="actions">
-                    <button class="btn btn-primary" type="submit">Сохранить</button>
-                </div>
-            </form>
-        </div>
+                <section id="section-api" class="section-card settings-panel" data-settings-panel="section-api">
+                    <h2 class="section-title">API и подключение</h2>
+                    <p class="section-subtitle">Для полного функционала и точных расчетов подключите рабочий API-ключ Wildberries.</p>
+                    <div class="helper-row">
+                        <button id="openApiGuide" class="btn" type="button">Инструкция по созданию ключа API</button>
+                    </div>
+                    <form method="post" data-settings-form="section-api">
+                        {% csrf_token %}
+                        <div class="field">
+                            <label for="api_token">API-ключ Wildberries</label>
+                            <input
+                                id="api_token"
+                                name="api_token"
+                                type="password"
+                                value=""
+                                autocomplete="new-password"
+                                placeholder="{% if seller.has_api_token %}Ключ сохранён (скрыт){% else %}Вставьте API-ключ{% endif %}"
+                            >
+                        </div>
+                        {% if seller.has_api_token %}
+                            <p class="muted">Текущий ключ: {{ seller.api_token_masked }}</p>
+                        {% endif %}
+                        <div class="actions">
+                            <button class="btn btn-primary" type="submit">Сохранить</button>
+                        </div>
+                    </form>
+                </section>
 
-        <div class="danger-card">
-            <h2 class="danger-title">Опасные действия</h2>
-            <p class="danger-subtitle">
-                Используйте только при необходимости. Действия необратимы.
-            </p>
-            <div class="actions">
-                <button id="openPurgeSellerData" class="btn btn-danger" type="button">Удалить данные селлера с этого сервера</button>
-                <button id="openDeleteAccount" class="btn btn-danger" type="button">Удалить аккаунт</button>
+                <section id="section-sync" class="section-card settings-panel" data-settings-panel="section-sync">
+                    <h2 class="section-title">Авто-синхронизация</h2>
+                    <p class="section-subtitle">Настройте ежедневный автозапуск общего синка по выбранному времени.</p>
+                    <form method="post" data-settings-form="section-sync">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="save_auto_sync">
+                        <div class="field">
+                            <label>
+                                <input type="checkbox" name="auto_sync_enabled" value="1" {% if auto_sync_enabled %}checked{% endif %}>
+                                Включить ежедневную авто-синхронизацию
+                            </label>
+                        </div>
+                        <div class="field">
+                            <label for="auto_sync_time">Время запуска (по серверному времени)</label>
+                            <input id="auto_sync_time" name="auto_sync_time" type="time" value="{{ auto_sync_time|default:'09:00' }}">
+                        </div>
+                        {% if auto_sync_last_run_date %}
+                            <p class="muted">Последний автозапуск: {{ auto_sync_last_run_date }}</p>
+                        {% endif %}
+                        <div class="actions">
+                            <button class="btn btn-primary" type="submit">Сохранить</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section id="section-danger" class="danger-card settings-panel" data-settings-panel="section-danger">
+                    <h2 class="danger-title">Опасные действия</h2>
+                    <p class="danger-subtitle">
+                        Используйте только при необходимости. Эти действия необратимы и затрагивают данные кабинета или весь аккаунт.
+                    </p>
+                    <div class="actions">
+                        <button id="openPurgeSellerData" class="btn btn-danger" type="button">Удалить данные селлера с этого сервера</button>
+                        <button id="openDeleteAccount" class="btn btn-danger" type="button">Удалить аккаунт</button>
+                    </div>
+                    <form method="post" action="{% url 'logout' %}" class="head-form bottom-exit">
+                        {% csrf_token %}
+                        <button class="btn btn-danger" type="submit">Выйти из аккаунта</button>
+                    </form>
+                </section>
             </div>
         </div>
-
-        <form method="post" action="{% url 'logout' %}" class="head-form bottom-exit">
-            {% csrf_token %}
-            <button class="btn btn-danger" type="submit">Выйти из аккаунта</button>
-        </form>
     </main>
 
     <div id="apiGuideModal" class="modal" aria-hidden="true">
@@ -405,7 +642,7 @@
                 Будут удалены все данные текущего кабинета продавца: заказы, товары, остатки, тарифы, транзитные направления,
                 коэффициенты, отчеты реализации, логи и тикеты, связанные с этим seller.
             </p>
-            <form method="post" class="actions">
+            <form method="post" class="actions" data-settings-form="section-danger">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="purge_seller_data">
                 <input type="hidden" name="confirm_purge_seller_data" value="1">
@@ -425,7 +662,7 @@
                 Будет удален ваш пользовательский аккаунт и все связанные с ним данные, включая seller-кабинет.
                 После этого вход в систему станет невозможен.
             </p>
-            <form method="post" class="actions">
+            <form method="post" class="actions" data-settings-form="section-danger">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="delete_account">
                 <input type="hidden" name="confirm_delete_account" value="1">
@@ -443,6 +680,9 @@
         const deleteAccountModal = document.getElementById("deleteAccountModal");
         const openPurgeSellerDataBtn = document.getElementById("openPurgeSellerData");
         const openDeleteAccountBtn = document.getElementById("openDeleteAccount");
+        const settingsNavButtons = Array.from(document.querySelectorAll("[data-settings-target]"));
+        const settingsPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
+        const settingsForms = Array.from(document.querySelectorAll("[data-settings-form]"));
 
         function openGuide() {
             guideModal.classList.add("open");
@@ -470,6 +710,43 @@
         closeGuideBtn.addEventListener("click", closeGuide);
         openPurgeSellerDataBtn.addEventListener("click", () => openModal(purgeSellerDataModal));
         openDeleteAccountBtn.addEventListener("click", () => openModal(deleteAccountModal));
+
+        function activateSettingsSection(targetId, updateHash = true) {
+            if (!targetId) return;
+            settingsNavButtons.forEach((btn) => {
+                btn.classList.toggle("is-active", btn.getAttribute("data-settings-target") === targetId);
+            });
+            settingsPanels.forEach((panel) => {
+                panel.classList.toggle("is-active", panel.getAttribute("data-settings-panel") === targetId);
+            });
+            if (updateHash) {
+                history.replaceState(null, "", `#${targetId}`);
+            }
+        }
+
+        settingsNavButtons.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                activateSettingsSection(btn.getAttribute("data-settings-target") || "");
+            });
+        });
+
+        settingsForms.forEach((form) => {
+            form.addEventListener("submit", () => {
+                const targetId = form.getAttribute("data-settings-form");
+                if (!targetId) return;
+                const baseAction = form.getAttribute("action") || window.location.pathname + window.location.search;
+                const cleanAction = baseAction.split("#")[0];
+                form.setAttribute("action", `${cleanAction}#${targetId}`);
+            });
+        });
+
+        const initialSectionId = window.location.hash.slice(1);
+        if (initialSectionId && document.querySelector(`[data-settings-panel="${initialSectionId}"]`)) {
+            activateSettingsSection(initialSectionId, false);
+        } else {
+            activateSettingsSection("section-access", false);
+        }
+
         guideModal.addEventListener("click", (event) => {
             if (event.target === guideModal) {
                 closeGuide();

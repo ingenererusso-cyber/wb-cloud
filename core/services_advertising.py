@@ -351,7 +351,7 @@ def sync_ad_campaigns_and_stats(
                 nm_id__in=nm_ids_for_map,
             ):
                 existing_stat_map[(int(item.advert_id), item.stat_date, int(item.nm_id))] = item
-        update_fields = ["spend", "views", "clicks", "orders", "add_to_cart", "raw_payload", "updated_at"]
+        update_fields = ["spend", "day_sum", "views", "clicks", "orders", "add_to_cart", "raw_payload", "updated_at"]
         to_create_stats: List[WbAdvertStatDaily] = []
         to_update_stats: List[WbAdvertStatDaily] = []
         for (advert_id, stat_date, nm_id), defaults in stat_rows_map.items():
@@ -458,8 +458,24 @@ def sync_ad_campaigns_and_stats(
                 day_atc = _to_int(day_row.get("atbs"), default=0)
                 day_spend = _to_float(day_row.get("sum"), 0.0)
 
+                # Всегда сохраняем агрегат дня на уровне кампании, даже если WB отдал
+                # детализацию по артикулам. Это сохраняет показы/клики/заказы и не
+                # заставляет витрины восстанавливать их только из raw_payload.
+                stat_rows_map[(int(advert_id), stat_date, 0)] = {
+                    "spend": day_spend,
+                    "day_sum": day_spend,
+                    "views": day_views,
+                    "clicks": day_clicks,
+                    "orders": day_orders,
+                    "add_to_cart": day_atc,
+                    "raw_payload": {
+                        "campaign": campaign_row,
+                        "day": day_row,
+                    },
+                    "updated_at": stats_now,
+                }
+
                 apps = day_row.get("apps") or []
-                nm_rows_written = 0
                 if isinstance(apps, list):
                     for app_row in apps:
                         if not isinstance(app_row, dict):
@@ -479,6 +495,7 @@ def sync_ad_campaigns_and_stats(
                             nm_spend = _to_float(nm_row.get("sum"), 0.0)
                             stat_rows_map[(int(advert_id), stat_date, int(nm_id))] = {
                                 "spend": nm_spend,
+                                "day_sum": day_spend,
                                 "views": None,
                                 "clicks": None,
                                 "orders": None,
@@ -491,22 +508,6 @@ def sync_ad_campaigns_and_stats(
                                 },
                                 "updated_at": stats_now,
                             }
-                            nm_rows_written += 1
-
-                if nm_rows_written == 0:
-                    # Если разбивки по артикулам нет, сохраняем агрегатной строкой nm_id=0.
-                    stat_rows_map[(int(advert_id), stat_date, 0)] = {
-                        "spend": day_spend,
-                        "views": day_views,
-                        "clicks": day_clicks,
-                        "orders": day_orders,
-                        "add_to_cart": day_atc,
-                        "raw_payload": {
-                            "campaign": campaign_row,
-                            "day": day_row,
-                        },
-                        "updated_at": stats_now,
-                    }
         stats_rows_upserted += _bulk_upsert_stats(stat_rows_map)
 
     result = {

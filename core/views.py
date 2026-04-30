@@ -1,5 +1,7 @@
 from datetime import date, datetime, time as dt_time, timedelta
+from collections import defaultdict
 import json
+import math
 import sqlite3
 import threading
 import traceback
@@ -104,18 +106,9 @@ from core.services.localization import (
 )
 
 SYNC_TASK_STALE_MINUTES = 8
-SYNC_STAGE_TTL_HOURS = 24
+REALIZATION_SYNC_PAGE_LIMIT = 30000
 HOME_REMINDERS_META_KEY = "home_reminders"
 GLUE_DRR_REMINDER_THRESHOLD = 20.0
-DAILY_SYNC_STAGES = {
-    "products",
-    "commissions",
-    "tariffs",
-    "acceptance",
-    "offices",
-    "seller_warehouses",
-    "transit",
-}
 UNIT_MODEL_FBO = "fbo"
 UNIT_MODEL_FBS = "fbs"
 UNIT_MODEL_TYPES = {UNIT_MODEL_FBO, UNIT_MODEL_FBS}
@@ -489,27 +482,27 @@ def _build_campaign_spend_totals(
 ) -> dict[int, float]:
     if not advert_ids:
         return {}
-    rows = list(
+    rows = (
         WbAdvertStatDaily.objects
         .filter(seller=seller, advert_id__in=advert_ids, stat_date__gte=date_from, stat_date__lte=date_to)
+        .values("advert_id", "stat_date")
+        .annotate(day_sum_max=Max("day_sum"), nm_sum=Sum("spend"))
         .order_by("advert_id", "stat_date")
     )
     day_rollup: dict[tuple[int, date], dict] = {}
     for row in rows:
         try:
-            advert_id_int = int(row.advert_id)
+            advert_id_int = int(row.get("advert_id"))
         except (TypeError, ValueError):
             continue
-        if row.stat_date is None:
+        stat_date = row.get("stat_date")
+        if stat_date is None:
             continue
-        key = (advert_id_int, row.stat_date)
-        item = day_rollup.setdefault(key, {"day_sum": 0.0, "nm_sum": 0.0})
-        item["nm_sum"] += float(row.spend or 0.0)
-        payload = row.raw_payload or {}
-        payload_day = payload.get("day") if isinstance(payload, dict) else None
-        payload_day_sum = _to_float_or_default((payload_day or {}).get("sum"), 0.0) if isinstance(payload_day, dict) else 0.0
-        if payload_day_sum > item["day_sum"]:
-            item["day_sum"] = payload_day_sum
+        key = (advert_id_int, stat_date)
+        day_rollup[key] = {
+            "day_sum": float(row.get("day_sum_max") or 0.0),
+            "nm_sum": float(row.get("nm_sum") or 0.0),
+        }
 
     totals: dict[int, float] = {}
     for (advert_id_int, _), values in day_rollup.items():
@@ -570,6 +563,18 @@ def _advert_status_meta(status: int | None) -> tuple[str, str]:
         return "-", "gray"
     label, css = mapping.get(int(status), (str(status), "blue"))
     return label, css
+
+
+def _extract_advert_day_metrics(stat_row: WbAdvertStatDaily) -> dict[str, float]:
+    payload = stat_row.raw_payload if isinstance(stat_row.raw_payload, dict) else {}
+    day_payload = payload.get("day") if isinstance(payload.get("day"), dict) else {}
+    return {
+        "views": _to_float_or_default(stat_row.views, _to_float_or_default(day_payload.get("views"), 0.0)),
+        "clicks": _to_float_or_default(stat_row.clicks, _to_float_or_default(day_payload.get("clicks"), 0.0)),
+        "orders": _to_float_or_default(stat_row.orders, _to_float_or_default(day_payload.get("orders"), 0.0)),
+        "add_to_cart": _to_float_or_default(stat_row.add_to_cart, _to_float_or_default(day_payload.get("atbs"), 0.0)),
+        "day_sum": _to_float_or_default(stat_row.day_sum, _to_float_or_default(day_payload.get("sum"), 0.0)),
+    }
 
 
 def _build_fact_profit_metrics_for_product(
@@ -1070,43 +1075,6 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
             time.sleep(min(2.0, 0.12 * attempt))
     if last_exc:
         raise last_exc
-
-
-def _get_sync_stage_success_map(seller: SellerAccount | None) -> dict:
-    if not seller:
-        return {}
-    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
-    stage_map = meta.get("stage_success_at")
-    if isinstance(stage_map, dict):
-        return dict(stage_map)
-    return {}
-
-
-def _get_stage_success_at(seller: SellerAccount | None, stage_key: str):
-    stage_map = _get_sync_stage_success_map(seller)
-    raw_value = stage_map.get(stage_key)
-    if not raw_value:
-        return None
-    dt = parse_datetime(str(raw_value))
-    if dt is None:
-        return None
-    if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.get_default_timezone())
-    return dt
-
-
-def _mark_stage_success(seller: SellerAccount, stage_key: str, dt=None) -> None:
-    if not seller:
-        return
-    when = dt or timezone.now()
-    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
-    stage_map = meta.get("stage_success_at")
-    if not isinstance(stage_map, dict):
-        stage_map = {}
-    stage_map[str(stage_key)] = when.isoformat()
-    meta["stage_success_at"] = stage_map
-    seller.sync_meta = meta
-    _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
 
 
 def _parse_hhmm(raw_value: str | None):
@@ -1644,14 +1612,6 @@ def _maybe_start_scheduled_sync_for_user(user, seller: SellerAccount | None) -> 
     )
 
 
-def _should_skip_stage_by_ttl(seller: SellerAccount, stage_key: str, ttl_hours: int = SYNC_STAGE_TTL_HOURS) -> bool:
-    last_success_at = _get_stage_success_at(seller, stage_key)
-    if not last_success_at:
-        return False
-    threshold = timezone.now() - timedelta(hours=int(ttl_hours))
-    return last_success_at >= threshold
-
-
 def _recommended_orders_days_back(seller: SellerAccount, fallback_days: int = 175, overlap_days: int = 3) -> int:
     max_last_change = Order.objects.filter(seller=seller).aggregate(max_dt=Max("last_change_date")).get("max_dt")
     if max_last_change:
@@ -1694,23 +1654,25 @@ def _expire_stale_running_sync_tasks_for_user(user) -> int:
     Помечает "зависшие" running-задачи как error.
     Задача считается зависшей, если давно не обновлялась.
     """
-    threshold = timezone.now() - timedelta(minutes=SYNC_TASK_STALE_MINUTES)
-    stale_qs = SyncTask.objects.filter(
-        user=user,
-        status=SyncTask.STATUS_RUNNING,
-        updated_at__lt=threshold,
-    )
     updated = 0
-    for task in stale_qs.iterator():
+    running_tasks = (
+        SyncTask.objects
+        .filter(user=user, status=SyncTask.STATUS_RUNNING)
+        .iterator()
+    )
+    now = timezone.now()
+    for task in running_tasks:
+        stale_minutes = SYNC_TASK_STALE_MINUTES
+        threshold = now - timedelta(minutes=stale_minutes)
+        if not task.updated_at or task.updated_at >= threshold:
+            continue
         task.status = SyncTask.STATUS_ERROR
         task.progress = max(task.progress or 0, 100)
-        current_message = (task.message or "").strip()
-        timeout_message = (
-            f"{current_message} "
-            f"(авто-остановка: задача не обновлялась более {SYNC_TASK_STALE_MINUTES} минут)"
-        ).strip()
-        task.message = timeout_message
-        task.finished_at = timezone.now()
+        task.message = (
+            "Синхронизация остановлена автоматически: задача не обновлялась более "
+            f"{stale_minutes} минут. Запустите синхронизацию повторно."
+        )
+        task.finished_at = now
         task.save(update_fields=["status", "progress", "message", "finished_at", "updated_at"])
         updated += 1
     return updated
@@ -1850,7 +1812,7 @@ def _is_db_locked_error(exc: Exception) -> bool:
     return "database is locked" in text or "database table is locked" in text
 
 
-def _run_with_db_lock_retry(fn, *, attempts: int = 18):
+def _run_with_db_lock_retry(fn, *, attempts: int = 18, on_retry=None):
     last_exc = None
     for attempt in range(1, attempts + 1):
         try:
@@ -1859,8 +1821,14 @@ def _run_with_db_lock_retry(fn, *, attempts: int = 18):
             if not _is_db_locked_error(exc):
                 raise
             last_exc = exc
+            sleep_seconds = min(3.0, 0.2 * attempt)
+            if callable(on_retry):
+                try:
+                    on_retry(attempt, sleep_seconds, exc)
+                except Exception:
+                    pass
             close_old_connections()
-            time.sleep(min(3.0, 0.2 * attempt))
+            time.sleep(sleep_seconds)
     if last_exc:
         raise last_exc
     return fn()
@@ -1885,7 +1853,6 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             return
 
         result = {}
-        skipped_steps = []
         today = timezone.localdate()
         ads_date_from = _recommended_ads_date_from(seller=seller, fallback_days=30, overlap_days=7)
         orders_days_back = _recommended_orders_days_back(seller=seller, fallback_days=INITIAL_SYNC_DAYS, overlap_days=3)
@@ -1929,16 +1896,11 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     "result": result,
                 },
             )
-            if key in DAILY_SYNC_STAGES and _should_skip_stage_by_ttl(seller, key):
-                result[key] = {"skipped": True, "reason": "already_synced_today"}
-                skipped_steps.append(label)
-                continue
             step_result = _run_with_db_lock_retry(lambda: fn(**kwargs))
             if isinstance(step_result, dict):
                 result[key] = step_result
             else:
                 result[key] = int(step_result or 0)
-            _mark_stage_success(seller, key)
 
         ads_warning = None
         ads_result = result.get("ads")
@@ -1960,19 +1922,6 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     "result": result,
                 },
             )
-        def _realization_heartbeat(status_message: str) -> None:
-            _set_sync_task(
-                task_id,
-                {
-                    "task_id": task_id,
-                    "status": "running",
-                    "progress": realization_progress,
-                    "step": "Отчёты реализации",
-                    "message": status_message,
-                    "finished_at": None,
-                    "result": result,
-                },
-            )
         try:
             realization_result = _run_with_db_lock_retry(
                 lambda: sync_realization_report_detail(
@@ -1980,13 +1929,11 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     date_from=realization_date_from,
                     date_to=today,
                     period="weekly",
-                    limit=100000,
+                    limit=REALIZATION_SYNC_PAGE_LIMIT,
                     respect_rate_limit=False,
-                    on_heartbeat=_realization_heartbeat,
-                )
+                ),
             )
             result["realization_rows"] = int(realization_result.get("upserted_rows") or 0)
-            _mark_stage_success(seller, "realization")
         except Exception as exc:
             result["realization_rows"] = 0
             realization_warning = str(exc)
@@ -2011,9 +1958,6 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             message += f" Отчёты реализации частично пропущены: {realization_warning}"
         if ads_warning:
             message += f" Рекламная статистика частично пропущена: {ads_warning}"
-        if skipped_steps:
-            message += f" Пропущены по лимиту 1/день: {', '.join(skipped_steps)}."
-
         _set_sync_task(
             task_id,
             {
@@ -2244,7 +2188,19 @@ def billing_paywall(request):
     return render(request, "marketing/paywall.html", _build_pricing_context(request.user))
 
 
-def home(request):
+def _serialize_running_sync_task(task: SyncTask | None) -> dict | None:
+    if not task:
+        return None
+    return {
+        "task_id": task.task_id,
+        "status": task.status,
+        "progress": task.progress,
+        "step": task.step,
+        "message": task.message,
+    }
+
+
+def dashboard_home(request):
     if not request.user.is_authenticated:
         return render(request, "marketing/promo_landing.html", _build_pricing_context())
 
@@ -2253,15 +2209,7 @@ def home(request):
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     missing_api_token = not seller or not seller.has_api_token
     running_sync_task = _get_running_sync_task_for_user(request.user)
-    running_sync_task_payload = None
-    if running_sync_task:
-        running_sync_task_payload = {
-            "task_id": running_sync_task.task_id,
-            "status": running_sync_task.status,
-            "progress": running_sync_task.progress,
-            "step": running_sync_task.step,
-            "message": running_sync_task.message,
-        }
+    has_dashboard_data = last_sync_at is not None
 
     return render(
         request,
@@ -2269,9 +2217,14 @@ def home(request):
         {
             "seller": seller,
             "missing_api_token": missing_api_token,
-            "running_sync_task": running_sync_task_payload,
+            "last_sync_at": last_sync_at,
+            "has_dashboard_data": has_dashboard_data,
+            "running_sync_task": _serialize_running_sync_task(running_sync_task),
         },
     )
+
+
+home = dashboard_home
 
 
 @login_required
@@ -2313,6 +2266,80 @@ def dashboard_reminders_api(request):
             traceback_text=traceback.format_exc(),
         )
         return JsonResponse({"ok": False, "error": "Не удалось загрузить блок напоминаний."}, status=500)
+
+
+@login_required
+@require_GET
+def dashboard_orders_feed_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    raw_offset = (request.GET.get("offset") or "0").strip()
+    raw_limit = (request.GET.get("limit") or "10").strip()
+    try:
+        offset = max(0, int(raw_offset))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(10, limit))
+
+    orders_qs = (
+        Order.objects
+        .filter(seller=seller)
+        .order_by(F("order_date").desc(nulls_last=True), "-id")
+    )
+    total = orders_qs.count()
+    orders_page = list(orders_qs[offset: offset + limit])
+    nm_ids = sorted({int(o.nm_id) for o in orders_page if o.nm_id is not None})
+    products_map = {
+        int(row["nm_id"]): {
+            "title": row.get("title") or "",
+            "photo_url": row.get("photo_url") or "",
+            "vendor_code": row.get("vendor_code") or "",
+        }
+        for row in Product.objects.filter(seller=seller, nm_id__in=nm_ids).values(
+            "nm_id",
+            "title",
+            "photo_url",
+            "vendor_code",
+        )
+    }
+
+    rows = []
+    for order in orders_page:
+        product_meta = products_map.get(int(order.nm_id), {})
+        rows.append(
+            {
+                "srid": order.srid,
+                "nm_id": int(order.nm_id or 0),
+                "supplier_article": order.supplier_article or "",
+                "warehouse_name": order.warehouse_name or "",
+                "fulfillment": "FBO" if "wb" in str(order.warehouse_type or "").lower() else "FBS",
+                "order_date": timezone.localtime(order.order_date).isoformat() if order.order_date else None,
+                "order_date_label": timezone.localtime(order.order_date).strftime("%d.%m %H:%M") if order.order_date else "-",
+                "order_price": round(_to_float_or_default(order.order_price), 2),
+                "finished_price": round(_to_float_or_default(order.finished_price), 2),
+                "is_buyout": bool(order.is_buyout),
+                "is_cancel": bool(order.is_cancel),
+                "title": product_meta.get("title") or "",
+                "photo_url": product_meta.get("photo_url") or "",
+                "vendor_code": product_meta.get("vendor_code") or "",
+            }
+        )
+
+    next_offset = offset + len(rows)
+    return JsonResponse(
+        {
+            "ok": True,
+            "rows": rows,
+            "offset": offset,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+            "total": total,
+        },
+        status=200,
+    )
 
 
 @login_required
@@ -2488,7 +2515,7 @@ def dashboard_trend_api(request):
     )
 
 
-def analytics_logistics(request):
+def logistics_dashboard(request):
     if not request.user.is_authenticated:
         return render(request, "home_landing.html")
 
@@ -2499,23 +2526,160 @@ def analytics_logistics(request):
 
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     running_sync_task = _get_running_sync_task_for_user(request.user)
-    running_sync_task_payload = None
-    if running_sync_task:
-        running_sync_task_payload = {
-            "task_id": running_sync_task.task_id,
-            "status": running_sync_task.status,
-            "progress": running_sync_task.progress,
-            "step": running_sync_task.step,
-            "message": running_sync_task.message,
-        }
     return render(
         request,
-        "home.html",
+        "analytics/logistics_dashboard.html",
         {
             "seller": seller,
             "missing_api_token": missing_api_token,
             "last_sync_at": last_sync_at,
-            "running_sync_task": running_sync_task_payload,
+            "running_sync_task": _serialize_running_sync_task(running_sync_task),
+        },
+    )
+
+
+analytics_logistics = logistics_dashboard
+
+
+@login_required
+def wb_promotion_campaigns(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    _maybe_start_scheduled_sync_for_user(request.user, seller)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    running_sync_task = _get_running_sync_task_for_user(request.user)
+
+    query = (request.GET.get("q") or "").strip()
+    raw_page = (request.GET.get("page") or "1").strip()
+    raw_page_size = (request.GET.get("page_size") or "10").strip()
+    raw_date_from = (request.GET.get("date_from") or "").strip()
+    raw_date_to = (request.GET.get("date_to") or "").strip()
+    sort = (request.GET.get("sort") or "create_desc").strip()
+
+    try:
+        page_number = max(1, int(raw_page))
+    except (TypeError, ValueError):
+        page_number = 1
+    try:
+        page_size = int(raw_page_size)
+    except (TypeError, ValueError):
+        page_size = 10
+    if page_size not in {10, 20, 30, 50}:
+        page_size = 10
+
+    today = timezone.localdate()
+    default_date_to = today
+    default_date_from = today - timedelta(days=6)
+    try:
+        date_from_value = date.fromisoformat(raw_date_from) if raw_date_from else default_date_from
+    except ValueError:
+        date_from_value = default_date_from
+    try:
+        date_to_value = date.fromisoformat(raw_date_to) if raw_date_to else default_date_to
+    except ValueError:
+        date_to_value = default_date_to
+    if date_from_value > date_to_value:
+        date_from_value = default_date_from
+        date_to_value = default_date_to
+
+    campaigns_qs = WbAdvertCampaign.objects.filter(seller=seller)
+    if query:
+        query_filter = Q(campaign_name__icontains=query)
+        if query.isdigit():
+            query_filter = query_filter | Q(advert_id=int(query))
+        campaigns_qs = campaigns_qs.filter(query_filter)
+
+    if sort == "create_asc":
+        campaigns_qs = campaigns_qs.order_by(F("create_time").asc(nulls_last=True), "advert_id")
+    elif sort == "updated_desc":
+        campaigns_qs = campaigns_qs.order_by(F("updated_at").desc(nulls_last=True), "-advert_id")
+    else:
+        sort = "create_desc"
+        campaigns_qs = campaigns_qs.order_by(F("create_time").desc(nulls_last=True), "-advert_id")
+
+    paginator = Paginator(campaigns_qs, page_size)
+    page_obj = paginator.get_page(page_number)
+    page_campaigns = list(page_obj.object_list)
+    advert_ids = [int(c.advert_id) for c in page_campaigns if c.advert_id is not None]
+
+    stats_rows = list(
+        WbAdvertStatDaily.objects
+        .filter(
+            seller=seller,
+            advert_id__in=advert_ids,
+            stat_date__gte=date_from_value,
+            stat_date__lte=date_to_value,
+        )
+        .only("advert_id", "stat_date", "day_sum", "views", "clicks", "orders", "add_to_cart", "raw_payload")
+    )
+    day_rollup: dict[tuple[int, date], dict] = {}
+    for stat_row in stats_rows:
+        advert_id = int(stat_row.advert_id or 0)
+        stat_day = stat_row.stat_date
+        if advert_id <= 0 or not stat_day:
+            continue
+        key = (advert_id, stat_day)
+        metrics = _extract_advert_day_metrics(stat_row)
+        item = day_rollup.setdefault(
+            key,
+            {"day_sum": 0.0, "views": 0, "clicks": 0, "orders": 0},
+        )
+        item["day_sum"] = max(float(item["day_sum"]), float(metrics["day_sum"]))
+        item["views"] = max(int(item["views"]), int(metrics["views"]))
+        item["clicks"] = max(int(item["clicks"]), int(metrics["clicks"]))
+        item["orders"] = max(int(item["orders"]), int(metrics["orders"]))
+
+    totals_by_advert: dict[int, dict] = defaultdict(lambda: {"spend": 0.0, "views": 0, "clicks": 0, "orders": 0})
+    for (advert_id, _day), values in day_rollup.items():
+        target = totals_by_advert[int(advert_id)]
+        target["spend"] += float(values["day_sum"] or 0.0)
+        target["views"] += int(values["views"] or 0)
+        target["clicks"] += int(values["clicks"] or 0)
+        target["orders"] += int(values["orders"] or 0)
+
+    rows = []
+    for campaign in page_campaigns:
+        advert_id_int = int(campaign.advert_id or 0)
+        totals = totals_by_advert.get(advert_id_int, {})
+        spend = float(totals.get("spend") or 0.0)
+        views = int(totals.get("views") or 0)
+        clicks = int(totals.get("clicks") or 0)
+        orders = int(totals.get("orders") or 0)
+        ctr = round((clicks / views) * 100.0, 2) if views > 0 else 0.0
+        cpo = round(spend / orders, 2) if orders > 0 else 0.0
+        status_label, status_color = _advert_status_meta(campaign.status)
+        rows.append(
+            {
+                "advert_id": advert_id_int,
+                "campaign_name": campaign.campaign_name or f"Кампания {advert_id_int}",
+                "advert_type": _advert_type_label(campaign.advert_type),
+                "status_label": status_label,
+                "status_color": status_color,
+                "create_time": campaign.create_time,
+                "daily_budget": float(campaign.daily_budget or 0.0),
+                "spend": round(spend, 2),
+                "views": views,
+                "clicks": clicks,
+                "ctr": ctr,
+                "orders": orders,
+                "cpo": cpo,
+            }
+        )
+
+    return render(
+        request,
+        "promotion/wb_campaigns.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+            "running_sync_task": _serialize_running_sync_task(running_sync_task),
+            "query": query,
+            "rows": rows,
+            "sort": sort,
+            "date_from": date_from_value.isoformat(),
+            "date_to": date_to_value.isoformat(),
+            "page_obj": page_obj,
+            "page_size": page_size,
+            "total_count": paginator.count,
         },
     )
 
@@ -2549,6 +2713,381 @@ def analytics_logistics_data_api(request):
         "top_non_local_districts": get_top_non_local_districts_last_full_weeks(seller, weeks=13, limit=5),
     }
     return JsonResponse(payload, status=200)
+
+
+@login_required
+def analytics_paid_storage(request):
+    if not request.user.is_authenticated:
+        return render(request, "home_landing.html")
+
+    seller = _get_or_create_seller_for_user(request.user)
+    _maybe_start_scheduled_sync_for_user(request.user, seller)
+    missing_api_token = not seller or not seller.has_api_token
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    running_sync_task = _get_running_sync_task_for_user(request.user)
+    return render(
+        request,
+        "analytics_paid_storage.html",
+        {
+            "seller": seller,
+            "missing_api_token": missing_api_token,
+            "last_sync_at": last_sync_at,
+            "running_sync_task": _serialize_running_sync_task(running_sync_task),
+        },
+    )
+
+
+@login_required
+@require_GET
+def analytics_paid_storage_data_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    if not seller or not seller.has_api_token:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "api_token_missing",
+                "chart": {"points": []},
+                "top_warehouses": [],
+                "items": [],
+            },
+            status=200,
+        )
+
+    today = timezone.localdate()
+    keep_days = max(1, min(365, int(_to_float_or_default(request.GET.get("keep_days"), 30))))
+    selected_warehouses_raw = request.GET.getlist("selected_warehouses")
+    if len(selected_warehouses_raw) == 1 and "," in selected_warehouses_raw[0]:
+        selected_warehouses_raw = [item.strip() for item in selected_warehouses_raw[0].split(",")]
+    selected_warehouses = {item.strip() for item in selected_warehouses_raw if item.strip()}
+    days = [today - timedelta(days=offset) for offset in range(13, -1, -1)]
+
+    stocks_qs = WarehouseStockDetailed.objects.filter(seller=seller, quantity__gt=0)
+    stocks = list(
+        stocks_qs.values(
+            "nm_id",
+            "supplier_article",
+            "warehouse_name",
+            "quantity",
+        )
+    )
+    if not stocks:
+        return JsonResponse(
+            {
+                "ok": True,
+                "chart": {"points": [], "start_label": "", "end_label": ""},
+                "top_warehouses": [],
+                "items": [],
+            },
+            status=200,
+        )
+
+    nm_ids = sorted({int(row["nm_id"]) for row in stocks})
+    warehouse_names = sorted({str(row["warehouse_name"]) for row in stocks if row["warehouse_name"]})
+    products_map = {
+        int(row["nm_id"]): {
+            "title": row["title"],
+            "vendor_code": row["vendor_code"],
+            "volume_liters": float(row["volume_liters"] or 0.0),
+        }
+        for row in Product.objects.filter(seller=seller, nm_id__in=nm_ids).values(
+            "nm_id",
+            "title",
+            "vendor_code",
+            "volume_liters",
+        )
+    }
+    sales_window_from = today - timedelta(days=29)
+    daily_sales_by_nm = {
+        int(row["nm_id"]): round(int(row["qty"] or 0) / 30.0, 4)
+        for row in (
+            Order.objects.filter(
+                seller=seller,
+                nm_id__in=nm_ids,
+                order_date__date__gte=sales_window_from,
+                order_date__date__lte=today,
+                is_cancel=False,
+                is_return=False,
+                is_buyout=True,
+            )
+            .values("nm_id")
+            .annotate(qty=Count("id"))
+        )
+    }
+    chart_orders_qs = (
+        Order.objects.filter(
+            seller=seller,
+            nm_id__in=nm_ids,
+            warehouse_type="Склад WB",
+            order_date__date__gte=days[0],
+            order_date__date__lte=today,
+            is_cancel=False,
+        )
+        .values("nm_id", "warehouse_name", order_day=TruncDate("order_date"))
+        .annotate(qty=Count("id"))
+    )
+    orders_by_key_day: dict[tuple[int, str, date], int] = {}
+    for row in chart_orders_qs:
+        day_value = row.get("order_day")
+        if not day_value:
+            continue
+        orders_by_key_day[
+            (
+                int(row["nm_id"]),
+                str(row.get("warehouse_name") or ""),
+                day_value,
+            )
+        ] = int(row.get("qty") or 0)
+
+    storage_by_warehouse: dict[str, list[WbWarehouseTariff]] = defaultdict(list)
+    storage_rows = list(
+        WbWarehouseTariff.objects.filter(
+            seller=seller,
+            warehouse_name__in=warehouse_names,
+            tariff_date__lte=today,
+        ).order_by("warehouse_name", "-tariff_date", "-updated_at")
+    )
+    for row in storage_rows:
+        storage_by_warehouse[str(row.warehouse_name)].append(row)
+
+    def _pick_storage_row_for_day(warehouse_name: str, target_day: date) -> WbWarehouseTariff | None:
+        candidates = storage_by_warehouse.get(warehouse_name) or []
+        for row in candidates:
+            if row.tariff_date and row.tariff_date <= target_day:
+                return row
+        return candidates[0] if candidates else None
+
+    def _storage_daily_cost(row: WbWarehouseTariff | None, volume_liters: float) -> tuple[float, float, float]:
+        if not row or volume_liters <= 0:
+            return (0.0, 0.0, 1.0)
+        base = float(row.box_storage_base or 0.0)
+        additional = float(row.box_storage_liter or 0.0)
+        coef_pct = float(row.box_storage_coef_expr or 100.0)
+        coef_multiplier = max(0.0, coef_pct / 100.0)
+        # Для платного хранения используем тариф коробов WB:
+        # 1-й литр + каждый дополнительный литр.
+        # boxStorageCoefExpr сохраняем как справочный коэффициент, но не умножаем повторно,
+        # так как WB указывает, что он уже учтен в самих тарифах.
+        daily_cost = base + additional * max(volume_liters - 1.0, 0.0)
+        return (max(0.0, daily_cost), daily_cost, coef_multiplier)
+
+    warehouse_liters: dict[str, float] = defaultdict(float)
+    items: dict[int, dict] = {}
+
+    for row in stocks:
+        nm_id = int(row["nm_id"])
+        warehouse_name = str(row["warehouse_name"] or "")
+        quantity = int(row.get("quantity") or 0)
+        product_data = products_map.get(nm_id) or {}
+        volume_liters = float(product_data.get("volume_liters") or 0.0)
+        liters_total = max(0.0, quantity * volume_liters)
+        warehouse_liters[warehouse_name] += liters_total
+
+        item_bucket = items.setdefault(
+            nm_id,
+            {
+                "nm_id": nm_id,
+                "title": product_data.get("title") or f"Артикул {nm_id}",
+                "vendor_code": product_data.get("vendor_code") or (row.get("supplier_article") or ""),
+                "volume_liters": round(volume_liters, 4),
+                "avg_daily_sales": float(daily_sales_by_nm.get(nm_id) or 0.0),
+                "total_quantity": 0,
+                "daily_storage_cost": 0.0,
+                "warehouses": [],
+            },
+        )
+        item_bucket["total_quantity"] += quantity
+
+        storage_today = _pick_storage_row_for_day(warehouse_name, today)
+        daily_cost_per_unit, nominal_rate, coef_today = _storage_daily_cost(storage_today, volume_liters)
+        daily_cost = quantity * daily_cost_per_unit
+        item_bucket["daily_storage_cost"] += daily_cost
+        item_bucket["warehouses"].append(
+            {
+                "warehouse_name": warehouse_name,
+                "quantity": quantity,
+                "coef": round(coef_today, 4),
+                "rate_per_liter": round(nominal_rate, 4),
+                "unit_daily_cost": round(daily_cost_per_unit, 4),
+                "daily_storage_cost": round(daily_cost, 2),
+            }
+        )
+
+    chart_points = []
+    for day_value in days:
+        total_cost = 0.0
+        for row in stocks:
+            nm_id = int(row["nm_id"])
+            warehouse_name = str(row["warehouse_name"] or "")
+            quantity = int(row.get("quantity") or 0)
+            if quantity < 0:
+                continue
+            estimated_quantity = quantity
+            future_day = day_value
+            while future_day < today:
+                estimated_quantity += int(orders_by_key_day.get((nm_id, warehouse_name, future_day), 0) or 0)
+                future_day += timedelta(days=1)
+            if estimated_quantity <= 0:
+                continue
+            product_data = products_map.get(nm_id) or {}
+            volume_liters = float(product_data.get("volume_liters") or 0.0)
+            storage_row = _pick_storage_row_for_day(warehouse_name, day_value)
+            daily_cost_per_unit, _nominal_rate, _coef = _storage_daily_cost(storage_row, volume_liters)
+            total_cost += estimated_quantity * daily_cost_per_unit
+        chart_points.append(
+            {
+                "label": day_value.strftime("%d.%m"),
+                "date": day_value.isoformat(),
+                "daily_storage_cost": round(total_cost, 2),
+            }
+        )
+
+    top_warehouses = []
+    for warehouse_name, _liters in warehouse_liters.items():
+        daily_cost = 0.0
+        storage_today = _pick_storage_row_for_day(warehouse_name, today)
+        coef_today = 1.0
+        for row in stocks:
+            if str(row["warehouse_name"] or "") != warehouse_name:
+                continue
+            quantity = int(row.get("quantity") or 0)
+            if quantity <= 0:
+                continue
+            nm_id = int(row["nm_id"])
+            volume_liters = float((products_map.get(nm_id) or {}).get("volume_liters") or 0.0)
+            daily_cost_per_unit, _nominal_rate, coef_today = _storage_daily_cost(storage_today, volume_liters)
+            daily_cost += quantity * daily_cost_per_unit
+        top_warehouses.append(
+            {
+                "warehouse_name": warehouse_name,
+                "daily_storage_cost": round(daily_cost, 2),
+                "coef": round(coef_today, 4),
+            }
+        )
+    top_warehouses.sort(key=lambda x: x["daily_storage_cost"], reverse=True)
+    top_warehouses = top_warehouses[:10]
+
+    current_daily_total = 0.0
+    savings_daily_all = 0.0
+    savings_daily_selected = 0.0
+    removable_units_all = 0
+    removable_units_selected = 0
+    current_total_units = 0
+    required_total_units = 0
+
+    items_list = []
+    for item in items.values():
+        avg_daily_sales = float(item.get("avg_daily_sales") or 0.0)
+        total_quantity = int(item.get("total_quantity") or 0)
+        required_quantity = max(0, int(math.ceil(avg_daily_sales * keep_days - 1e-9)))
+        excess_quantity = max(0, total_quantity - required_quantity)
+        current_total_units += total_quantity
+        required_total_units += required_quantity
+        current_daily_total += float(item.get("daily_storage_cost") or 0.0)
+        removable_units_all += excess_quantity
+
+        warehouses_sorted_asc = sorted(
+            item["warehouses"],
+            key=lambda warehouse_row: (
+                float(warehouse_row.get("unit_daily_cost") or 0.0),
+                str(warehouse_row.get("warehouse_name") or ""),
+            ),
+        )
+        remaining_to_keep = required_quantity
+        for warehouse_row in warehouses_sorted_asc:
+            warehouse_qty = int(warehouse_row.get("quantity") or 0)
+            keep_qty = min(warehouse_qty, max(0, remaining_to_keep))
+            removable_qty = max(0, warehouse_qty - keep_qty)
+            unit_daily_cost = float(warehouse_row.get("unit_daily_cost") or 0.0)
+            savings_daily_all += removable_qty * unit_daily_cost
+            remaining_to_keep -= keep_qty
+
+        selected_rows = [
+            warehouse_row
+            for warehouse_row in item["warehouses"]
+            if str(warehouse_row.get("warehouse_name") or "") in selected_warehouses
+        ]
+        selected_qty_total = sum(int(warehouse_row.get("quantity") or 0) for warehouse_row in selected_rows)
+        selected_removable_qty = min(excess_quantity, selected_qty_total)
+        removable_units_selected += selected_removable_qty
+        if selected_removable_qty > 0:
+            selected_rows.sort(
+                key=lambda warehouse_row: (
+                    -float(warehouse_row.get("unit_daily_cost") or 0.0),
+                    str(warehouse_row.get("warehouse_name") or ""),
+                )
+            )
+            remaining_selected_to_remove = selected_removable_qty
+            for warehouse_row in selected_rows:
+                if remaining_selected_to_remove <= 0:
+                    break
+                warehouse_qty = int(warehouse_row.get("quantity") or 0)
+                removed_qty = min(warehouse_qty, remaining_selected_to_remove)
+                unit_daily_cost = float(warehouse_row.get("unit_daily_cost") or 0.0)
+                savings_daily_selected += removed_qty * unit_daily_cost
+                remaining_selected_to_remove -= removed_qty
+
+        item["required_quantity"] = required_quantity
+        item["excess_quantity"] = excess_quantity
+        item["daily_storage_cost"] = round(float(item["daily_storage_cost"]), 2)
+        item["warehouses"].sort(key=lambda x: x["daily_storage_cost"], reverse=True)
+        items_list.append(item)
+    items_list.sort(key=lambda x: x["daily_storage_cost"], reverse=True)
+
+    warehouse_options = sorted(
+        [
+            {
+                "warehouse_name": str(warehouse_name),
+                "daily_storage_cost": round(
+                    sum(
+                        float(warehouse_row.get("daily_storage_cost") or 0.0)
+                        for item in items_list
+                        for warehouse_row in item.get("warehouses", [])
+                        if str(warehouse_row.get("warehouse_name") or "") == str(warehouse_name)
+                    ),
+                    2,
+                ),
+                "selected": str(warehouse_name) in selected_warehouses,
+            }
+            for warehouse_name in warehouse_names
+        ],
+        key=lambda item: (-float(item["daily_storage_cost"]), item["warehouse_name"]),
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "keep_days": keep_days,
+            "chart": {
+                "points": chart_points,
+                "start_label": days[0].strftime("%d.%m.%Y"),
+                "end_label": days[-1].strftime("%d.%m.%Y"),
+                "approximation_note": "Ориентировочный расчет: прошлый остаток восстановлен из текущего остатка и FBO-заказов по дням за последние 2 недели.",
+            },
+            "projection": {
+                "current_daily_cost": round(current_daily_total, 2),
+                "current_total_units": current_total_units,
+                "required_total_units": required_total_units,
+                "excess_total_units": max(0, current_total_units - required_total_units),
+                "all_warehouses": {
+                    "removable_units": removable_units_all,
+                    "daily_savings": round(savings_daily_all, 2),
+                    "monthly_savings": round(savings_daily_all * 30.0, 2),
+                    "quarter_savings": round(savings_daily_all * 90.0, 2),
+                },
+                "selected_warehouses": {
+                    "warehouse_names": sorted(selected_warehouses),
+                    "removable_units": removable_units_selected,
+                    "daily_savings": round(savings_daily_selected, 2),
+                    "monthly_savings": round(savings_daily_selected * 30.0, 2),
+                    "quarter_savings": round(savings_daily_selected * 90.0, 2),
+                },
+            },
+            "top_warehouses": top_warehouses,
+            "warehouse_options": warehouse_options,
+            "items": items_list,
+        },
+        status=200,
+    )
 
 
 @login_required
@@ -2732,6 +3271,8 @@ def replenishment_report_api(request):
 def account_settings(request):
     seller = _get_or_create_seller_for_user(request.user)
     auto_sync_cfg = _get_auto_sync_config(seller)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    running_sync_task = _get_running_sync_task_for_user(request.user)
 
     if request.method == "POST":
         action = (request.POST.get("action") or "").strip()
@@ -2802,8 +3343,232 @@ def account_settings(request):
             "auto_sync_enabled": bool(auto_sync_cfg.get("enabled", False)),
             "auto_sync_time": str(auto_sync_cfg.get("time") or "09:00"),
             "auto_sync_last_run_date": str(auto_sync_cfg.get("last_run_date") or ""),
+            "last_sync_at": last_sync_at,
+            "running_sync_task": _serialize_running_sync_task(running_sync_task),
         },
     )
+
+
+@login_required
+def analytics_money_in_goods(request):
+    if not request.user.is_authenticated:
+        return render(request, "home_landing.html")
+
+    seller = _get_or_create_seller_for_user(request.user)
+    _maybe_start_scheduled_sync_for_user(request.user, seller)
+    missing_api_token = not seller or not seller.has_api_token
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    running_sync_task = _get_running_sync_task_for_user(request.user)
+
+    fbo_rows = list(
+        WarehouseStockDetailed.objects
+        .filter(seller=seller, quantity__gt=0)
+        .values("warehouse_name", "nm_id")
+        .annotate(qty=Sum("quantity"))
+    )
+
+    fbs_rows_raw = list(
+        SellerFbsStock.objects
+        .filter(seller=seller, amount__gt=0)
+        .values("warehouse_name", "chrt_id")
+        .annotate(qty=Sum("amount"))
+    )
+    chrt_ids = [int(row["chrt_id"]) for row in fbs_rows_raw if row.get("chrt_id") is not None]
+    chrt_to_nm = {
+        int(row["chrt_id"]): int(row["nm_id"])
+        for row in (
+            ProductCardSize.objects
+            .filter(seller=seller, chrt_id__in=chrt_ids)
+            .exclude(nm_id__isnull=True)
+            .values("chrt_id", "nm_id")
+        )
+        if row.get("chrt_id") is not None and row.get("nm_id") is not None
+    }
+    fbs_rows: list[dict] = []
+    for row in fbs_rows_raw:
+        chrt_id = row.get("chrt_id")
+        if chrt_id is None:
+            continue
+        nm_id = chrt_to_nm.get(int(chrt_id))
+        if nm_id is None:
+            continue
+        fbs_rows.append(
+            {
+                "warehouse_name": str(row.get("warehouse_name") or "-"),
+                "nm_id": int(nm_id),
+                "qty": int(row.get("qty") or 0),
+            }
+        )
+
+    all_nm_ids = sorted({
+        int(row["nm_id"]) for row in fbo_rows if row.get("nm_id") is not None
+    } | {
+        int(row["nm_id"]) for row in fbs_rows if row.get("nm_id") is not None
+    })
+
+    products_map = {
+        int(row["nm_id"]): {
+            "title": row.get("title") or "",
+            "vendor_code": row.get("vendor_code") or "",
+            "purchase_price": _to_float_or_default(row.get("purchase_price"), 0.0),
+            "has_purchase_price": row.get("purchase_price") is not None and _to_float_or_default(row.get("purchase_price"), 0.0) > 0,
+        }
+        for row in Product.objects.filter(seller=seller, nm_id__in=all_nm_ids).values(
+            "nm_id",
+            "title",
+            "vendor_code",
+            "purchase_price",
+        )
+    }
+    prices_by_nm = {
+        int(row["nm_id"]): (
+            _to_float_or_default(row.get("discounted_price_max"), 0.0)
+            or _to_float_or_default(row.get("club_discounted_price_max"), 0.0)
+            or _to_float_or_default(row.get("price_max"), 0.0)
+        )
+        for row in (
+            ProductSizePrice.objects
+            .filter(seller=seller, nm_id__in=all_nm_ids)
+            .values("nm_id")
+            .annotate(
+                discounted_price_max=Max("discounted_price"),
+                club_discounted_price_max=Max("club_discounted_price"),
+                price_max=Max("price"),
+            )
+        )
+    }
+
+    def _build_warehouse_payload(rows: list[dict]) -> tuple[list[dict], dict]:
+        grouped: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+        for row in rows:
+            warehouse_name = str(row.get("warehouse_name") or "-")
+            nm_id = int(row.get("nm_id") or 0)
+            qty = int(row.get("qty") or 0)
+            if nm_id <= 0 or qty <= 0:
+                continue
+            grouped[warehouse_name][nm_id] += qty
+
+        warehouses_payload: list[dict] = []
+        total_units = 0
+        total_sale_value = 0.0
+        known_purchase_value = 0.0
+        missing_purchase_nms: set[int] = set()
+
+        for warehouse_name, by_nm in grouped.items():
+            items: list[dict] = []
+            wh_units = 0
+            wh_sale_value = 0.0
+            wh_purchase_value_known = 0.0
+            wh_missing_purchase_count = 0
+
+            for nm_id, qty in by_nm.items():
+                product_meta = products_map.get(nm_id, {})
+                title = str(product_meta.get("title") or "")
+                vendor_code = str(product_meta.get("vendor_code") or "")
+                purchase_price = _to_float_or_default(product_meta.get("purchase_price"), 0.0)
+                has_purchase_price = bool(product_meta.get("has_purchase_price"))
+                sale_price = _to_float_or_default(prices_by_nm.get(nm_id), 0.0)
+
+                estimated_sale_value = round(sale_price * qty, 2)
+                estimated_purchase_value = round(purchase_price * qty, 2) if has_purchase_price else None
+
+                wh_units += qty
+                wh_sale_value += estimated_sale_value
+                if estimated_purchase_value is not None:
+                    wh_purchase_value_known += estimated_purchase_value
+                else:
+                    wh_missing_purchase_count += 1
+                    missing_purchase_nms.add(int(nm_id))
+
+                items.append(
+                    {
+                        "nm_id": int(nm_id),
+                        "title": title,
+                        "vendor_code": vendor_code,
+                        "qty": int(qty),
+                        "sale_price": round(sale_price, 2),
+                        "purchase_price": round(purchase_price, 2) if has_purchase_price else None,
+                        "estimated_sale_value": estimated_sale_value,
+                        "estimated_purchase_value": estimated_purchase_value,
+                    }
+                )
+
+            items.sort(key=lambda item: item["estimated_sale_value"], reverse=True)
+            warehouses_payload.append(
+                {
+                    "warehouse_name": warehouse_name,
+                    "total_units": wh_units,
+                    "estimated_sale_value": round(wh_sale_value, 2),
+                    "known_purchase_value": round(wh_purchase_value_known, 2),
+                    "missing_purchase_count": int(wh_missing_purchase_count),
+                    "items": items,
+                }
+            )
+
+            total_units += wh_units
+            total_sale_value += wh_sale_value
+            known_purchase_value += wh_purchase_value_known
+
+        warehouses_payload.sort(key=lambda item: item["estimated_sale_value"], reverse=True)
+        totals = {
+            "warehouses_count": len(warehouses_payload),
+            "total_units": int(total_units),
+            "estimated_sale_value": round(total_sale_value, 2),
+            "known_purchase_value": round(known_purchase_value, 2),
+            "missing_purchase_nms": len(missing_purchase_nms),
+        }
+        return warehouses_payload, totals
+
+    fbo_warehouses, fbo_totals = _build_warehouse_payload([
+        {
+            "warehouse_name": str(row.get("warehouse_name") or "-"),
+            "nm_id": int(row.get("nm_id") or 0),
+            "qty": int(row.get("qty") or 0),
+        }
+        for row in fbo_rows
+    ])
+    fbs_warehouses, fbs_totals = _build_warehouse_payload(fbs_rows)
+
+    missing_purchase_nm_ids = {
+        nm_id for nm_id in all_nm_ids
+        if not bool(products_map.get(nm_id, {}).get("has_purchase_price"))
+    }
+    purchase_completion_percent = round(
+        (1.0 - (len(missing_purchase_nm_ids) / max(1, len(all_nm_ids)))) * 100.0,
+        1,
+    ) if all_nm_ids else 0.0
+    can_calculate_full_purchase = len(missing_purchase_nm_ids) == 0 and bool(all_nm_ids)
+
+    context = {
+        "seller": seller,
+        "missing_api_token": missing_api_token,
+        "last_sync_at": last_sync_at,
+        "running_sync_task": _serialize_running_sync_task(running_sync_task),
+        "fbo_warehouses": fbo_warehouses,
+        "fbs_warehouses": fbs_warehouses,
+        "fbo_totals": fbo_totals,
+        "fbs_totals": fbs_totals,
+        "grand_totals": {
+            "warehouses_count": int(fbo_totals["warehouses_count"] + fbs_totals["warehouses_count"]),
+            "total_units": int(fbo_totals["total_units"] + fbs_totals["total_units"]),
+            "estimated_sale_value": round(
+                _to_float_or_default(fbo_totals["estimated_sale_value"], 0.0)
+                + _to_float_or_default(fbs_totals["estimated_sale_value"], 0.0),
+                2,
+            ),
+            "known_purchase_value": round(
+                _to_float_or_default(fbo_totals["known_purchase_value"], 0.0)
+                + _to_float_or_default(fbs_totals["known_purchase_value"], 0.0),
+                2,
+            ),
+        },
+        "products_total_count": len(all_nm_ids),
+        "purchase_filled_count": max(0, len(all_nm_ids) - len(missing_purchase_nm_ids)),
+        "missing_purchase_count": len(missing_purchase_nm_ids),
+        "purchase_completion_percent": purchase_completion_percent,
+        "can_calculate_full_purchase": can_calculate_full_purchase,
+    }
+    return render(request, "analytics_money_in_goods.html", context)
 
 
 @login_required
@@ -3400,6 +4165,7 @@ def _build_product_glues_payload(
     seller: SellerAccount,
     query: str,
     page_number: int,
+    page_size: int,
     date_from_value: date,
     date_to_value: date,
 ) -> dict:
@@ -3571,6 +4337,11 @@ def _build_product_glues_payload(
         )
 
     glue_rows = []
+    grouped_count_by_imt = {
+        int(row["imt_id"]): int(row.get("items_count") or 0)
+        for row in grouped_rows
+        if row.get("imt_id") is not None
+    }
     for grouped in grouped_rows:
         imt_id = int(grouped["imt_id"])
         items = products_by_imt.get(imt_id, [])
@@ -3587,7 +4358,7 @@ def _build_product_glues_payload(
         glue_rows.append(
             {
                 "imt_id": imt_id,
-                "items_count": len(items),
+                "items_count": grouped_count_by_imt.get(imt_id, len(items)),
                 "items": items,
                 "orders_30d": orders_30d,
                 "buyouts_30d": buyouts_30d,
@@ -3600,9 +4371,12 @@ def _build_product_glues_payload(
             }
         )
 
-    glue_rows.sort(key=lambda row: (row["orders_30d"], row["buyouts_30d"], row["items_count"]), reverse=True)
+    glue_rows.sort(
+        key=lambda row: (row["orders_30d"], row["buyouts_30d"], row["items_count"]),
+        reverse=True,
+    )
 
-    paginator = Paginator(glue_rows, 20)
+    paginator = Paginator(glue_rows, page_size)
     page_obj = paginator.get_page(page_number or 1)
 
     return {
@@ -3617,6 +4391,7 @@ def _build_product_glues_payload(
             "previous_page_number": page_obj.previous_page_number() if page_obj.has_previous() else None,
             "next_page_number": page_obj.next_page_number() if page_obj.has_next() else None,
             "num_pages": paginator.num_pages,
+            "page_size": page_size,
         },
         "glues": list(page_obj.object_list),
     }
@@ -3628,12 +4403,19 @@ def product_glues_api(request):
     seller = _get_or_create_seller_for_user(request.user)
     query = (request.GET.get("q") or "").strip()
     raw_page = (request.GET.get("page") or "1").strip()
+    raw_page_size = (request.GET.get("page_size") or "10").strip()
     raw_date_from = (request.GET.get("date_from") or "").strip()
     raw_date_to = (request.GET.get("date_to") or "").strip()
     try:
         page_number = max(int(raw_page), 1)
     except ValueError:
         return JsonResponse({"error": "Некорректный номер страницы."}, status=400)
+    try:
+        page_size = int(raw_page_size)
+    except ValueError:
+        return JsonResponse({"error": "Некорректный размер страницы."}, status=400)
+    if page_size not in {10, 20, 30, 50}:
+        page_size = 10
     if not raw_date_from or not raw_date_to:
         return JsonResponse({"error": "Нужно указать date_from и date_to в формате YYYY-MM-DD."}, status=400)
     try:
@@ -3649,6 +4431,7 @@ def product_glues_api(request):
             seller=seller,
             query=query,
             page_number=page_number,
+            page_size=page_size,
             date_from_value=date_from_value,
             date_to_value=date_to_value,
         )
@@ -3662,6 +4445,7 @@ def product_glues_api(request):
             context={
                 "q": query,
                 "page": page_number,
+                "page_size": page_size,
                 "date_from": raw_date_from,
                 "date_to": raw_date_to,
             },
@@ -3783,13 +4567,11 @@ def _build_product_card_heavy_context(
             stat_day = stat_row.stat_date
             if stat_day is None:
                 continue
-            payload = stat_row.raw_payload if isinstance(stat_row.raw_payload, dict) else {}
-            day_payload = payload.get("day") if isinstance(payload.get("day"), dict) else {}
-
-            views_value = _to_float_or_default(stat_row.views, _to_float_or_default(day_payload.get("views"), 0.0))
-            clicks_value = _to_float_or_default(stat_row.clicks, _to_float_or_default(day_payload.get("clicks"), 0.0))
-            orders_value = _to_float_or_default(stat_row.orders, _to_float_or_default(day_payload.get("orders"), 0.0))
-            atc_value = _to_float_or_default(stat_row.add_to_cart, _to_float_or_default(day_payload.get("atbs"), 0.0))
+            metrics = _extract_advert_day_metrics(stat_row)
+            views_value = metrics["views"]
+            clicks_value = metrics["clicks"]
+            orders_value = metrics["orders"]
+            atc_value = metrics["add_to_cart"]
 
             bucket = day_totals.setdefault(
                 stat_day,

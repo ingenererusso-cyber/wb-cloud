@@ -1,0 +1,180 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WB Продвижение — Рекламные кампании</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: #132033;
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+        }
+        .page {
+            max-width: var(--page-shell-max-width, none);
+            margin: 0 auto;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+            padding: 16px;
+        }
+        h1 { margin: 0 0 4px; font-size: 28px; }
+        .subtitle { margin: 0; color: #5a6778; font-size: 14px; }
+        .toolbar { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+        .field { display: grid; gap: 6px; min-width: 170px; }
+        .field label { font-size: 12px; color: #5a6778; }
+        .field input, .field select {
+            border: 1px solid rgba(19, 32, 51, 0.18);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font: inherit;
+            background: #fff;
+        }
+        .toolbar .btn {
+            border: 0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%);
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+            height: 42px;
+        }
+        .table-wrap { margin-top: 14px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; overflow: auto; background: #fff; }
+        table { width: 100%; border-collapse: collapse; min-width: 1200px; }
+        th, td { border-bottom: 1px solid rgba(19, 32, 51, 0.08); padding: 10px 8px; text-align: left; font-size: 13px; }
+        th { position: sticky; top: 0; background: #f8fbff; color: #5a6778; font-size: 12px; z-index: 1; }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .name-cell { min-width: 280px; }
+        .name-title { font-weight: 700; color: #1f2a37; }
+        .name-meta { color: #7b8696; font-size: 11px; margin-top: 2px; }
+        .status-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid; }
+        .status-green { color: #166534; background: #dcfce7; border-color: #86efac; }
+        .status-yellow { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
+        .status-red { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
+        .status-gray { color: #475569; background: #f1f5f9; border-color: #cbd5e1; }
+        .status-blue { color: #1e3a8a; background: #dbeafe; border-color: #93c5fd; }
+        .pagination { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .pagination-nav { display: inline-flex; align-items: center; gap: 8px; }
+        .page-link, .page-current {
+            min-width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 8px; border: 1px solid #dbe3ec; text-decoration: none; color: #334155; background: #fff; font-weight: 600;
+        }
+        .page-current { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+        .muted { color: #64748b; font-size: 12px; }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+{% include "partials/top_nav.html" %}
+<main class="page">
+    <h1>WB Продвижение</h1>
+    <p class="subtitle">Список рекламных кампаний с основной статистикой за выбранный период.</p>
+
+    <form class="toolbar" method="get" data-no-nav-loader="1">
+        <div class="field" style="min-width:240px;">
+            <label for="q">Поиск</label>
+            <input id="q" type="text" name="q" value="{{ query }}" placeholder="ID кампании или название">
+        </div>
+        <div class="field">
+            <label for="date_from">Дата с</label>
+            <input id="date_from" type="date" name="date_from" value="{{ date_from }}">
+        </div>
+        <div class="field">
+            <label for="date_to">Дата по</label>
+            <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
+        </div>
+        <div class="field">
+            <label for="sort">Сортировка</label>
+            <select id="sort" name="sort">
+                <option value="create_desc" {% if sort == "create_desc" %}selected{% endif %}>По дате создания (новые)</option>
+                <option value="create_asc" {% if sort == "create_asc" %}selected{% endif %}>По дате создания (старые)</option>
+                <option value="updated_desc" {% if sort == "updated_desc" %}selected{% endif %}>По обновлению (новые)</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="page_size">Показать записей</label>
+            <select id="page_size" name="page_size">
+                <option value="10" {% if page_size == 10 %}selected{% endif %}>10</option>
+                <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
+                <option value="30" {% if page_size == 30 %}selected{% endif %}>30</option>
+                <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+            </select>
+        </div>
+        <button class="btn" type="submit">Применить</button>
+    </form>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th class="name-cell">Кампания</th>
+                    <th>Тип</th>
+                    <th>Статус</th>
+                    <th class="num">Дн. бюджет</th>
+                    <th class="num">Затраты</th>
+                    <th class="num">Показы</th>
+                    <th class="num">Клики</th>
+                    <th class="num">CTR</th>
+                    <th class="num">Заказы</th>
+                    <th class="num">CPO</th>
+                    <th>Создана</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td class="name-cell">
+                        <div class="name-title">{{ row.campaign_name }}</div>
+                        <div class="name-meta">ID {{ row.advert_id }}</div>
+                    </td>
+                    <td>{{ row.advert_type }}</td>
+                    <td>
+                        <span class="status-pill status-{{ row.status_color }}">{{ row.status_label }}</span>
+                    </td>
+                    <td class="num">{{ row.daily_budget|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.spend|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.views }}</td>
+                    <td class="num">{{ row.clicks }}</td>
+                    <td class="num">{{ row.ctr|floatformat:2 }}%</td>
+                    <td class="num">{{ row.orders }}</td>
+                    <td class="num">{{ row.cpo|floatformat:2 }} ₽</td>
+                    <td>{% if row.create_time %}{{ row.create_time|date:"d.m.Y H:i" }}{% else %}-{% endif %}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="11" class="muted">Кампаний не найдено.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination">
+        <span class="muted">Всего кампаний: {{ total_count }}</span>
+        <div class="pagination-nav">
+            {% if page_obj.has_previous %}
+                <a class="page-link" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}&page={{ page_obj.previous_page_number }}">←</a>
+            {% else %}
+                <span class="page-link" style="opacity:.5;">←</span>
+            {% endif %}
+            <span class="page-current">{{ page_obj.number }}</span>
+            {% if page_obj.has_next %}
+                <a class="page-link" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}&page={{ page_obj.next_page_number }}">→</a>
+            {% else %}
+                <span class="page-link" style="opacity:.5;">→</span>
+            {% endif %}
+        </div>
+    </div>
+</main>
+</body>
+</html>

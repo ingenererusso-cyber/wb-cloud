@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -31,6 +31,7 @@ from core.models import (
     WbCategoryCommission,
     WbWarehouseTariff,
 )
+from core.services_advertising import sync_ad_campaigns_and_stats
 
 
 class DashboardSupplyRecommendationsApiTests(TestCase):
@@ -209,6 +210,140 @@ class FbsStockAwareRecommendationsTests(TestCase):
         )
         self.assertEqual(response_fbs_only.status_code, 200)
         self.assertEqual(response_fbs_only.json()["rows"], [])
+
+
+class PaidStorageApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="storage-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Storage Seller")
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+    def test_paid_storage_uses_warehouse_tariff_not_acceptance_coefficients(self):
+        self.client.login(username="storage-user", password="pass12345")
+        today = timezone.localdate()
+
+        Product.objects.create(
+            seller=self.seller,
+            nm_id=9001,
+            vendor_code="SKU-9001",
+            title="Storage Item",
+            volume_liters=2.0,
+        )
+        WarehouseStockDetailed.objects.create(
+            seller=self.seller,
+            nm_id=9001,
+            supplier_article="SKU-9001",
+            tech_size="0",
+            warehouse_name="Коледино",
+            quantity=3,
+        )
+        WbAcceptanceCoefficient.objects.create(
+            seller=self.seller,
+            coeff_date=today,
+            warehouse_id=101,
+            warehouse_name="Коледино",
+            storage_coef=500.0,
+            storage_base_liter=99.0,
+            storage_additional_liter=77.0,
+        )
+        WbWarehouseTariff.objects.create(
+            seller=self.seller,
+            warehouse_name="Коледино",
+            tariff_date=today,
+            box_storage_base=1.5,
+            box_storage_liter=0.5,
+            box_storage_coef_expr=115.0,
+        )
+
+        response = self.client.get(reverse("analytics_paid_storage_data_api"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["daily_storage_cost"], 6.0)
+        self.assertEqual(payload["items"][0]["warehouses"][0]["rate_per_liter"], 2.0)
+        self.assertEqual(payload["items"][0]["warehouses"][0]["coef"], 1.15)
+        self.assertEqual(payload["top_warehouses"][0]["daily_storage_cost"], 6.0)
+
+    def test_paid_storage_projection_uses_sales_pace_and_selected_warehouses(self):
+        self.client.login(username="storage-user", password="pass12345")
+        today = timezone.localdate()
+        Product.objects.create(
+            seller=self.seller,
+            nm_id=9002,
+            vendor_code="SKU-9002",
+            title="Projection Item",
+            volume_liters=2.0,
+        )
+        WarehouseStockDetailed.objects.create(
+            seller=self.seller,
+            nm_id=9002,
+            supplier_article="SKU-9002",
+            tech_size="0",
+            warehouse_name="Дорогой склад",
+            quantity=6,
+        )
+        WarehouseStockDetailed.objects.create(
+            seller=self.seller,
+            nm_id=9002,
+            supplier_article="SKU-9002",
+            tech_size="0",
+            warehouse_name="Дешевый склад",
+            quantity=4,
+        )
+        WbWarehouseTariff.objects.create(
+            seller=self.seller,
+            warehouse_name="Дорогой склад",
+            tariff_date=today,
+            box_storage_base=2.0,
+            box_storage_liter=1.0,
+            box_storage_coef_expr=100.0,
+        )
+        WbWarehouseTariff.objects.create(
+            seller=self.seller,
+            warehouse_name="Дешевый склад",
+            tariff_date=today,
+            box_storage_base=1.0,
+            box_storage_liter=0.0,
+            box_storage_coef_expr=100.0,
+        )
+        for day_offset in range(30):
+            order_dt = timezone.make_aware(datetime.combine(today - timedelta(days=day_offset), datetime.min.time()))
+            Order.objects.create(
+                seller=self.seller,
+                srid=f"pace-{day_offset}",
+                nm_id=9002,
+                supplier_article="SKU-9002",
+                tech_size="0",
+                warehouse_name="Дорогой склад",
+                warehouse_type="Склад WB",
+                order_date=order_dt,
+                last_change_date=order_dt,
+                is_cancel=False,
+                is_return=False,
+                is_buyout=True,
+            )
+
+        response = self.client.get(
+            reverse("analytics_paid_storage_data_api"),
+            {"keep_days": "3", "selected_warehouses": ["Дешевый склад"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["projection"]["current_daily_cost"], 22.0)
+        self.assertEqual(payload["projection"]["required_total_units"], 3)
+        self.assertEqual(payload["projection"]["excess_total_units"], 7)
+        self.assertEqual(payload["projection"]["all_warehouses"]["daily_savings"], 19.0)
+        self.assertEqual(payload["projection"]["all_warehouses"]["monthly_savings"], 570.0)
+        self.assertEqual(payload["projection"]["selected_warehouses"]["daily_savings"], 4.0)
+        self.assertEqual(payload["projection"]["selected_warehouses"]["monthly_savings"], 120.0)
+        self.assertEqual(payload["chart"]["points"][-1]["daily_storage_cost"], 22.0)
+        self.assertEqual(payload["chart"]["points"][-2]["daily_storage_cost"], 25.0)
+        self.assertGreater(payload["chart"]["points"][0]["daily_storage_cost"], payload["chart"]["points"][-1]["daily_storage_cost"])
 
 
 class ProductGluesApiTests(TestCase):
@@ -483,3 +618,127 @@ class AccountSettingsPurgeSellerDataTests(TestCase):
             self.seller.sync_meta,
             {"auto_sync": {"enabled": True, "time": "09:00"}},
         )
+
+
+class WbPromotionCampaignsTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="promo-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Promo Seller")
+        self.client.login(username="promo-user", password="pass12345")
+
+    def test_campaigns_page_recovers_daily_metrics_from_raw_payload(self):
+        campaign = WbAdvertCampaign.objects.create(
+            seller=self.seller,
+            advert_id=501,
+            campaign_name="Тестовая кампания",
+            advert_type=8,
+            status=9,
+            daily_budget=1500,
+        )
+        WbAdvertStatDaily.objects.create(
+            seller=self.seller,
+            advert_id=campaign.advert_id,
+            stat_date=date(2026, 4, 20),
+            nm_id=123456,
+            spend=320.0,
+            day_sum=320.0,
+            views=None,
+            clicks=None,
+            orders=None,
+            add_to_cart=None,
+            raw_payload={
+                "day": {
+                    "date": "2026-04-20",
+                    "views": 1400,
+                    "clicks": 42,
+                    "orders": 5,
+                    "atbs": 11,
+                    "sum": 320.0,
+                }
+            },
+        )
+
+        response = self.client.get(
+            reverse("wb_promotion_campaigns"),
+            {"date_from": "2026-04-20", "date_to": "2026-04-20"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.context["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["views"], 1400)
+        self.assertEqual(rows[0]["clicks"], 42)
+        self.assertEqual(rows[0]["orders"], 5)
+        self.assertEqual(rows[0]["ctr"], 3.0)
+        self.assertEqual(rows[0]["cpo"], 64.0)
+
+    @patch("core.services_advertising.WBPromotionClient")
+    def test_sync_stores_aggregate_daily_row_for_campaign_metrics(self, client_cls):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        client = client_cls.return_value
+        client.list_adverts.return_value = [
+            {
+                "advertId": 7001,
+                "name": "WB campaign",
+                "type": 8,
+                "status": 9,
+                "dailyBudget": 2000,
+                "createTime": "2026-04-20T10:00:00+03:00",
+            }
+        ]
+        client.get_fullstats.return_value = [
+            {
+                "advertId": 7001,
+                "days": [
+                    {
+                        "date": "2026-04-20",
+                        "views": 2500,
+                        "clicks": 80,
+                        "orders": 9,
+                        "atbs": 14,
+                        "sum": 710.0,
+                        "apps": [
+                            {
+                                "appType": 1,
+                                "nm": [
+                                    {"nmId": 10001, "sum": 410.0},
+                                    {"nmId": 10002, "sum": 300.0},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+
+        result = sync_ad_campaigns_and_stats(
+            self.seller,
+            date_from=date(2026, 4, 20),
+            date_to=date(2026, 4, 20),
+        )
+
+        self.assertEqual(result["campaigns_synced"], 1)
+        aggregate_row = WbAdvertStatDaily.objects.get(
+            seller=self.seller,
+            advert_id=7001,
+            stat_date=date(2026, 4, 20),
+            nm_id=0,
+        )
+        self.assertEqual(aggregate_row.views, 2500)
+        self.assertEqual(aggregate_row.clicks, 80)
+        self.assertEqual(aggregate_row.orders, 9)
+        self.assertEqual(aggregate_row.add_to_cart, 14)
+        self.assertEqual(aggregate_row.day_sum, 710.0)
+
+        nm_rows = list(
+            WbAdvertStatDaily.objects.filter(
+                seller=self.seller,
+                advert_id=7001,
+                stat_date=date(2026, 4, 20),
+            ).exclude(nm_id=0).order_by("nm_id")
+        )
+        self.assertEqual(len(nm_rows), 2)
+        self.assertEqual([row.nm_id for row in nm_rows], [10001, 10002])
+        self.assertEqual([row.spend for row in nm_rows], [410.0, 300.0])

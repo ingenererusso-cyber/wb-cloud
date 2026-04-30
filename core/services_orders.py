@@ -184,18 +184,20 @@ def sync_sales_buyout_flags(seller: SellerAccount, overlap_minutes: int = 90, ma
     """
     client = WBSalesSupplierClient(seller.api_token_plain)
     meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
-    sync_state = meta.get("sales_sync") if isinstance(meta.get("sales_sync"), dict) else {}
-    last_change_raw = sync_state.get("last_change_date")
-    last_change_dt = _normalize_sales_cursor(last_change_raw)
-    bootstrap_completed = bool(sync_state.get("bootstrap_completed"))
-    if not bootstrap_completed:
-        # Первый полноценный прогон: подтягиваем историю продаж/возвратов WB за 25 недель,
+    sales_sync = meta.get("sales_sync") if isinstance(meta.get("sales_sync"), dict) else {}
+
+    # Новый формат: храним только время последнего успешного синка.
+    # Если поля нет — делаем backfill на INITIAL_SYNC_DAYS.
+    last_success_raw = sales_sync.get("last_success_at")
+    last_success_dt = _normalize_sales_cursor(last_success_raw) if last_success_raw else None
+
+    if last_success_dt is None:
+        # Backfill: подтягиваем историю продаж/возвратов WB за 25 недель,
         # чтобы buyout_date был заполнен не только у последних изменений.
         date_from_dt = timezone.now() - timedelta(days=INITIAL_SYNC_DAYS)
     else:
-        if last_change_dt is None:
-            last_change_dt = timezone.now() - timedelta(days=INITIAL_SYNC_DAYS)
-        date_from_dt = last_change_dt - timedelta(minutes=max(0, int(overlap_minutes)))
+        # Инкремент: берём хвост от последнего успешного синка с overlap.
+        date_from_dt = last_success_dt - timedelta(minutes=max(0, int(overlap_minutes)))
 
     total_rows = 0
     buyout_marks = 0
@@ -249,10 +251,7 @@ def sync_sales_buyout_flags(seller: SellerAccount, overlap_minutes: int = 90, ma
         time.sleep(60.5)
 
     meta["sales_sync"] = {
-        "last_change_date": _format_sales_cursor(next_cursor),
-        "updated_at": timezone.localtime().isoformat(),
-        "rows_last_run": total_rows,
-        "bootstrap_completed": True,
+        "last_success_at": timezone.localtime().isoformat(),
     }
     seller.sync_meta = meta
     seller.save(update_fields=["sync_meta"])

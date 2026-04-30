@@ -452,6 +452,7 @@ class WbAdvertStatDaily(models.Model):
     nm_id = models.BigIntegerField(null=True, blank=True)
 
     spend = models.FloatField(default=0.0)
+    day_sum = models.FloatField(default=0.0)
     views = models.IntegerField(null=True, blank=True)
     clicks = models.IntegerField(null=True, blank=True)
     orders = models.IntegerField(null=True, blank=True)

@@ -18,6 +18,7 @@
             --primary-soft: #ccfbf1;
             --danger-soft: #fee2e2;
             --shadow: 0 8px 22px rgba(19, 39, 60, 0.08);
+            --page-shell-max-width: 1320px;
         }
 
         * {
@@ -37,7 +38,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: var(--page-shell-max-width);
             margin: 0 auto;
         }
 
@@ -545,7 +546,7 @@
         function setLoadingState() {
             setBaseState();
             tableWrapEl.hidden = true;
-            loadingStateEl.hidden = false;
+            loadingStateEl.hidden = true;
             reportBody.innerHTML = "";
         }
 

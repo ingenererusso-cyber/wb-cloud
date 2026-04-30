@@ -1,0 +1,252 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Платное хранение</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: "Trebuchet MS", "Segoe UI", sans-serif; background: #f5f8ff; color: #132033; }
+        .hero { max-width: var(--page-shell-max-width); margin: 0 auto; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 20px; background: #fff; padding: 24px; }
+        h1 { margin: 0 0 6px; }
+        .subtitle { margin: 0; color: #5a6778; }
+        .section { margin-top: 18px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; background: #fff; padding: 14px; }
+        .section-title { margin: 0 0 8px; font-size: 16px; }
+        .range { font-size: 12px; color: #5a6778; margin-bottom: 10px; }
+        .chart-wrap { height: 280px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; background: radial-gradient(circle at top left, rgba(34, 197, 94, 0.09), rgba(255,255,255,0.96) 48%), #fff; padding: 8px; }
+        .chart-wrap #storage-chart { width: 100%; height: 100%; display: block; }
+        .empty { color: #5a6778; font-size: 13px; }
+        .bar-row { display: grid; grid-template-columns: minmax(220px, 1fr) 3fr auto; gap: 10px; align-items: center; margin: 8px 0; }
+        .bar-track { height: 12px; background: rgba(19, 32, 51, 0.1); border-radius: 999px; overflow: hidden; }
+        .bar-fill { height: 100%; background: linear-gradient(135deg, #14532d 0%, #22c55e 100%); border-radius: 999px; }
+        .controls { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(19, 32, 51, 0.1); }
+        .controls-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+        .field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+        .field label { font-size: 12px; color: #5a6778; }
+        .field input { border: 1px solid rgba(19, 32, 51, 0.18); border-radius: 10px; padding: 10px 12px; font: inherit; }
+        .selection-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .selection-chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 999px; background: #f8fbff; font-size: 13px; }
+        .selection-chip input { margin: 0; }
+        .savings-board { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+        .savings-card { border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); padding: 14px; }
+        .savings-title { margin: 0 0 6px; font-size: 14px; color: #39475c; }
+        .savings-value { margin: 0; font-size: 28px; font-weight: 700; color: #14532d; }
+        .savings-sub { margin: 6px 0 0; color: #5a6778; font-size: 12px; line-height: 1.45; }
+        .item { border: 1px solid rgba(19, 32, 51, 0.1); border-radius: 10px; margin: 10px 0; overflow: hidden; }
+        .item-head { width: 100%; border: none; background: #f8fbff; text-align: left; padding: 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; }
+        .item-meta { color: #5a6778; font-size: 12px; }
+        .item-body { display: none; padding: 10px 12px; border-top: 1px solid rgba(19, 32, 51, 0.1); }
+        .wh-row { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 8px; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed rgba(19, 32, 51, 0.1); }
+        .wh-head { font-weight: 700; color: #39475c; }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+    {% with enable_sync_button=True %}
+        {% include "partials/top_nav.html" %}
+    {% endwith %}
+    <main class="hero">
+        <h1>Платное хранение</h1>
+        <p class="subtitle">Оценка затрат на хранение по текущим остаткам и тарифам складов WB.</p>
+
+        <section class="section">
+            <h2 class="section-title">Затраты на хранение за последние 2 недели</h2>
+            <div id="chart-range" class="range">Загрузка...</div>
+            <div id="chart-note" class="range"></div>
+            <div class="chart-wrap"><div id="storage-chart"></div></div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Топ загруженных складов (затраты в день)</h2>
+            <div id="warehouses-list" class="empty">Загрузка...</div>
+            <div class="controls">
+                <div class="controls-row">
+                    <div class="field">
+                        <label for="keep-days-input">Оставить остаток на сколько дней продаж</label>
+                        <input id="keep-days-input" type="number" min="1" max="365" value="30">
+                    </div>
+                </div>
+                <div id="warehouse-selection" class="selection-grid"></div>
+                <div id="savings-board" class="savings-board"></div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Хранящиеся артикулы</h2>
+            <div id="items-list" class="empty">Загрузка...</div>
+        </section>
+    </main>
+
+    <script src="{% static 'vendor/echarts/echarts.min.js' %}"></script>
+    <script src="{% static 'js/vendra-charts.js' %}"></script>
+    <script>
+        let keepDaysTimer = null;
+
+        function money(value) {
+            if (window.VendraCharts && typeof window.VendraCharts.formatMoney === "function") {
+                return window.VendraCharts.formatMoney(value);
+            }
+            return `${Number(value || 0).toFixed(2)} ₽`;
+        }
+
+        function renderTopWarehouses(rows) {
+            const root = document.getElementById("warehouses-list");
+            if (!root) return;
+            if (!Array.isArray(rows) || !rows.length) {
+                root.innerHTML = '<div class="empty">Нет данных по складам.</div>';
+                return;
+            }
+            const max = Math.max(1, ...rows.map((r) => Number(r.daily_storage_cost || 0)));
+            root.innerHTML = rows.map((r) => {
+                const cost = Number(r.daily_storage_cost || 0);
+                const width = Math.max(2, (cost / max) * 100);
+                return `<div class="bar-row">
+                    <div>${r.warehouse_name}</div>
+                    <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+                    <div>${cost.toFixed(2)} ₽/день</div>
+                </div>`;
+            }).join("");
+        }
+
+        function renderWarehouseSelection(rows) {
+            const root = document.getElementById("warehouse-selection");
+            if (!root) return;
+            if (!Array.isArray(rows) || !rows.length) {
+                root.innerHTML = '<div class="empty">Нет складов для сценария выборочного вывоза.</div>';
+                return;
+            }
+            root.innerHTML = rows.map((row, idx) => `
+                <label class="selection-chip">
+                    <input type="checkbox" data-warehouse-checkbox="${idx}" value="${row.warehouse_name}" ${row.selected ? "checked" : ""}>
+                    <span>${row.warehouse_name} · ${money(row.daily_storage_cost)}/день</span>
+                </label>
+            `).join("");
+            root.querySelectorAll("[data-warehouse-checkbox]").forEach((checkbox) => {
+                checkbox.addEventListener("change", () => loadPaidStorageData());
+            });
+        }
+
+        function renderSavingsBoard(projection, keepDays) {
+            const root = document.getElementById("savings-board");
+            if (!root) return;
+            if (!projection) {
+                root.innerHTML = '<div class="empty">Нет данных для расчета экономии.</div>';
+                return;
+            }
+            const all = projection.all_warehouses || {};
+            const selected = projection.selected_warehouses || {};
+            const selectedTitle = (selected.warehouse_names || []).length
+                ? `Если вывозить лишнее только с выбранных складов`
+                : "Сценарий по выбранным складам появится после выбора складов";
+            root.innerHTML = `
+                <article class="savings-card">
+                    <p class="savings-title">Если вывезти все лишние товары</p>
+                    <p class="savings-value">${money(all.monthly_savings)}</p>
+                    <p class="savings-sub">Экономия за 1 месяц. За 3 месяца: ${money(all.quarter_savings)}. Можно вывезти ${all.removable_units || 0} шт., оставив остаток на ${keepDays} дн.</p>
+                </article>
+                <article class="savings-card">
+                    <p class="savings-title">Текущая база хранения</p>
+                    <p class="savings-value">${money(projection.current_daily_cost)}</p>
+                    <p class="savings-sub">Текущие затраты в день. Всего остатков: ${projection.current_total_units || 0} шт. Нужный остаток на ${keepDays} дн.: ${projection.required_total_units || 0} шт.</p>
+                </article>
+                <article class="savings-card">
+                    <p class="savings-title">${selectedTitle}</p>
+                    <p class="savings-value">${money(selected.monthly_savings)}</p>
+                    <p class="savings-sub">Экономия за 1 месяц. За 3 месяца: ${money(selected.quarter_savings)}. Можно вывезти ${selected.removable_units || 0} шт.</p>
+                </article>
+            `;
+        }
+
+        function renderItems(items) {
+            const root = document.getElementById("items-list");
+            if (!root) return;
+            if (!Array.isArray(items) || !items.length) {
+                root.innerHTML = '<div class="empty">Нет артикулов с остатками.</div>';
+                return;
+            }
+            root.innerHTML = items.map((item, idx) => `
+                <article class="item">
+                    <button class="item-head" type="button" data-item-toggle="${idx}">
+                        <span>
+                            <strong>${item.title || ("Артикул " + item.nm_id)}</strong>
+                            <span class="item-meta"> · nmID: ${item.nm_id} · ${item.vendor_code || "-"}</span>
+                        </span>
+                        <span>${Number(item.daily_storage_cost || 0).toFixed(2)} ₽/день</span>
+                    </button>
+                    <div class="item-body" data-item-body="${idx}">
+                        <div class="wh-row wh-head"><div>Склад</div><div>Остаток</div><div>КФ</div><div>Тариф/л</div><div>Затраты/день</div></div>
+                        ${(item.warehouses || []).map((w) => `
+                            <div class="wh-row">
+                                <div>${w.warehouse_name}</div>
+                                <div>${w.quantity}</div>
+                                <div>${Number(w.coef || 0).toFixed(3)}</div>
+                                <div>${Number(w.rate_per_liter || 0).toFixed(3)} ₽</div>
+                                <div>${Number(w.daily_storage_cost || 0).toFixed(2)} ₽</div>
+                            </div>
+                        `).join("")}
+                    </div>
+                </article>
+            `).join("");
+
+            root.querySelectorAll("[data-item-toggle]").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const idx = btn.getAttribute("data-item-toggle");
+                    const body = root.querySelector(`[data-item-body="${idx}"]`);
+                    if (!body) return;
+                    body.style.display = body.style.display === "block" ? "none" : "block";
+                });
+            });
+        }
+
+        async function loadPaidStorageData() {
+            const range = document.getElementById("chart-range");
+            const chartNote = document.getElementById("chart-note");
+            const keepDaysInput = document.getElementById("keep-days-input");
+            const selectedWarehouses = Array.from(document.querySelectorAll("[data-warehouse-checkbox]:checked"))
+                .map((input) => input.value)
+                .filter(Boolean);
+            try {
+                const url = new URL("{% url 'analytics_paid_storage_data_api' %}", window.location.origin);
+                url.searchParams.set("keep_days", String(Math.max(1, Number(keepDaysInput?.value || 30) || 30)));
+                selectedWarehouses.forEach((warehouseName) => url.searchParams.append("selected_warehouses", warehouseName));
+                const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+                const data = await res.json();
+                if (!res.ok || !data.ok) throw new Error(data.error || "Ошибка загрузки");
+                const chart = data.chart || {};
+                if (keepDaysInput && Number(keepDaysInput.value || 0) !== Number(data.keep_days || 30)) {
+                    keepDaysInput.value = String(data.keep_days || 30);
+                }
+                if (range) range.textContent = chart.start_label && chart.end_label ? `${chart.start_label} - ${chart.end_label}` : "Нет диапазона";
+                if (chartNote) chartNote.textContent = chart.approximation_note || "";
+                if (window.VendraCharts && typeof window.VendraCharts.renderStorageHistoryChart === "function") {
+                    window.VendraCharts.renderStorageHistoryChart(document.getElementById("storage-chart"), chart.points || []);
+                }
+                renderTopWarehouses(data.top_warehouses || []);
+                renderWarehouseSelection(data.warehouse_options || []);
+                renderSavingsBoard(data.projection || null, Number(data.keep_days || 30));
+                renderItems(data.items || []);
+            } catch (err) {
+                if (range) range.textContent = "Ошибка загрузки";
+                if (chartNote) chartNote.textContent = "";
+                const msg = err && err.message ? err.message : "unknown";
+                document.getElementById("warehouses-list").innerHTML = `<div class="empty">Ошибка: ${msg}</div>`;
+                document.getElementById("warehouse-selection").innerHTML = "";
+                document.getElementById("savings-board").innerHTML = `<div class="empty">Ошибка: ${msg}</div>`;
+                document.getElementById("items-list").innerHTML = `<div class="empty">Ошибка: ${msg}</div>`;
+            }
+        }
+
+        const keepDaysInput = document.getElementById("keep-days-input");
+        if (keepDaysInput) {
+            keepDaysInput.addEventListener("input", () => {
+                if (keepDaysTimer) {
+                    window.clearTimeout(keepDaysTimer);
+                }
+                keepDaysTimer = window.setTimeout(() => loadPaidStorageData(), 250);
+            });
+        }
+
+        loadPaidStorageData();
+    </script>
+</body>
+</html>

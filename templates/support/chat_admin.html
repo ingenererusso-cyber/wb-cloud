@@ -6,9 +6,9 @@
     <title>Администрирование · Чат с поддержкой</title>
     {% include "partials/top_nav_css.html" %}
     <style>
-        :root { --bg:#edf3f7; --card:#fff; --line:#dbe3ec; --text:#1f2a37; --muted:#6b7280; }
+        :root { --bg:#edf3f7; --card:#fff; --line:#dbe3ec; --text:#1f2a37; --muted:#6b7280; --page-shell-max-width:1320px; }
         body { margin:0; padding:12px 20px 28px !important; font-family:"Inter","Segoe UI",sans-serif; background:radial-gradient(circle at top left,#d8efe6 0%,#dfe9f5 45%,var(--bg) 100%); color:var(--text); }
-        .page-wrap { max-width:1480px; margin:0 auto; border:1px solid var(--line); border-radius:16px; background:var(--card); overflow:hidden; height:calc(100vh - 115px); min-height:640px; display:grid; grid-template-columns:380px 1fr; }
+        .page-wrap { max-width:var(--page-shell-max-width); margin:0 auto; border:1px solid var(--line); border-radius:16px; background:var(--card); overflow:hidden; height:calc(100vh - 115px); min-height:640px; display:grid; grid-template-columns:380px 1fr; }
         .side { border-right:1px solid var(--line); display:flex; flex-direction:column; min-width:0; min-height:0; }
         .head { padding:12px; border-bottom:1px solid var(--line); display:grid; gap:8px; }
         .head h3 { margin:0; font-size:18px; }
