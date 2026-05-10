@@ -1,0 +1,747 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ detail.campaign_name }} — WB Продвижение</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: #132033;
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.45), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.38), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+        }
+        .page {
+            max-width: var(--page-shell-max-width, 1320px);
+            width: 100%;
+            margin: 0 auto;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+            padding: 18px;
+        }
+        .crumb {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            color: #475569;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+            gap: 18px;
+            align-items: stretch;
+        }
+        .hero-card,
+        .meta-card,
+        .filters,
+        .section,
+        .table-wrap {
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 20px;
+            background:
+                radial-gradient(circle at top left, rgba(20, 83, 45, 0.07), rgba(255, 255, 255, 0.98) 42%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 252, 255, 0.92) 100%);
+            box-shadow: 0 14px 28px rgba(19, 32, 51, 0.08);
+        }
+        .hero-card {
+            padding: 22px;
+            display: grid;
+            grid-template-columns: 112px minmax(0, 1fr);
+            gap: 18px;
+        }
+        .cover {
+            position: relative;
+            width: 92px;
+            height: 118px;
+        }
+        .cover.is-stack::before,
+        .cover.is-stack::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 22px;
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(241,245,249,0.92));
+            box-shadow: 0 8px 18px rgba(19, 32, 51, 0.08);
+        }
+        .cover.is-stack::before { transform: rotate(-6deg) translate(-8px, 4px); }
+        .cover.is-stack::after { transform: rotate(5deg) translate(6px, 2px); }
+        .cover-main {
+            position: relative;
+            z-index: 2;
+            width: 92px;
+            height: 118px;
+            overflow: hidden;
+            border-radius: 22px;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            background:
+                radial-gradient(circle at top left, rgba(20, 83, 45, 0.14), rgba(255,255,255,0.96) 50%),
+                linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            box-shadow: 0 10px 22px rgba(19, 32, 51, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .cover-main img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .cover-fallback {
+            font-size: 18px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            color: #166534;
+        }
+        .cover-count {
+            position: absolute;
+            right: -9px;
+            bottom: -9px;
+            z-index: 3;
+            min-width: 30px;
+            height: 30px;
+            border-radius: 999px;
+            padding: 0 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #14532d 0%, #22c55e 100%);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 800;
+            box-shadow: 0 10px 18px rgba(20, 83, 45, 0.2);
+        }
+        .hero-copy h1 {
+            margin: 10px 0 8px;
+            font-size: 34px;
+            line-height: 1.05;
+            color: #172033;
+        }
+        .hero-subtitle {
+            margin: 0;
+            color: #5f6d80;
+            font-size: 15px;
+            line-height: 1.55;
+            max-width: 760px;
+        }
+        .hero-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        .pill,
+        .meta-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            background: rgba(255,255,255,0.82);
+            color: #334155;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .status-green { color: #166534; background: #dcfce7; border-color: #86efac; }
+        .status-yellow { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
+        .status-red { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
+        .status-gray { color: #475569; background: #f1f5f9; border-color: #cbd5e1; }
+        .status-blue { color: #1e3a8a; background: #dbeafe; border-color: #93c5fd; }
+        .meta-card {
+            padding: 18px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+        .meta-card h2,
+        .section h2 {
+            margin: 0;
+            font-size: 18px;
+            color: #172033;
+        }
+        .meta-list {
+            display: grid;
+            gap: 10px;
+        }
+        .meta-row {
+            display: grid;
+            grid-template-columns: 120px minmax(0, 1fr);
+            gap: 10px;
+            align-items: start;
+            font-size: 13px;
+        }
+        .meta-row strong { color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .filters {
+            margin-top: 18px;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 170px)) 1fr auto;
+            gap: 12px;
+            align-items: end;
+        }
+        .field { display: grid; gap: 7px; min-width: 0; }
+        .field label { font-size: 12px; color: #5a6778; font-weight: 700; }
+        .field input {
+            border: 1px solid rgba(19, 32, 51, 0.18);
+            border-radius: 12px;
+            padding: 11px 13px;
+            font: inherit;
+            background: #fff;
+            color: #132033;
+        }
+        .field input:focus {
+            outline: none;
+            border-color: rgba(109, 40, 217, 0.42);
+            box-shadow: 0 0 0 4px rgba(109, 40, 217, 0.1);
+        }
+        .quick-periods {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .quick-link {
+            text-decoration: none;
+            color: #475569;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            background: rgba(255,255,255,0.86);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .quick-link.is-active {
+            color: #fff;
+            border-color: transparent;
+            background: linear-gradient(135deg, #14532d 0%, #22c55e 100%);
+            box-shadow: 0 12px 22px rgba(20, 83, 45, 0.18);
+        }
+        .filters .btn {
+            border: 0;
+            border-radius: 12px;
+            padding: 11px 16px;
+            background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%);
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+            height: 46px;
+        }
+        .kpis {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .kpi {
+            padding: 18px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 14px 28px rgba(19, 32, 51, 0.08);
+        }
+        .kpi-label { color: #64748b; font-size: 13px; font-weight: 700; }
+        .kpi-value { margin-top: 10px; color: #14532d; font-size: 32px; font-weight: 900; letter-spacing: -0.03em; }
+        .kpi-meta { margin-top: 8px; color: #64748b; font-size: 12px; }
+        .grid-two {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+            gap: 18px;
+        }
+        .section {
+            padding: 18px;
+        }
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: end;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .section-copy p {
+            margin: 6px 0 0;
+            color: #64748b;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .chart-host {
+            height: 320px;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            border-radius: 16px;
+            background: rgba(255,255,255,0.94);
+            padding: 8px;
+        }
+        .table-wrap {
+            margin-top: 18px;
+            overflow: auto;
+            background: #fff;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 980px;
+        }
+        th, td {
+            border-bottom: 1px solid rgba(19, 32, 51, 0.08);
+            padding: 11px 10px;
+            text-align: left;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        th {
+            position: sticky;
+            top: 0;
+            background: #f8fbff;
+            color: #5a6778;
+            font-size: 12px;
+            z-index: 1;
+        }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .product-cell {
+            display: grid;
+            grid-template-columns: 54px minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+        }
+        .product-thumb {
+            width: 54px;
+            height: 68px;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            background:
+                radial-gradient(circle at top left, rgba(20, 83, 45, 0.14), rgba(255,255,255,0.96) 50%),
+                linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .product-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .product-fallback { font-size: 11px; font-weight: 800; color: #166534; text-transform: uppercase; letter-spacing: 0.05em; }
+        .product-title { font-weight: 700; color: #172033; }
+        .product-meta { margin-top: 4px; color: #64748b; font-size: 12px; }
+        .product-link {
+            color: inherit;
+            text-decoration: none;
+        }
+        .empty-note {
+            color: #64748b;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        @media (max-width: 1100px) {
+            .hero,
+            .grid-two {
+                grid-template-columns: 1fr;
+            }
+            .kpis {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .filters {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        @media (max-width: 720px) {
+            .page { padding: 14px; }
+            .hero-card { grid-template-columns: 1fr; }
+            .kpis {
+                grid-template-columns: 1fr;
+            }
+            .filters {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+{% include "partials/top_nav.html" %}
+<main class="page">
+    <a class="crumb" href="{% url 'wb_promotion_campaigns' %}">← Назад к списку рекламных кампаний</a>
+
+    <section class="hero">
+        <div class="hero-card">
+            <div class="cover {% if detail.participants_count > 1 %}is-stack{% endif %}">
+                <div class="cover-main">
+                    {% if detail.top_product.photo_url %}
+                        <img src="{{ detail.top_product.photo_url }}" alt="{{ detail.campaign_name }}">
+                    {% else %}
+                        <span class="cover-fallback">WB</span>
+                    {% endif %}
+                </div>
+                {% if detail.participants_count > 1 %}
+                    <span class="cover-count">{{ detail.participants_count }}</span>
+                {% endif %}
+            </div>
+            <div class="hero-copy">
+                <div class="hero-meta">
+                    <span class="pill">ID {{ detail.advert_id }}</span>
+                    <span class="pill">{{ detail.advert_type_label }}</span>
+                    <span class="pill status-{{ detail.status_color }}">{{ detail.status_label }}</span>
+                </div>
+                <h1>{{ detail.campaign_name }}</h1>
+                <p class="hero-subtitle">
+                    Детальный разбор эффективности кампании за выбранный период: расходы, показы, клики, заказы, динамика по дням и распределение по товарам внутри РК.
+                </p>
+            </div>
+        </div>
+
+        <aside class="meta-card">
+            <h2>Паспорт кампании</h2>
+            <div class="meta-list">
+                <div class="meta-row"><strong>Создана</strong><span>{% if detail.create_time %}{{ detail.create_time|date:"d.m.Y H:i" }}{% else %}—{% endif %}</span></div>
+                <div class="meta-row"><strong>Старт</strong><span>{% if detail.start_time %}{{ detail.start_time|date:"d.m.Y H:i" }}{% else %}—{% endif %}</span></div>
+                <div class="meta-row"><strong>Обновлена</strong><span>{% if detail.change_time %}{{ detail.change_time|date:"d.m.Y H:i" }}{% else %}—{% endif %}</span></div>
+                <div class="meta-row"><strong>Товаров</strong><span>{{ detail.participants_count }}</span></div>
+                <div class="meta-row"><strong>Период</strong><span>{{ date_from }} — {{ date_to }}</span></div>
+                {% if detail.top_product.title or detail.top_product.vendor_code %}
+                    <div class="meta-row">
+                        <strong>Главный товар</strong>
+                        <span>
+                            {{ detail.top_product.title|default:"Товар из кампании" }}
+                            {% if detail.top_product.vendor_code %} · {{ detail.top_product.vendor_code }}{% endif %}
+                        </span>
+                    </div>
+                {% endif %}
+            </div>
+        </aside>
+    </section>
+
+    <form class="filters" method="get" data-no-nav-loader="1">
+        <div class="field">
+            <label for="date_from">Дата с</label>
+            <input id="date_from" type="date" name="date_from" value="{{ date_from }}">
+        </div>
+        <div class="field">
+            <label for="date_to">Дата по</label>
+            <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
+        </div>
+        <div class="quick-periods">
+            <a class="quick-link {% if period_days == 7 %}is-active{% endif %}" href="?period_days=7">7 дней</a>
+            <a class="quick-link {% if period_days == 14 %}is-active{% endif %}" href="?period_days=14">14 дней</a>
+            <a class="quick-link {% if period_days == 30 %}is-active{% endif %}" href="?period_days=30">30 дней</a>
+            <a class="quick-link {% if period_days == 60 %}is-active{% endif %}" href="?period_days=60">60 дней</a>
+            <a class="quick-link {% if period_days == 90 %}is-active{% endif %}" href="?period_days=90">90 дней</a>
+        </div>
+        <button class="btn" type="submit">Показать период</button>
+    </form>
+
+    <section class="kpis">
+        <article class="kpi">
+            <div class="kpi-label">Расходы на РК</div>
+            <div class="kpi-value">{{ detail.summary.spend|floatformat:2 }} ₽</div>
+            <div class="kpi-meta">За период {{ date_from }} — {{ date_to }}</div>
+        </article>
+        <article class="kpi">
+            <div class="kpi-label">Заказы / Добавления в корзину</div>
+            <div class="kpi-value">{{ detail.summary.orders }} / {{ detail.summary.add_to_cart }}</div>
+            <div class="kpi-meta">CPO: {{ detail.summary.cpo|floatformat:2 }} ₽</div>
+        </article>
+        <article class="kpi">
+            <div class="kpi-label">Показы / Клики</div>
+            <div class="kpi-value">{{ detail.summary.views }} / {{ detail.summary.clicks }}</div>
+            <div class="kpi-meta">CTR: {{ detail.summary.ctr|floatformat:2 }}%</div>
+        </article>
+        <article class="kpi">
+            <div class="kpi-label">Средняя цена клика</div>
+            <div class="kpi-value">{{ detail.summary.cpc|floatformat:2 }} ₽</div>
+            <div class="kpi-meta">Дней с активностью: {{ detail.summary.days_with_stats }}</div>
+        </article>
+    </section>
+
+    <section class="grid-two">
+        <article class="section">
+            <div class="section-head">
+                <div class="section-copy">
+                    <h2>Динамика кампании по дням</h2>
+                    <p>На одном графике видны расходы, заказы и клики по каждому дню выбранного периода.</p>
+                </div>
+            </div>
+            <div id="campaign-daily-chart" class="chart-host"></div>
+        </article>
+
+        <article class="section">
+            <div class="section-head">
+                <div class="section-copy">
+                    <h2>Распределение расходов по товарам</h2>
+                    <p>Показываем, какие товары внутри кампании забрали на себя основную долю рекламного бюджета.</p>
+                </div>
+            </div>
+            <div id="campaign-product-share-chart" class="chart-host"></div>
+        </article>
+    </section>
+
+    <section class="table-wrap">
+        <div class="section-head" style="padding: 18px 18px 0;">
+            <div class="section-copy">
+                <h2>Товары внутри кампании</h2>
+                <p>Метрики по товарам берутся из детальной разбивки WB внутри рекламной кампании за выбранный период.</p>
+            </div>
+        </div>
+        {% if detail.product_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Товар</th>
+                    <th class="num">Доля расхода</th>
+                    <th class="num">Расход</th>
+                    <th class="num">Выручка из РК</th>
+                    <th class="num">Показы</th>
+                    <th class="num">Клики</th>
+                    <th class="num">CTR</th>
+                    <th class="num">Заказы</th>
+                    <th class="num">В корзину</th>
+                    <th class="num">CPC</th>
+                    <th class="num">CPO</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in detail.product_rows %}
+                <tr>
+                    <td>
+                        <div class="product-cell">
+                            <div class="product-thumb">
+                                {% if row.photo_url %}
+                                    <img src="{{ row.photo_url }}" alt="{{ row.title|default:'Товар' }}">
+                                {% else %}
+                                    <span class="product-fallback">WB</span>
+                                {% endif %}
+                            </div>
+                            <div>
+                                {% if row.product_id %}
+                                    <a class="product-link" href="{% url 'product_card_detail' row.product_id %}">
+                                        <div class="product-title">{{ row.title|default:"Товар из кампании" }}</div>
+                                    </a>
+                                {% else %}
+                                    <div class="product-title">{{ row.title|default:"Товар из кампании" }}</div>
+                                {% endif %}
+                                <div class="product-meta">
+                                    NM {{ row.nm_id }}
+                                    {% if row.vendor_code %} · {{ row.vendor_code }}{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="num">{{ row.share|floatformat:2 }}%</td>
+                    <td class="num">{{ row.spend|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.revenue|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.views }}</td>
+                    <td class="num">{{ row.clicks }}</td>
+                    <td class="num">{{ row.ctr|floatformat:2 }}%</td>
+                    <td class="num">{{ row.orders }}</td>
+                    <td class="num">{{ row.add_to_cart }}</td>
+                    <td class="num">{{ row.cpc|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.cpo|floatformat:2 }} ₽</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="padding: 0 18px 18px;">
+            <p class="empty-note">За выбранный период WB не вернул детальную товарную разбивку по этой кампании.</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="table-wrap">
+        <div class="section-head" style="padding: 18px 18px 0;">
+            <div class="section-copy">
+                <h2>Дневная статистика</h2>
+                <p>Полная динамика кампании по дням: расходы, трафик, заказы и производные метрики.</p>
+            </div>
+        </div>
+        {% if detail.daily_rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th class="num">Расход</th>
+                    <th class="num">Показы</th>
+                    <th class="num">Клики</th>
+                    <th class="num">CTR</th>
+                    <th class="num">Заказы</th>
+                    <th class="num">В корзину</th>
+                    <th class="num">CPC</th>
+                    <th class="num">CPO</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in detail.daily_rows %}
+                <tr>
+                    <td>{{ row.date }}</td>
+                    <td class="num">{{ row.spend|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.views }}</td>
+                    <td class="num">{{ row.clicks }}</td>
+                    <td class="num">{{ row.ctr|floatformat:2 }}%</td>
+                    <td class="num">{{ row.orders }}</td>
+                    <td class="num">{{ row.add_to_cart }}</td>
+                    <td class="num">{{ row.cpc|floatformat:2 }} ₽</td>
+                    <td class="num">{{ row.cpo|floatformat:2 }} ₽</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="padding: 0 18px 18px;">
+            <p class="empty-note">За выбранный период нет дневной активности по этой кампании.</p>
+        </div>
+        {% endif %}
+    </section>
+</main>
+{{ detail.daily_points|json_script:"campaign-detail-daily-points" }}
+{{ detail.product_rows|json_script:"campaign-detail-product-rows" }}
+<script src="{% static 'vendor/echarts/echarts.min.js' %}"></script>
+<script src="{% static 'js/vendra-charts.js' %}"></script>
+<script>
+    (function renderCampaignDetailCharts() {
+        const dailyHost = document.getElementById("campaign-daily-chart");
+        const productHost = document.getElementById("campaign-product-share-chart");
+        const dailyPoints = JSON.parse(document.getElementById("campaign-detail-daily-points")?.textContent || "[]");
+        const productRows = JSON.parse(document.getElementById("campaign-detail-product-rows")?.textContent || "[]");
+
+        if (dailyHost && window.echarts && Array.isArray(dailyPoints) && dailyPoints.length) {
+            const chart = window.echarts.init(dailyHost, null, { renderer: "canvas" });
+            const labels = dailyPoints.map((point) => point.label);
+            chart.setOption({
+                animationDuration: 500,
+                animationDurationUpdate: 350,
+                grid: { left: 16, right: 56, top: 26, bottom: 26, containLabel: true },
+                tooltip: {
+                    trigger: "axis",
+                    backgroundColor: "rgba(19, 32, 51, 0.96)",
+                    borderWidth: 0,
+                    textStyle: { color: "#f8fafc", fontSize: 12 },
+                    padding: [10, 12],
+                    axisPointer: {
+                        type: "line",
+                        lineStyle: { color: "rgba(109, 40, 217, 0.22)", width: 1.5 },
+                    },
+                    formatter(params) {
+                        const items = Array.isArray(params) ? params : [params];
+                        const point = dailyPoints[items[0].dataIndex] || {};
+                        const lines = [`<strong>${point.date || ""}</strong>`];
+                        items.forEach((item) => {
+                            if (item.seriesName === "Расход") {
+                                lines.push(`Расход: ${Number(item.data || 0).toFixed(2)} ₽`);
+                            } else {
+                                lines.push(`${item.seriesName}: ${Math.round(Number(item.data || 0))}`);
+                            }
+                        });
+                        return lines.join("<br>");
+                    },
+                },
+                xAxis: {
+                    type: "category",
+                    boundaryGap: false,
+                    data: labels,
+                    axisLine: { lineStyle: { color: "rgba(19, 32, 51, 0.16)" } },
+                    axisTick: { show: false },
+                    axisLabel: { color: "#64748b", fontSize: 11, margin: 10 },
+                },
+                yAxis: [
+                    {
+                        type: "value",
+                        splitNumber: 4,
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        axisLabel: {
+                            color: "#64748b",
+                            fontSize: 11,
+                            formatter(value) { return `${Math.round(Number(value || 0))} ₽`; },
+                        },
+                        splitLine: { lineStyle: { color: "rgba(19, 32, 51, 0.08)" } },
+                    },
+                    {
+                        type: "value",
+                        splitNumber: 4,
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        axisLabel: {
+                            color: "#0f766e",
+                            fontSize: 11,
+                            formatter(value) { return `${Math.round(Number(value || 0))}`; },
+                        },
+                        splitLine: { show: false },
+                    },
+                ],
+                series: [
+                    {
+                        name: "Расход",
+                        type: "line",
+                        smooth: 0.35,
+                        symbol: "circle",
+                        symbolSize: 7,
+                        data: dailyPoints.map((point) => Number(point.spend || 0)),
+                        lineStyle: { width: 3, color: "#6d28d9" },
+                        itemStyle: { color: "#ffffff", borderColor: "#6d28d9", borderWidth: 3 },
+                        areaStyle: {
+                            color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: "rgba(109, 40, 217, 0.12)" },
+                                { offset: 1, color: "rgba(255,255,255,0)" },
+                            ]),
+                        },
+                    },
+                    {
+                        name: "Заказы",
+                        type: "line",
+                        smooth: 0.28,
+                        symbol: "circle",
+                        symbolSize: 6,
+                        yAxisIndex: 1,
+                        data: dailyPoints.map((point) => Number(point.orders || 0)),
+                        lineStyle: { width: 2.5, color: "#0f766e" },
+                        itemStyle: { color: "#ffffff", borderColor: "#0f766e", borderWidth: 2.5 },
+                    },
+                    {
+                        name: "Клики",
+                        type: "line",
+                        smooth: 0.2,
+                        symbol: "circle",
+                        symbolSize: 6,
+                        yAxisIndex: 1,
+                        data: dailyPoints.map((point) => Number(point.clicks || 0)),
+                        lineStyle: { width: 2.5, color: "#475569", type: "dashed" },
+                        itemStyle: { color: "#ffffff", borderColor: "#475569", borderWidth: 2.5 },
+                    },
+                ],
+            }, true);
+            if (window.ResizeObserver) {
+                const observer = new ResizeObserver(() => chart.resize());
+                observer.observe(dailyHost);
+            }
+        } else if (dailyHost) {
+            dailyHost.innerHTML = '<div class="empty-note">Нет данных для графика.</div>';
+        }
+
+        if (productHost && window.VendraCharts && Array.isArray(productRows) && productRows.length) {
+            window.VendraCharts.renderHorizontalBarChart(
+                productHost,
+                productRows.slice(0, 8).map((item) => ({
+                    label: item.vendor_code ? `${item.vendor_code}` : `NM ${item.nm_id}`,
+                    value: Number(item.spend || 0),
+                })),
+                {
+                    colorMain: "#14532d",
+                    tooltipFormatter(point, value) {
+                        return `<strong>${point.label}</strong><br>${window.VendraCharts.formatMoney(value)}`;
+                    },
+                    emptyText: "Нет данных по товарам кампании.",
+                }
+            );
+        } else if (productHost) {
+            productHost.innerHTML = '<div class="empty-note">Нет данных по товарам кампании.</div>';
+        }
+    })();
+</script>
+</body>
+</html>

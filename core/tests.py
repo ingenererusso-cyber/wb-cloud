@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from core.models import (
     AppErrorLog,
+    ConsentLog,
     Order,
     Product,
     ProductCardSize,
@@ -29,9 +30,15 @@ from core.models import (
     WbAdvertCampaign,
     WbAdvertStatDaily,
     WbCategoryCommission,
+    WbSaleFact,
     WbWarehouseTariff,
 )
-from core.services_advertising import sync_ad_campaigns_and_stats
+from core.services_advertising import (
+    sync_ad_campaigns_and_stats,
+    sync_active_paused_ad_campaigns_full_history,
+)
+from core.services.localization import get_local_orders_percent_last_full_week
+from core.views import _build_home_summary_payload
 
 
 class DashboardSupplyRecommendationsApiTests(TestCase):
@@ -72,10 +79,108 @@ class DashboardSupplyRecommendationsApiTests(TestCase):
         self.assertIn("regions", data)
 
 
+class LegalComplianceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="legal-user", email="legal@example.com", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Seller")
+
+    def test_legal_pages_are_publicly_available(self):
+        for url_name in ("legal_privacy", "legal_consent", "legal_terms"):
+            response = self.client.get(reverse(url_name))
+            self.assertEqual(response.status_code, 200)
+
+    @patch("core.views.send_mail", return_value=1)
+    def test_register_trial_requires_pdn_consent(self, _mock_send_mail):
+        response = self.client.post(
+            reverse("register_trial"),
+            {
+                "full_name": "Иван Иванов",
+                "email": "ivan@example.com",
+                "password": "strongpass123",
+                "password_confirm": "strongpass123",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Необходимо согласие на обработку персональных данных", status_code=400)
+        self.assertEqual(SignupLead.objects.count(), 0)
+        self.assertEqual(ConsentLog.objects.count(), 0)
+
+    @patch("core.views.send_mail", return_value=1)
+    def test_register_trial_creates_consent_logs(self, _mock_send_mail):
+        response = self.client.post(
+            reverse("register_trial"),
+            {
+                "full_name": "Иван Иванов",
+                "email": "ivan@example.com",
+                "password": "strongpass123",
+                "password_confirm": "strongpass123",
+                "pdn_consent": "1",
+                "marketing_consent": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        lead = SignupLead.objects.get(email="ivan@example.com")
+        self.assertIsNotNone(lead.pdn_consent_at)
+        self.assertEqual(lead.pdn_consent_version, "2026-05-01")
+        self.assertIsNotNone(lead.marketing_consent_at)
+        self.assertEqual(ConsentLog.objects.filter(email="ivan@example.com", kind="pdn", action="grant").count(), 1)
+        self.assertEqual(ConsentLog.objects.filter(email="ivan@example.com", kind="marketing", action="grant").count(), 1)
+
+    def test_marketing_consent_toggle_creates_revoke_log(self):
+        self.client.login(username="legal-user", password="pass12345")
+
+        response = self.client.post(
+            reverse("account_marketing_consent_api"),
+            {"enabled": "0"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["enabled"])
+        log = ConsentLog.objects.filter(user=self.user, kind="marketing").latest("created_at")
+        self.assertEqual(log.action, "revoke")
+
+
 class DashboardHomeApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="home-user", password="pass12345")
         self.seller = SellerAccount.objects.create(user=self.user, name="Seller")
+
+    def _create_home_order(
+        self,
+        *,
+        srid: str,
+        order_dt,
+        finished_price: float,
+        is_cancel: bool = False,
+        is_return: bool = False,
+        is_buyout: bool = False,
+        buyout_dt=None,
+        warehouse_type: str = "Склад WB",
+    ):
+        return Order.objects.create(
+            seller=self.seller,
+            srid=srid,
+            nm_id=1001,
+            supplier_article="HOME-SKU",
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type=warehouse_type,
+            oblast_okrug_name="Центральный",
+            region_name="Центральный",
+            order_date=order_dt,
+            last_change_date=order_dt,
+            finished_price=finished_price,
+            is_cancel=is_cancel,
+            is_return=is_return,
+            is_buyout=is_buyout,
+            buyout_date=buyout_dt,
+            is_local=False,
+        )
 
     def test_dashboard_summary_api_returns_lightweight_kpis(self):
         self.client.login(username="home-user", password="pass12345")
@@ -87,6 +192,473 @@ class DashboardHomeApiTests(TestCase):
         self.assertIn("summary", payload)
         self.assertIn("revenue_30d", payload["summary"])
         self.assertIn("last_sync_at_label", payload["summary"])
+        self.assertEqual(payload["summary"]["period_weeks"], 1)
+        self.assertEqual(payload["summary"]["period_days"], 7)
+        self.assertIn("prev_period_date_from", payload["summary"])
+        self.assertIn("revenue_delta_pct", payload["summary"])
+
+        r4 = self.client.get(reverse("dashboard_summary_api"), {"weeks": "4"})
+        self.assertEqual(r4.status_code, 200)
+        self.assertEqual(r4.json()["summary"]["period_weeks"], 4)
+        self.assertEqual(r4.json()["summary"]["period_days"], 28)
+
+        r_bad = self.client.get(reverse("dashboard_summary_api"), {"weeks": "99"})
+        self.assertEqual(r_bad.status_code, 200)
+        self.assertEqual(r_bad.json()["summary"]["period_weeks"], 1)
+
+    def test_dashboard_summary_revenue_and_avg_check_use_order_date_without_cancels(self):
+        self.client.login(username="home-user", password="pass12345")
+        today = timezone.localdate()
+        current_dt = timezone.make_aware(datetime.combine(today - timedelta(days=1), datetime.min.time().replace(hour=12)))
+        previous_dt = timezone.make_aware(datetime.combine(today - timedelta(days=8), datetime.min.time().replace(hour=12)))
+
+        self._create_home_order(
+            srid="home-current-1",
+            order_dt=current_dt,
+            finished_price=1000.0,
+            is_buyout=False,
+        )
+        self._create_home_order(
+            srid="home-current-cancel",
+            order_dt=current_dt,
+            finished_price=500.0,
+            is_cancel=True,
+            is_buyout=False,
+        )
+        self._create_home_order(
+            srid="home-prev-1",
+            order_dt=previous_dt,
+            finished_price=400.0,
+            is_buyout=False,
+        )
+
+        response = self.client.get(reverse("dashboard_summary_api"), {"weeks": "1"})
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.json()["summary"]
+        self.assertEqual(summary["revenue_30d"], 1000.0)
+        self.assertEqual(summary["revenue_prev"], 400.0)
+        self.assertEqual(summary["avg_check_30d"], 1000.0)
+        self.assertEqual(summary["avg_check_prev"], 400.0)
+
+    def test_dashboard_summary_last_sync_label_is_localized_to_moscow(self):
+        utc_dt = timezone.make_aware(
+            datetime(2026, 5, 4, 9, 15, 0),
+            timezone.get_fixed_timezone(0),
+        )
+
+        summary = _build_home_summary_payload(
+            seller=self.seller,
+            last_sync_at=utc_dt,
+            period_weeks=1,
+        )
+
+        self.assertEqual(summary["last_sync_at_label"], "04.05.2026 12:15")
+
+    def test_dashboard_summary_period_sensitive_kpis_use_rolling_window_from_last_sync(self):
+        last_sync_dt = timezone.make_aware(datetime(2026, 5, 4, 12, 0, 0))
+        inside_current = timezone.make_aware(datetime(2026, 5, 4, 11, 30, 0))
+        outside_current = timezone.make_aware(datetime(2026, 5, 4, 12, 30, 0))
+        inside_previous = timezone.make_aware(datetime(2026, 4, 27, 11, 30, 0))
+
+        current_order = self._create_home_order(
+            srid="home-kpi-current",
+            order_dt=inside_current,
+            finished_price=1000.0,
+        )
+        current_order.is_local = True
+        current_order.save(update_fields=["is_local"])
+
+        self._create_home_order(
+            srid="home-kpi-cancel",
+            order_dt=inside_current,
+            finished_price=500.0,
+            is_cancel=True,
+        )
+        self._create_home_order(
+            srid="home-kpi-excluded",
+            order_dt=outside_current,
+            finished_price=700.0,
+        )
+        previous_order = self._create_home_order(
+            srid="home-kpi-previous",
+            order_dt=inside_previous,
+            finished_price=400.0,
+        )
+        previous_order.is_local = False
+        previous_order.save(update_fields=["is_local"])
+
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="S-kpi-current",
+            srid="sale-kpi-current",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=inside_current,
+            last_change_date=inside_current,
+            finished_price=1000.0,
+            raw_payload={"saleID": "S-kpi-current"},
+        )
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="S-kpi-previous",
+            srid="sale-kpi-previous",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=inside_previous,
+            last_change_date=inside_previous,
+            finished_price=400.0,
+            raw_payload={"saleID": "S-kpi-previous"},
+        )
+        WbAdvertStatDaily.objects.create(
+            seller=self.seller,
+            advert_id=9001,
+            stat_date=inside_current.date(),
+            nm_id=0,
+            spend=60.0,
+            day_sum=60.0,
+            raw_payload={},
+        )
+        WbAdvertStatDaily.objects.create(
+            seller=self.seller,
+            advert_id=9001,
+            stat_date=inside_previous.date(),
+            nm_id=0,
+            spend=30.0,
+            day_sum=30.0,
+            raw_payload={},
+        )
+
+        summary = _build_home_summary_payload(
+            seller=self.seller,
+            last_sync_at=last_sync_dt,
+            period_weeks=1,
+        )
+
+        self.assertEqual(summary["revenue_30d"], 1000.0)
+        self.assertEqual(summary["revenue_prev"], 400.0)
+        self.assertEqual(summary["avg_check_30d"], 1000.0)
+        self.assertEqual(summary["avg_check_prev"], 400.0)
+        self.assertEqual(summary["local_share_orders_30d"], 50.0)
+        self.assertEqual(summary["local_share_prev"], 0.0)
+        self.assertEqual(summary["buyout_rate_30d"], 50.0)
+        self.assertEqual(summary["buyout_rate_prev"], 100.0)
+        self.assertEqual(summary["ad_spend_30d"], 60.0)
+        self.assertEqual(summary["ad_spend_prev"], 30.0)
+
+    def test_dashboard_summary_local_share_uses_all_fbo_orders_including_cancels(self):
+        last_sync_dt = timezone.make_aware(datetime(2026, 5, 4, 12, 0, 0))
+        inside_current = timezone.make_aware(datetime(2026, 5, 4, 11, 30, 0))
+
+        local_fbo = self._create_home_order(
+            srid="home-local-fbo",
+            order_dt=inside_current,
+            finished_price=1000.0,
+        )
+        local_fbo.is_local = True
+        local_fbo.save(update_fields=["is_local"])
+
+        self._create_home_order(
+            srid="home-cancel-fbo",
+            order_dt=inside_current,
+            finished_price=500.0,
+            is_cancel=True,
+        )
+        self._create_home_order(
+            srid="home-local-fbs",
+            order_dt=inside_current,
+            finished_price=700.0,
+            warehouse_type="Маркетплейс",
+        )
+
+        summary = _build_home_summary_payload(
+            seller=self.seller,
+            last_sync_at=last_sync_dt,
+            period_weeks=1,
+        )
+
+        self.assertEqual(summary["local_share_orders_30d"], 50.0)
+
+    def test_dashboard_summary_buyouts_use_sales_facts_even_without_order_row(self):
+        sale_dt = timezone.make_aware(datetime(2026, 5, 3, 14, 0, 0))
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="S-1001",
+            srid="missing-order-srid",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=sale_dt,
+            last_change_date=sale_dt,
+            finished_price=1999.0,
+            raw_payload={"saleID": "S-1001"},
+        )
+
+        summary = _build_home_summary_payload(
+            seller=self.seller,
+            last_sync_at=timezone.make_aware(datetime(2026, 5, 4, 12, 0, 0)),
+            period_weeks=1,
+        )
+
+        self.assertEqual(summary["buyouts_30d"], 1)
+
+    def test_localization_last_full_week_includes_fbo_cancels_and_returns(self):
+        today = timezone.localdate()
+        current_week_start = today - timedelta(days=today.weekday())
+        last_full_week_end = current_week_start - timedelta(days=1)
+        current_dt = timezone.make_aware(datetime.combine(last_full_week_end, datetime.min.time().replace(hour=12)))
+
+        local_order = self._create_home_order(
+            srid="loc-week-local",
+            order_dt=current_dt,
+            finished_price=1000.0,
+        )
+        local_order.is_local = True
+        local_order.save(update_fields=["is_local"])
+
+        self._create_home_order(
+            srid="loc-week-cancel",
+            order_dt=current_dt,
+            finished_price=500.0,
+            is_cancel=True,
+        )
+        self._create_home_order(
+            srid="loc-week-return",
+            order_dt=current_dt,
+            finished_price=600.0,
+            is_return=True,
+        )
+
+        payload = get_local_orders_percent_last_full_week(self.seller)
+
+        self.assertEqual(payload["total_orders"], 3)
+        self.assertEqual(payload["local_orders"], 1)
+        self.assertEqual(payload["percent"], 33.3)
+
+    def test_dashboard_summary_buyouts_use_rolling_window_from_last_sync(self):
+        last_sync_dt = timezone.make_aware(datetime(2026, 5, 4, 12, 0, 0))
+        inside_current = timezone.make_aware(datetime(2026, 5, 4, 11, 30, 0))
+        outside_current = timezone.make_aware(datetime(2026, 5, 4, 12, 30, 0))
+        inside_previous = timezone.make_aware(datetime(2026, 4, 27, 11, 30, 0))
+
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="S-roll-current",
+            srid="srid-roll-current",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=inside_current,
+            last_change_date=inside_current,
+            finished_price=1000.0,
+            raw_payload={"saleID": "S-roll-current"},
+        )
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="S-roll-excluded",
+            srid="srid-roll-excluded",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=outside_current,
+            last_change_date=outside_current,
+            finished_price=1000.0,
+            raw_payload={"saleID": "S-roll-excluded"},
+        )
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="S-roll-previous",
+            srid="srid-roll-previous",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=inside_previous,
+            last_change_date=inside_previous,
+            finished_price=1000.0,
+            raw_payload={"saleID": "S-roll-previous"},
+        )
+
+        summary = _build_home_summary_payload(
+            seller=self.seller,
+            last_sync_at=last_sync_dt,
+            period_weeks=1,
+        )
+
+        self.assertEqual(summary["buyouts_30d"], 1)
+        self.assertEqual(summary["buyouts_prev"], 1)
+        self.assertEqual(summary["buyouts_period_ended_at"], "2026-05-04T12:00:00+03:00")
+
+    def test_dashboard_summary_orders_use_rolling_window_from_last_sync(self):
+        last_sync_dt = timezone.make_aware(datetime(2026, 5, 4, 12, 0, 0))
+        inside_current = timezone.make_aware(datetime(2026, 5, 4, 11, 30, 0))
+        outside_current = timezone.make_aware(datetime(2026, 5, 4, 12, 30, 0))
+        inside_previous = timezone.make_aware(datetime(2026, 4, 27, 11, 30, 0))
+
+        self._create_home_order(
+            srid="home-rolling-current",
+            order_dt=inside_current,
+            finished_price=1000.0,
+        )
+        self._create_home_order(
+            srid="home-rolling-excluded",
+            order_dt=outside_current,
+            finished_price=1000.0,
+        )
+        self._create_home_order(
+            srid="home-rolling-previous",
+            order_dt=inside_previous,
+            finished_price=1000.0,
+        )
+
+        summary = _build_home_summary_payload(
+            seller=self.seller,
+            last_sync_at=last_sync_dt,
+            period_weeks=1,
+        )
+
+        self.assertEqual(summary["total_orders_30d"], 1)
+        self.assertEqual(summary["total_orders_prev"], 1)
+        self.assertEqual(summary["orders_period_ended_at"], "2026-05-04T12:00:00+03:00")
+
+    def test_dashboard_trend_api_uses_rolling_window_and_returns_amounts(self):
+        self.client.login(username="home-user", password="pass12345")
+        last_sync_dt = timezone.make_aware(datetime(2026, 5, 4, 12, 0, 0))
+        SyncTask.objects.create(
+            user=self.user,
+            seller=self.seller,
+            task_id="home-trend-last-sync",
+            status=SyncTask.STATUS_SUCCESS,
+            progress=100,
+            step="Готово",
+            message="ok",
+            finished_at=last_sync_dt,
+        )
+
+        inside_current = timezone.make_aware(datetime(2026, 5, 4, 11, 30, 0))
+        inside_previous = timezone.make_aware(datetime(2026, 4, 27, 11, 30, 0))
+        outside_current = timezone.make_aware(datetime(2026, 5, 4, 12, 30, 0))
+
+        self._create_home_order(
+            srid="trend-order-current",
+            order_dt=inside_current,
+            finished_price=1500.0,
+        )
+        self._create_home_order(
+            srid="trend-order-current-cancel",
+            order_dt=inside_current,
+            finished_price=700.0,
+            is_cancel=True,
+        )
+        self._create_home_order(
+            srid="trend-order-previous",
+            order_dt=inside_previous,
+            finished_price=900.0,
+        )
+        self._create_home_order(
+            srid="trend-order-excluded",
+            order_dt=outside_current,
+            finished_price=2000.0,
+        )
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="trend-sale-current",
+            srid="trend-sale-current",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=inside_current,
+            last_change_date=inside_current,
+            finished_price=1100.0,
+            raw_payload={"saleID": "trend-sale-current"},
+        )
+        WbSaleFact.objects.create(
+            seller=self.seller,
+            sale_id="trend-sale-previous",
+            srid="trend-sale-previous",
+            nm_id=1001,
+            is_buyout=True,
+            is_return=False,
+            sale_date=inside_previous,
+            last_change_date=inside_previous,
+            finished_price=800.0,
+            raw_payload={"saleID": "trend-sale-previous"},
+        )
+
+        response = self.client.get(reverse("dashboard_trend_api"), {"period": "7d", "metric": "orders"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["period"], "7d")
+        self.assertEqual(payload["metric"], "orders")
+        self.assertEqual(payload["current_total"], 2)
+        self.assertEqual(payload["previous_total"], 1)
+        self.assertEqual(payload["current_amount_total"], 1500.0)
+        self.assertEqual(payload["previous_amount_total"], 900.0)
+        self.assertEqual(payload["period_ended_at"], "2026-05-04T12:00:00+03:00")
+        self.assertEqual(len(payload["labels"]), 7)
+
+        buyouts_response = self.client.get(reverse("dashboard_trend_api"), {"period": "24h", "metric": "buyouts"})
+
+        self.assertEqual(buyouts_response.status_code, 200)
+        buyouts_payload = buyouts_response.json()
+        self.assertEqual(buyouts_payload["current_total"], 1)
+        self.assertEqual(buyouts_payload["current_amount_total"], 1100.0)
+        self.assertEqual(len(buyouts_payload["labels"]), 24)
+
+    def test_dashboard_trend_api_today_uses_calendar_today_to_same_time_yesterday(self):
+        self.client.login(username="home-user", password="pass12345")
+        last_sync_dt = timezone.make_aware(datetime(2026, 5, 4, 13, 28, 0))
+        SyncTask.objects.create(
+            user=self.user,
+            seller=self.seller,
+            task_id="home-trend-today-sync",
+            status=SyncTask.STATUS_SUCCESS,
+            progress=100,
+            step="Готово",
+            message="ok",
+            finished_at=last_sync_dt,
+        )
+
+        self._create_home_order(
+            srid="today-inside-1",
+            order_dt=timezone.make_aware(datetime(2026, 5, 4, 9, 0, 0)),
+            finished_price=1000.0,
+        )
+        self._create_home_order(
+            srid="today-inside-2",
+            order_dt=timezone.make_aware(datetime(2026, 5, 4, 13, 20, 0)),
+            finished_price=800.0,
+        )
+        self._create_home_order(
+            srid="today-excluded-after-cutoff",
+            order_dt=timezone.make_aware(datetime(2026, 5, 4, 13, 40, 0)),
+            finished_price=600.0,
+        )
+        self._create_home_order(
+            srid="yesterday-inside",
+            order_dt=timezone.make_aware(datetime(2026, 5, 3, 11, 0, 0)),
+            finished_price=700.0,
+        )
+        self._create_home_order(
+            srid="yesterday-excluded-after-cutoff",
+            order_dt=timezone.make_aware(datetime(2026, 5, 3, 13, 40, 0)),
+            finished_price=500.0,
+        )
+
+        response = self.client.get(reverse("dashboard_trend_api"), {"period": "today", "metric": "orders"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["period"], "today")
+        self.assertEqual(payload["current_total"], 2)
+        self.assertEqual(payload["previous_total"], 1)
+        self.assertEqual(payload["current_amount_total"], 1800.0)
+        self.assertEqual(payload["previous_amount_total"], 700.0)
+        self.assertEqual(payload["period_started_at"], "2026-05-04T00:00:00+03:00")
+        self.assertEqual(payload["period_ended_at"], "2026-05-04T13:28:00+03:00")
+        self.assertEqual(len(payload["labels"]), 14)
 
     def test_dashboard_reminders_api_returns_groups_payload(self):
         self.client.login(username="home-user", password="pass12345")
@@ -97,6 +669,27 @@ class DashboardHomeApiTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertIn("groups", payload)
         self.assertIsInstance(payload["groups"], list)
+
+
+class ApiAuthRedirectMiddlewareTests(TestCase):
+    def test_api_auth_redirect_uses_referer_page_instead_of_api_url(self):
+        response = self.client.get(
+            reverse("support_unread_count_api"),
+            HTTP_REFERER="http://testserver/promotion/wb/?page=2",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload["code"], "auth_required")
+        self.assertEqual(payload["redirect_url"], "/login/?next=/promotion/wb/?page=2")
+
+    def test_api_auth_redirect_falls_back_to_home_when_only_api_url_is_known(self):
+        response = self.client.get(reverse("support_unread_count_api"))
+
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload["code"], "auth_required")
+        self.assertEqual(payload["redirect_url"], "/login/?next=/")
 
 
 class FbsStockAwareRecommendationsTests(TestCase):
@@ -672,6 +1265,66 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(rows[0]["ctr"], 3.0)
         self.assertEqual(rows[0]["cpo"], 64.0)
 
+    def test_campaign_detail_page_builds_daily_and_product_metrics(self):
+        campaign = WbAdvertCampaign.objects.create(
+            seller=self.seller,
+            advert_id=777,
+            campaign_name="Детальная кампания",
+            advert_type=8,
+            status=9,
+            raw_payload={"nm_settings": [{"nm_id": 123456}]},
+        )
+        product = Product.objects.create(
+            seller=self.seller,
+            nm_id=123456,
+            vendor_code="SKU-777",
+            title="Робот",
+            photo_url="https://example.com/robot.jpg",
+        )
+        WbAdvertStatDaily.objects.create(
+            seller=self.seller,
+            advert_id=campaign.advert_id,
+            stat_date=date(2026, 4, 20),
+            nm_id=123456,
+            spend=320.0,
+            day_sum=0.0,
+            views=None,
+            clicks=None,
+            orders=None,
+            add_to_cart=None,
+            raw_payload={
+                "nm": {
+                    "views": 1400,
+                    "clicks": 42,
+                    "orders": 5,
+                    "atbs": 11,
+                    "sum_price": 17500,
+                    "sum": 320.0,
+                },
+                "day": {
+                    "date": "2026-04-20",
+                    "views": 1400,
+                    "clicks": 42,
+                    "orders": 5,
+                    "atbs": 11,
+                    "sum": 320.0,
+                },
+            },
+        )
+
+        response = self.client.get(
+            reverse("wb_promotion_campaign_detail", kwargs={"advert_id": campaign.advert_id}),
+            {"date_from": "2026-04-20", "date_to": "2026-04-20"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        detail = response.context["detail"]
+        self.assertEqual(detail["summary"]["spend"], 320.0)
+        self.assertEqual(detail["summary"]["orders"], 5)
+        self.assertEqual(detail["summary"]["clicks"], 42)
+        self.assertEqual(detail["product_rows"][0]["product_id"], product.id)
+        self.assertEqual(detail["product_rows"][0]["revenue"], 17500.0)
+
     @patch("core.services_advertising.WBPromotionClient")
     def test_sync_stores_aggregate_daily_row_for_campaign_metrics(self, client_cls):
         self.seller.set_api_token("test-token")
@@ -742,3 +1395,133 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(len(nm_rows), 2)
         self.assertEqual([row.nm_id for row in nm_rows], [10001, 10002])
         self.assertEqual([row.spend for row in nm_rows], [410.0, 300.0])
+
+    @patch("core.services_advertising.WBPromotionClient")
+    def test_sync_skips_failed_chunk_without_single_campaign_fallback(self, client_cls):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        client = client_cls.return_value
+        client.list_adverts.return_value = [
+            {
+                "advertId": 7101,
+                "name": "Campaign A",
+                "type": 8,
+                "status": 9,
+                "createTime": "2026-04-20T10:00:00+03:00",
+            },
+            {
+                "advertId": 7102,
+                "name": "Campaign B",
+                "type": 8,
+                "status": 9,
+                "createTime": "2026-04-20T10:00:00+03:00",
+            },
+        ]
+        client.get_fullstats.side_effect = Exception("WB API 500: upstream timeout")
+
+        result = sync_ad_campaigns_and_stats(
+            self.seller,
+            date_from=date(2026, 4, 20),
+            date_to=date(2026, 4, 20),
+        )
+
+        self.assertEqual(result["campaigns_synced"], 2)
+        self.assertEqual(result["stats_rows_upserted"], 0)
+        self.assertEqual(result["skipped_chunks_count"], 1)
+        self.assertIn("WB API 500: upstream timeout", result["error"])
+        self.assertEqual(len(result["skipped_chunks"]), 1)
+        self.assertEqual(result["skipped_chunks"][0]["campaigns_count"], 2)
+        self.assertEqual(result["skipped_chunks"][0]["advert_ids"], [7101, 7102])
+        self.assertEqual(client.get_fullstats.call_count, 1)
+
+    @patch("core.services_advertising.sync_ad_campaigns_and_stats")
+    @patch("core.services_advertising.timezone.localdate")
+    @patch("core.services_advertising.WBPromotionClient")
+    def test_full_ads_history_sync_splits_into_30_day_periods(self, client_cls, localdate_mock, sync_mock):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        localdate_mock.return_value = date(2026, 5, 1)
+        client = client_cls.return_value
+        client.list_adverts.return_value = [
+            {
+                "advertId": 9001,
+                "name": "Active campaign",
+                "status": 9,
+                "createTime": "2026-02-10T10:00:00+03:00",
+            },
+            {
+                "advertId": 9002,
+                "name": "Paused campaign",
+                "status": 11,
+                "changeTime": "2026-04-01T10:00:00+03:00",
+            },
+        ]
+        sync_mock.side_effect = [
+            {"campaigns_synced": 2, "stats_rows_upserted": 60},
+            {"campaigns_synced": 2, "stats_rows_upserted": 35},
+            {"campaigns_synced": 2, "stats_rows_upserted": 40},
+            {"campaigns_synced": 2, "stats_rows_upserted": 55},
+            {"campaigns_synced": 2, "stats_rows_upserted": 30},
+            {"campaigns_synced": 2, "stats_rows_upserted": 35},
+        ]
+
+        progress_calls = []
+        result = sync_active_paused_ad_campaigns_full_history(
+            self.seller,
+            period_days=14,
+            on_progress=lambda idx, total, begin, end: progress_calls.append((idx, total, begin, end)),
+        )
+
+        self.assertEqual(sync_mock.call_count, 6)
+        first_call = sync_mock.call_args_list[0].kwargs
+        last_call = sync_mock.call_args_list[-1].kwargs
+        self.assertEqual(first_call["campaign_statuses"], [9, 11])
+        self.assertEqual(first_call["date_from"], date(2026, 2, 10))
+        self.assertEqual(first_call["date_to"], date(2026, 2, 23))
+        self.assertEqual(last_call["date_from"], date(2026, 4, 21))
+        self.assertEqual(last_call["date_to"], date(2026, 5, 1))
+        self.assertEqual(result["campaigns_synced"], 2)
+        self.assertEqual(result["stats_rows_upserted"], 255)
+        self.assertEqual(result["periods_processed"], 6)
+        self.assertEqual(result["date_from"], "2026-02-10")
+        self.assertEqual(result["date_to"], "2026-05-01")
+        self.assertEqual(progress_calls[0], (1, 6, date(2026, 2, 10), date(2026, 2, 23)))
+        self.assertEqual(progress_calls[-1], (6, 6, date(2026, 4, 21), date(2026, 5, 1)))
+
+    @patch("core.views.threading.Thread")
+    def test_full_ads_sync_start_api_creates_background_task(self, thread_cls):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        response = self.client.post(reverse("sync_ads_full_start_api"))
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["status"], "running")
+        task = SyncTask.objects.get(task_id=payload["task_id"])
+        self.assertEqual(task.status, SyncTask.STATUS_RUNNING)
+        self.assertEqual(task.result.get("kind"), "ads_full")
+        thread_cls.assert_called_once()
+        thread_cls.return_value.start.assert_called_once()
+
+    def test_full_ads_sync_stale_timeout_is_longer_than_default(self):
+        task = SyncTask.objects.create(
+            task_id="ads-full-stale-test",
+            user=self.user,
+            seller=self.seller,
+            status=SyncTask.STATUS_RUNNING,
+            progress=64,
+            step="Полный синк рекламной статы",
+            message="Период 10/14",
+            result={"kind": "ads_full"},
+        )
+        stale_time = timezone.now() - timedelta(minutes=46)
+        SyncTask.objects.filter(id=task.id).update(updated_at=stale_time)
+
+        self.client.get(reverse("sync_orders_current_api"))
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, SyncTask.STATUS_ERROR)
+        self.assertIn("45 минут", task.message)

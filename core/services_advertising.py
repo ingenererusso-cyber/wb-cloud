@@ -177,6 +177,8 @@ def sync_ad_campaigns_and_stats(
     seller: SellerAccount,
     date_from: date,
     date_to: date,
+    campaign_statuses: List[int] | None = None,
+    on_progress=None,
 ) -> Dict[str, int]:
     """
     Синк рекламных кампаний и их статистики:
@@ -189,7 +191,7 @@ def sync_ad_campaigns_and_stats(
     client = WBPromotionClient(seller.api_token_plain)
 
     try:
-        campaigns_rows = client.list_adverts()
+        campaigns_rows = client.list_adverts(statuses=campaign_statuses)
     except Exception as exc:
         return {
             "campaigns_synced": 0,
@@ -315,6 +317,7 @@ def sync_ad_campaigns_and_stats(
         }
 
     partial_errors: List[str] = []
+    skipped_chunks: List[Dict[str, object]] = []
     # Для ускорения синка используем максимально крупные чанки (до 50 ID),
     # без дополнительного дробления по разбросу дат запуска.
     # Это существенно снижает количество вызовов /adv/v3/fullstats и паузы по rate-limit.
@@ -341,16 +344,20 @@ def sync_ad_campaigns_and_stats(
             return 0
         advert_ids_for_map = sorted({row_key[0] for row_key in stat_rows_map.keys()})
         stat_dates_for_map = sorted({row_key[1] for row_key in stat_rows_map.keys()})
-        nm_ids_for_map = sorted({row_key[2] for row_key in stat_rows_map.keys()})
+        min_stat_date = min(stat_dates_for_map)
+        max_stat_date = max(stat_dates_for_map)
+        target_keys = set(stat_rows_map.keys())
         existing_stat_map: Dict[tuple[int, date, int], WbAdvertStatDaily] = {}
         for advert_chunk in _chunks(advert_ids_for_map, 500):
             for item in WbAdvertStatDaily.objects.filter(
                 seller=seller,
                 advert_id__in=advert_chunk,
-                stat_date__in=stat_dates_for_map,
-                nm_id__in=nm_ids_for_map,
+                stat_date__gte=min_stat_date,
+                stat_date__lte=max_stat_date,
             ):
-                existing_stat_map[(int(item.advert_id), item.stat_date, int(item.nm_id))] = item
+                item_key = (int(item.advert_id), item.stat_date, int(item.nm_id))
+                if item_key in target_keys:
+                    existing_stat_map[item_key] = item
         update_fields = ["spend", "day_sum", "views", "clicks", "orders", "add_to_cart", "raw_payload", "updated_at"]
         to_create_stats: List[WbAdvertStatDaily] = []
         to_update_stats: List[WbAdvertStatDaily] = []
@@ -376,7 +383,8 @@ def sync_ad_campaigns_and_stats(
             WbAdvertStatDaily.objects.bulk_update(to_update_stats, update_fields, batch_size=2000)
         return len(stat_rows_map)
 
-    for ids_chunk in grouped_id_chunks:
+    total_chunks = len(grouped_id_chunks)
+    for chunk_index, ids_chunk in enumerate(grouped_id_chunks, start=1):
         stat_rows_map: Dict[tuple[int, date, int], Dict] = {}
         stats_now = timezone.now()
         chunk_start_dates = [advert_start_dates.get(int(advert_id)) for advert_id in ids_chunk]
@@ -386,6 +394,19 @@ def sync_ad_campaigns_and_stats(
         common_end = effective_date_to
         if common_begin > common_end:
             continue
+
+        if callable(on_progress):
+            on_progress(
+                {
+                    "mode": "chunk",
+                    "chunk_index": chunk_index,
+                    "chunks_total": total_chunks,
+                    "chunk_size": len(ids_chunk),
+                    "date_from": common_begin,
+                    "date_to": common_end,
+                    "advert_ids": list(ids_chunk),
+                }
+            )
 
         try:
             _respect_fullstats_rate_limit()
@@ -397,40 +418,25 @@ def sync_ad_campaigns_and_stats(
             last_fullstats_request_ts = time.monotonic()
         except Exception as exc:
             last_fullstats_request_ts = time.monotonic()
-            # Если чанк не загрузился целиком, пробуем дозагрузить кампании по одной.
-            # Это дольше, но не теряет данные по всему чанку из-за одного проблемного ID.
-            chunk_error = str(exc)
-            recovered_rows: List[Dict] = []
-            fallback_errors = 0
-            for advert_id_single in ids_chunk:
-                single_start = advert_start_dates.get(int(advert_id_single))
-                single_begin = max(effective_date_from, single_start) if single_start else effective_date_from
-                single_end = effective_date_to
-                if single_begin > single_end:
-                    continue
-                try:
-                    _respect_fullstats_rate_limit()
-                    one_rows = client.get_fullstats(
-                        [int(advert_id_single)],
-                        date_from=single_begin.isoformat(),
-                        date_to=single_end.isoformat(),
-                    )
-                    last_fullstats_request_ts = time.monotonic()
-                    if isinstance(one_rows, list):
-                        recovered_rows.extend(one_rows)
-                except Exception as single_exc:
-                    last_fullstats_request_ts = time.monotonic()
-                    fallback_errors += 1
-                    partial_errors.append(
-                        f"campaign {int(advert_id_single)}: {single_exc}"
-                    )
-            if recovered_rows:
-                stats_rows = recovered_rows
-            else:
-                partial_errors.append(
-                    f"chunk {ids_chunk[:1]}..{ids_chunk[-1:]} failed: {chunk_error}; fallback_failed={fallback_errors}"
-                )
-                continue
+            chunk_error = str(exc).strip() or exc.__class__.__name__
+            chunk_summary = (
+                f"Чанк {chunk_index}/{total_chunks} "
+                f"({common_begin.isoformat()} - {common_end.isoformat()}, "
+                f"{len(ids_chunk)} РК) пропущен: {chunk_error}"
+            )
+            partial_errors.append(chunk_summary)
+            skipped_chunks.append(
+                {
+                    "chunk_index": chunk_index,
+                    "chunks_total": total_chunks,
+                    "date_from": common_begin.isoformat(),
+                    "date_to": common_end.isoformat(),
+                    "campaigns_count": len(ids_chunk),
+                    "advert_ids": [int(advert_id) for advert_id in ids_chunk],
+                    "error": chunk_error,
+                }
+            )
+            continue
         if not isinstance(stats_rows, list):
             continue
 
@@ -515,5 +521,78 @@ def sync_ad_campaigns_and_stats(
         "stats_rows_upserted": stats_rows_upserted,
     }
     if partial_errors:
-        result["error"] = f"Часть статистики рекламы пропущена ({len(partial_errors)} чанков). Последняя ошибка: {partial_errors[-1]}"
+        result["skipped_chunks_count"] = len(skipped_chunks)
+        result["skipped_chunks"] = skipped_chunks[:20]
+        result["error"] = (
+            f"Часть статистики рекламы пропущена: {len(skipped_chunks)} "
+            f"из {total_chunks} чанков. Последняя причина WB: {partial_errors[-1]}"
+        )
     return result
+
+
+def sync_active_paused_ad_campaigns_full_history(
+    seller: SellerAccount,
+    *,
+    period_days: int = 30,
+    on_progress=None,
+) -> Dict[str, int]:
+    client = WBPromotionClient(seller.api_token_plain)
+    campaigns_rows = client.list_adverts(statuses=[9, 11])
+    if not isinstance(campaigns_rows, list) or not campaigns_rows:
+        return {
+            "campaigns_synced": 0,
+            "stats_rows_upserted": 0,
+            "periods_processed": 0,
+            "periods_total": 0,
+        }
+
+    oldest_start: date | None = None
+    for row in campaigns_rows:
+        if not isinstance(row, dict):
+            continue
+        start_date = _extract_campaign_start_date(row)
+        if start_date is None:
+            continue
+        oldest_start = start_date if oldest_start is None else min(oldest_start, start_date)
+
+    today = timezone.localdate()
+    if oldest_start is None:
+        oldest_start = today
+
+    periods: List[Tuple[date, date]] = []
+    cursor = oldest_start
+    chunk_days = max(1, int(period_days))
+    while cursor <= today:
+        period_end = min(cursor + timedelta(days=chunk_days - 1), today)
+        periods.append((cursor, period_end))
+        cursor = period_end + timedelta(days=1)
+
+    total_campaigns_synced = 0
+    total_stats_rows_upserted = 0
+    collected_errors: List[str] = []
+
+    for idx, (period_start, period_end) in enumerate(periods, start=1):
+        if callable(on_progress):
+            on_progress(idx, len(periods), period_start, period_end)
+        result = sync_ad_campaigns_and_stats(
+            seller=seller,
+            date_from=period_start,
+            date_to=period_end,
+            campaign_statuses=[9, 11],
+        )
+        total_campaigns_synced = max(total_campaigns_synced, int(result.get("campaigns_synced") or 0))
+        total_stats_rows_upserted += int(result.get("stats_rows_upserted") or 0)
+        if result.get("error"):
+            collected_errors.append(str(result["error"]))
+
+    payload = {
+        "campaigns_synced": total_campaigns_synced,
+        "stats_rows_upserted": total_stats_rows_upserted,
+        "periods_processed": len(periods),
+        "periods_total": len(periods),
+        "date_from": oldest_start.isoformat(),
+        "date_to": today.isoformat(),
+    }
+    if collected_errors:
+        payload["error"] = collected_errors[-1]
+    return payload

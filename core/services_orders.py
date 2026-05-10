@@ -3,7 +3,7 @@ import time
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from wb_api.client import WBOrdersSupplierClient, WBSalesSupplierClient
-from .models import Order, SellerAccount
+from .models import Order, SellerAccount, WbSaleFact
 from core.services.localization import determine_locality
 
 INITIAL_SYNC_WEEKS = 25
@@ -203,6 +203,7 @@ def sync_sales_buyout_flags(seller: SellerAccount, overlap_minutes: int = 90, ma
     buyout_marks = 0
     return_marks = 0
     processed_srids: set[str] = set()
+    sale_rows_map: dict[str, dict] = {}
     pages = 0
     next_cursor = date_from_dt
 
@@ -229,6 +230,19 @@ def sync_sales_buyout_flags(seller: SellerAccount, overlap_minutes: int = 90, ma
                 continue
 
             buyout_dt = _normalize_sales_cursor(row.get("date")) or _normalize_sales_cursor(row.get("lastChangeDate"))
+            sale_id = str(row.get("saleID") or "").strip()
+            if sale_id:
+                sale_rows_map[sale_id] = {
+                    "srid": srid,
+                    "nm_id": row.get("nmId"),
+                    "is_return": is_return,
+                    "is_buyout": is_buyout,
+                    "sale_date": buyout_dt or timezone.now(),
+                    "last_change_date": row_change_dt,
+                    "finished_price": _extract_order_price_from_row(row),
+                    "raw_payload": row,
+                    "updated_at": timezone.now(),
+                }
             if is_return:
                 updated = Order.objects.filter(seller=seller, srid=srid).update(
                     is_return=True,
@@ -250,6 +264,40 @@ def sync_sales_buyout_flags(seller: SellerAccount, overlap_minutes: int = 90, ma
         # Требование WB по лимиту: 1 запрос в минуту
         time.sleep(60.5)
 
+    if sale_rows_map:
+        existing_map = {
+            item.sale_id: item
+            for item in WbSaleFact.objects.filter(
+                seller=seller,
+                sale_id__in=list(sale_rows_map.keys()),
+            )
+        }
+        to_create: list[WbSaleFact] = []
+        to_update: list[WbSaleFact] = []
+        update_fields = [
+            "srid",
+            "nm_id",
+            "is_return",
+            "is_buyout",
+            "sale_date",
+            "last_change_date",
+            "finished_price",
+            "raw_payload",
+            "updated_at",
+        ]
+        for sale_id, defaults in sale_rows_map.items():
+            existing = existing_map.get(sale_id)
+            if existing is None:
+                to_create.append(WbSaleFact(seller=seller, sale_id=sale_id, **defaults))
+                continue
+            for field_name in update_fields:
+                setattr(existing, field_name, defaults[field_name])
+            to_update.append(existing)
+        if to_create:
+            WbSaleFact.objects.bulk_create(to_create, batch_size=2000)
+        if to_update:
+            WbSaleFact.objects.bulk_update(to_update, update_fields, batch_size=2000)
+
     meta["sales_sync"] = {
         "last_success_at": timezone.localtime().isoformat(),
     }
@@ -262,4 +310,5 @@ def sync_sales_buyout_flags(seller: SellerAccount, overlap_minutes: int = 90, ma
         "buyout_marks": buyout_marks,
         "return_marks": return_marks,
         "matched_srids": len(processed_srids),
+        "sale_facts_upserted": len(sale_rows_map),
     }

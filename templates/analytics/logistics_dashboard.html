@@ -98,6 +98,43 @@
             background: rgba(255, 255, 255, 0.72);
             border-radius: 14px;
             padding: 14px 15px;
+            box-shadow: 0 10px 22px rgba(19, 32, 51, 0.06);
+            min-height: 164px;
+        }
+
+        .metric-card-hero {
+            background:
+                radial-gradient(circle at top right, rgba(21, 128, 61, 0.14), transparent 34%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(240, 253, 244, 0.92) 100%);
+            border-color: rgba(20, 83, 45, 0.16);
+        }
+
+        .metric-card-accent {
+            background:
+                radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 32%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(240, 253, 250, 0.9) 100%);
+        }
+
+        .metric-card-warning {
+            background:
+                radial-gradient(circle at top right, rgba(185, 28, 28, 0.12), transparent 34%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 247, 237, 0.92) 100%);
+            border-color: rgba(185, 28, 28, 0.16);
+        }
+
+        .metric-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+            padding: 4px 9px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
         }
 
         .hint-banner {
@@ -121,12 +158,6 @@
             border-color: #bbf7d0;
             background: #dcfce7;
             color: #166534;
-        }
-
-        .hint-banner-info {
-            border-color: #bfdbfe;
-            background: #dbeafe;
-            color: #1e3a8a;
         }
 
         .metric-title {
@@ -171,6 +202,22 @@
             margin: 0;
             font-size: 13px;
             color: var(--muted);
+        }
+
+        .metric-emphasis {
+            margin: 6px 0 4px;
+            font-size: 25px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: #102a43;
+            line-height: 1.15;
+        }
+
+        .metric-subvalue {
+            margin: 8px 0 0;
+            font-size: 13px;
+            color: #334155;
+            font-weight: 600;
         }
 
         .metric-loading {
@@ -329,7 +376,8 @@
         {% endif %}
         <div id="sync-status-banner" class="hint-banner hint-banner-info" style="display:none;"></div>
         <section class="metrics">
-            <article class="metric-card">
+            <article class="metric-card metric-card-hero">
+                <div class="metric-kicker">Операционный KPI</div>
                 <p class="metric-title">% локальных заказов (последние 7 полных дней)</p>
                 <div id="local-orders-metric-loading" class="metric-loading">Загрузка...</div>
                 <div id="local-orders-metric-content" style="display:none;">
@@ -340,6 +388,39 @@
                     <p id="local-orders-metric-counts" class="metric-meta"></p>
                     <p id="local-orders-metric-period" class="metric-meta"></p>
                     <p id="local-orders-metric-prev" class="metric-meta"></p>
+                </div>
+            </article>
+            <article class="metric-card metric-card-accent">
+                <div class="metric-kicker">Покрытие спроса</div>
+                <p class="metric-title">Теоретический индекс локализации</p>
+                <div id="theoretical-il-metric-loading" class="metric-loading">Загрузка...</div>
+                <div id="theoretical-il-metric-content" style="display:none;">
+                    <p id="theoretical-il-metric-value" class="metric-value">-</p>
+                    <p id="theoretical-il-metric-subvalue" class="metric-subvalue"></p>
+                    <p id="theoretical-il-metric-period" class="metric-meta"></p>
+                    <p id="theoretical-il-metric-note" class="metric-meta"></p>
+                </div>
+            </article>
+            <article class="metric-card metric-card-accent">
+                <div class="metric-kicker">Распределение продаж</div>
+                <p class="metric-title">Теоретический ИРП</p>
+                <div id="theoretical-irp-metric-loading" class="metric-loading">Загрузка...</div>
+                <div id="theoretical-irp-metric-content" style="display:none;">
+                    <p id="theoretical-irp-metric-value" class="metric-value">-</p>
+                    <p id="theoretical-irp-metric-subvalue" class="metric-subvalue"></p>
+                    <p id="theoretical-irp-metric-period" class="metric-meta"></p>
+                    <p id="theoretical-irp-metric-note" class="metric-meta"></p>
+                </div>
+            </article>
+            <article class="metric-card metric-card-warning">
+                <div class="metric-kicker">Приоритет пополнения</div>
+                <p class="metric-title">Рекомендованный регион к поставке</p>
+                <div id="priority-region-metric-loading" class="metric-loading">Загрузка...</div>
+                <div id="priority-region-metric-content" style="display:none;">
+                    <p id="priority-region-metric-value" class="metric-emphasis">-</p>
+                    <p id="priority-region-metric-subvalue" class="metric-subvalue"></p>
+                    <p id="priority-region-metric-period" class="metric-meta"></p>
+                    <p id="priority-region-metric-note" class="metric-meta"></p>
                 </div>
             </article>
         </section>
@@ -459,7 +540,7 @@
 
         function renderTopNonLocalDistricts(data) {
             const container = document.getElementById("non-local-districts-chart");
-            const points = (data && data.points) ? data.points : [];
+            const points = (data && Array.isArray(data.points)) ? [...data.points].reverse() : [];
             window.VendraCharts.renderHorizontalBarChart(container, points, {
                 categoryKey: "district_name",
                 valueKey: "non_local_orders",
@@ -475,6 +556,23 @@
             if (data.start_label && data.end_label) return `${data.start_label} - ${data.end_label}`;
             if (data.date_from && data.date_to) return `${data.date_from} - ${data.date_to}`;
             return "";
+        }
+
+        function formatIsoDate(isoDate) {
+            if (!isoDate || typeof isoDate !== "string") return "-";
+            const parts = isoDate.split("-");
+            if (parts.length !== 3) return isoDate;
+            return `${parts[2]}.${parts[1]}.${parts[0]}`;
+        }
+
+        function buildLookbackWindowLabel(point, lookbackWeeks) {
+            if (!point || !point.week_end) return "";
+            const end = new Date(`${point.week_end}T00:00:00`);
+            if (Number.isNaN(end.getTime())) return "";
+            const start = new Date(end);
+            start.setDate(start.getDate() - ((lookbackWeeks * 7) - 1));
+            const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
+            return `${formatIsoDate(startIso)} - ${formatIsoDate(point.week_end)}`;
         }
 
         function renderLocalMetric(localData) {
@@ -505,6 +603,58 @@
             if (countsEl) countsEl.textContent = `Локальные заказы: ${localData.local_orders || 0} из ${localData.total_orders || 0}`;
             if (periodEl) periodEl.textContent = `Период: ${localData.date_from || "-"} - ${localData.date_to || "-"}`;
             if (prevEl) prevEl.textContent = `Изменение к предыдущим 7 дням (${localData.previous_date_from || "-"} - ${localData.previous_date_to || "-"})`;
+        }
+
+        function renderLatestTrendMetric(config) {
+            const loadingEl = document.getElementById(config.loadingId);
+            const contentEl = document.getElementById(config.contentId);
+            const points = Array.isArray(config.data?.points) ? config.data.points : [];
+            const latestPoint = points.length ? points[points.length - 1] : null;
+
+            if (!latestPoint) {
+                if (loadingEl) loadingEl.textContent = config.emptyText || "Недостаточно данных.";
+                if (contentEl) contentEl.style.display = "none";
+                return;
+            }
+
+            if (loadingEl) loadingEl.style.display = "none";
+            if (contentEl) contentEl.style.display = "";
+
+            const valueEl = document.getElementById(config.valueId);
+            const subvalueEl = document.getElementById(config.subvalueId);
+            const periodEl = document.getElementById(config.periodId);
+            const noteEl = document.getElementById(config.noteId);
+
+            if (valueEl) valueEl.textContent = config.valueFormatter(latestPoint);
+            if (subvalueEl) subvalueEl.textContent = config.subvalueFormatter ? config.subvalueFormatter(latestPoint) : "";
+            if (periodEl) periodEl.textContent = config.periodFormatter ? config.periodFormatter(latestPoint, config.data) : "";
+            if (noteEl) noteEl.textContent = config.noteFormatter ? config.noteFormatter(latestPoint, config.data) : "";
+        }
+
+        function renderPriorityRegionMetric(data) {
+            const loadingEl = document.getElementById("priority-region-metric-loading");
+            const contentEl = document.getElementById("priority-region-metric-content");
+            const points = Array.isArray(data?.points) ? data.points : [];
+            const topRegion = points.length ? points[0] : null;
+
+            if (!topRegion) {
+                if (loadingEl) loadingEl.textContent = "Недостаточно данных.";
+                if (contentEl) contentEl.style.display = "none";
+                return;
+            }
+
+            if (loadingEl) loadingEl.style.display = "none";
+            if (contentEl) contentEl.style.display = "";
+
+            const valueEl = document.getElementById("priority-region-metric-value");
+            const subvalueEl = document.getElementById("priority-region-metric-subvalue");
+            const periodEl = document.getElementById("priority-region-metric-period");
+            const noteEl = document.getElementById("priority-region-metric-note");
+
+            if (valueEl) valueEl.textContent = topRegion.district_name || "-";
+            if (subvalueEl) subvalueEl.textContent = `Нелокальных заказов: ${topRegion.non_local_orders || 0}`;
+            if (periodEl) periodEl.textContent = `Период: ${data?.date_from || "-"} - ${data?.date_to || "-"}`;
+            if (noteEl) noteEl.textContent = `Доля нелокальных заказов: ${Number(topRegion.non_local_share || 0).toFixed(1)}% из ${topRegion.total_orders || 0} заказов региона`;
         }
 
         async function loadAnalyticsData() {
@@ -543,6 +693,38 @@
                 if (theoryLocNoteEl) theoryLocNoteEl.textContent = theoreticalLocalizationIndexTrendData.no_data_reason || "";
                 if (irpNoteEl) irpNoteEl.textContent = theoreticalIrpTrendData.no_data_reason || "";
 
+                renderLatestTrendMetric({
+                    data: theoreticalLocalizationIndexTrendData,
+                    loadingId: "theoretical-il-metric-loading",
+                    contentId: "theoretical-il-metric-content",
+                    valueId: "theoretical-il-metric-value",
+                    subvalueId: "theoretical-il-metric-subvalue",
+                    periodId: "theoretical-il-metric-period",
+                    noteId: "theoretical-il-metric-note",
+                    valueFormatter: (point) => Number(point.theoretical_index || 0).toFixed(3),
+                    subvalueFormatter: (point) => `База расчёта: ${point.orders_total_13w || 0} заказов за 13 недель`,
+                    periodFormatter: (point) => `Окно: ${buildLookbackWindowLabel(point, 13) || "13 полных недель"}`,
+                    noteFormatter: (point) => `Последняя полная неделя в окне: ${point.label || "-"}`,
+                    emptyText: theoreticalLocalizationIndexTrendData.no_data_reason || "Недостаточно данных.",
+                });
+
+                renderLatestTrendMetric({
+                    data: theoreticalIrpTrendData,
+                    loadingId: "theoretical-irp-metric-loading",
+                    contentId: "theoretical-irp-metric-content",
+                    valueId: "theoretical-irp-metric-value",
+                    subvalueId: "theoretical-irp-metric-subvalue",
+                    periodId: "theoretical-irp-metric-period",
+                    noteId: "theoretical-irp-metric-note",
+                    valueFormatter: (point) => `${Number(point.theoretical_irp_percent || 0).toFixed(3)}%`,
+                    subvalueFormatter: (point) => `База расчёта: ${point.orders_total_13w || 0} заказов за 13 недель`,
+                    periodFormatter: (point) => `Окно: ${buildLookbackWindowLabel(point, 13) || "13 полных недель"}`,
+                    noteFormatter: (point) => `Последняя полная неделя в окне: ${point.label || "-"}`,
+                    emptyText: theoreticalIrpTrendData.no_data_reason || "Недостаточно данных.",
+                });
+
+                renderPriorityRegionMetric(topNonLocalDistrictsData);
+
                 renderAllLineCharts();
                 renderTopNonLocalDistricts(topNonLocalDistrictsData);
             } catch (err) {
@@ -558,6 +740,14 @@
                 ].forEach((id) => {
                     const el = document.getElementById(id);
                     if (el) el.textContent = isTimeout ? "Таймаут загрузки" : "Ошибка загрузки";
+                });
+                [
+                    "theoretical-il-metric-loading",
+                    "theoretical-irp-metric-loading",
+                    "priority-region-metric-loading",
+                ].forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = isTimeout ? "Таймаут загрузки данных." : "Ошибка загрузки данных.";
                 });
             } finally {
                 window.clearTimeout(timeoutId);

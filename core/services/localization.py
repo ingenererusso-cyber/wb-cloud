@@ -149,8 +149,6 @@ def _get_local_orders_stats_for_period(seller, start_date, end_date):
             order_date__date__gte=start_date,
             order_date__date__lte=end_date,
             warehouse_type="Склад WB",
-            is_cancel=False,
-            is_return=False,
         )
         .aggregate(
             total=Count("id"),
@@ -219,8 +217,6 @@ def get_local_orders_percent_trend_last_full_weeks(seller, weeks=25):
                 order_date__date__gte=week_start,
                 order_date__date__lte=week_end,
                 warehouse_type="Склад WB",
-                is_cancel=False,
-                is_return=False,
             )
             .aggregate(
                 total=Count("id"),
@@ -265,8 +261,6 @@ def get_top_non_local_districts_last_full_weeks(seller, weeks=25, limit=5):
             order_date__date__gte=start_date,
             order_date__date__lte=end_date,
             warehouse_type="Склад WB",
-            is_cancel=False,
-            is_return=False,
         )
         .values("oblast_okrug_name")
         .annotate(
@@ -332,8 +326,6 @@ def calculate_theoretical_localization_index_for_period(
         Order.objects
         .filter(
             seller=seller,
-            is_cancel=False,
-            is_return=False,
             warehouse_type="Склад WB",
             country_name="Россия",
             order_date__date__gte=start_date,
@@ -380,8 +372,6 @@ def _count_theoretical_orders_for_period(
         Order.objects
         .filter(
             seller=seller,
-            is_cancel=False,
-            is_return=False,
             warehouse_type="Склад WB",
             country_name="Россия",
             order_date__date__gte=start_date,
@@ -477,8 +467,6 @@ def calculate_theoretical_irp_percent_for_period(
         Order.objects
         .filter(
             seller=seller,
-            is_cancel=False,
-            is_return=False,
             warehouse_type="Склад WB",
             country_name="Россия",
             order_date__date__gte=start_date,

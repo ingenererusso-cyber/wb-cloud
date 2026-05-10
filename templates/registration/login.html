@@ -11,6 +11,7 @@
             --line: rgba(19, 32, 51, 0.14);
             --surface: rgba(255, 255, 255, 0.9);
             --accent: #14532d;
+            --page-shell-max-width: 420px;
         }
 
         * { box-sizing: border-box; }
@@ -19,8 +20,11 @@
             margin: 0;
             min-height: 100vh;
             font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
-            display: grid;
-            place-items: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
             background:
                 radial-gradient(circle at 18% 20%, rgba(85, 215, 166, 0.45), transparent 28%),
                 radial-gradient(circle at 84% 10%, rgba(136, 195, 255, 0.36), transparent 26%),
@@ -90,6 +94,19 @@
             color: #991b1b;
             font-size: 13px;
         }
+
+        .legal-note {
+            margin-top: 14px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .legal-note a {
+            color: var(--accent);
+            font-weight: 700;
+            text-decoration: none;
+        }
     </style>
 </head>
 <body>
@@ -115,6 +132,12 @@
         <p style="margin-top:12px;">
             Нет аккаунта? <a href="{% url 'home' %}#signup">Начать 3 дня бесплатно</a>
         </p>
+        <p class="legal-note">
+            Продолжая работу с сервисом, вы можете ознакомиться с <a href="{% url 'legal_privacy' %}">Политикой ПДн</a>,
+            <a href="{% url 'legal_consent' %}">Согласием на обработку ПДн</a> и <a href="{% url 'legal_terms' %}">офертой</a>.
+        </p>
     </main>
+    {% include "partials/site_footer.html" %}
+    {% include "partials/cookie_banner.html" %}
 </body>
 </html>

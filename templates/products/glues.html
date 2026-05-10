@@ -25,7 +25,28 @@
         .content-wrap { max-width: var(--page-shell-max-width); margin: 0 auto; }
         .panel { background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
         .toolbar { display: flex; align-items: center; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+        .toolbar-spacer { margin-left: auto; }
         .chip { padding: 8px 12px; border-radius: 999px; background: var(--chip); font-weight: 700; color: #334155; }
+        .toolbar-icon-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            border: 1px solid #d5dfeb;
+            background: rgba(255, 255, 255, 0.95);
+            color: #334155;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 10px 24px rgba(31, 42, 55, 0.08);
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .toolbar-icon-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 28px rgba(31, 42, 55, 0.12);
+            border-color: #b9c8d8;
+        }
+        .toolbar-icon-btn .settings-gear-icon { width: 20px; height: 20px; }
         .search-form { display: flex; gap: 10px; flex: 1; min-width: 280px; }
         .search-form input {
             flex: 1; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font-size: 15px; min-width: 180px;
@@ -103,6 +124,25 @@
             gap: 10px;
             align-items: start;
             background: #fcfdff;
+            transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+        .item.item-heatmap {
+            background: var(--heat-bg, #fcfdff);
+            border-color: var(--heat-border, #d9e5df);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+        }
+        .item.item-heatmap:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 22px rgba(20, 35, 28, 0.08);
+        }
+        .item.item-locomotive {
+            background: var(--loco-bg, #fcfdff);
+            border-color: var(--loco-border, #d9e5df);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+        }
+        .item.item-locomotive:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 22px rgba(20, 35, 28, 0.08);
         }
         .thumb {
             width: 64px;
@@ -179,6 +219,167 @@
             opacity: .45;
             pointer-events: none;
         }
+        .settings-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1300;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+        }
+        .settings-modal.is-open { display: flex; }
+        .settings-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.4);
+        }
+        .settings-dialog {
+            position: relative;
+            z-index: 1;
+            width: min(440px, 100%);
+            border-radius: 18px;
+            border: 1px solid #d9e4ef;
+            background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,251,255,0.97) 100%);
+            box-shadow: 0 22px 50px rgba(15, 23, 42, 0.2);
+            padding: 18px 18px 16px;
+        }
+        .settings-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .settings-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+            color: #132033;
+        }
+        .settings-subtitle {
+            margin: 6px 0 0;
+            color: #64748b;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+        .settings-close {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            border: 1px solid #d7e2ed;
+            background: #fff;
+            color: #334155;
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .settings-body {
+            display: grid;
+            gap: 14px;
+            margin-top: 16px;
+        }
+        .settings-section {
+            border: 1px solid #d9e4ef;
+            border-radius: 14px;
+            background: #ffffff;
+            padding: 12px;
+            display: grid;
+            gap: 12px;
+        }
+        .settings-section-title {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 800;
+            color: #132033;
+        }
+        .settings-section-subtitle {
+            margin: 4px 0 0;
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .settings-field {
+            display: grid;
+            gap: 8px;
+        }
+        .settings-checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1f2a37;
+            cursor: pointer;
+        }
+        .settings-checkbox input {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+        }
+        .settings-field label:not(.settings-checkbox) {
+            font-size: 13px;
+            font-weight: 700;
+            color: #475569;
+        }
+        .settings-field input[type="number"] {
+            width: 110px;
+            border: 1px solid #d2dde8;
+            border-radius: 12px;
+            background: #fff;
+            padding: 10px 12px;
+            font-size: 15px;
+            color: #132033;
+        }
+        .settings-help {
+            margin: 0;
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .settings-legend {
+            display: grid;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .settings-legend-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: #334155;
+        }
+        .settings-legend-chip {
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            border: 1px solid rgba(15, 23, 42, 0.1);
+            flex-shrink: 0;
+        }
+        .settings-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .settings-secondary,
+        .settings-primary {
+            border-radius: 12px;
+            padding: 10px 14px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .settings-secondary {
+            border: 1px solid #d4deea;
+            background: #fff;
+            color: #334155;
+        }
+        .settings-primary {
+            border: 0;
+            background: linear-gradient(135deg, #147a59 0%, #0f5f47 100%);
+            color: #fff;
+            box-shadow: 0 10px 24px rgba(20, 122, 89, 0.22);
+        }
     </style>
     {% include "partials/top_nav_css.html" %}
 </head>
@@ -195,6 +396,10 @@
                 <button type="submit">Найти</button>
             </form>
             <span class="hint" id="periodHint">Метрики за период</span>
+            <div class="toolbar-spacer"></div>
+            <button type="button" class="toolbar-icon-btn" id="glueSettingsBtn" aria-label="Настройки отображения">
+                {% include "partials/icons/settings_gear.html" %}
+            </button>
         </div>
 
         <div id="loadingState" class="loading-state" hidden>Загружаем склейки и рассчитываем метрики...</div>
@@ -202,6 +407,80 @@
         <div id="glueList" class="glue-list" hidden></div>
         <div id="emptyState" class="empty" hidden>Склеек не найдено. Нужны карточки с одинаковым ID склейки (imtID) и данные после синхронизации.</div>
         <div id="pagination" class="pagination" hidden></div>
+    </div>
+</div>
+<div class="settings-modal" id="glueSettingsModal" aria-hidden="true">
+    <div class="settings-backdrop" id="glueSettingsBackdrop"></div>
+    <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="glueSettingsTitle">
+        <div class="settings-head">
+            <div>
+                <h3 class="settings-title" id="glueSettingsTitle">Настройки отображения</h3>
+                <p class="settings-subtitle">Режимы взаимоисключающие: включайте только один вариант отображения за раз.</p>
+            </div>
+            <button type="button" class="settings-close" id="glueSettingsClose" aria-label="Закрыть">×</button>
+        </div>
+        <div class="settings-body">
+            <div class="settings-section">
+                <div>
+                    <p class="settings-section-title">Подсветка наличия</p>
+                    <p class="settings-section-subtitle">Показывает, на сколько дней хватит текущего остатка по темпу заказов за выбранный период.</p>
+                </div>
+                <div class="settings-field">
+                    <label class="settings-checkbox">
+                        <input type="checkbox" id="heatmapEnabledInput">
+                        <span>Подсветить наличие</span>
+                    </label>
+                    <p class="settings-help">Фон карточек товаров станет тепловой картой: от красного при нулевом остатке до зеленого при хорошем покрытии.</p>
+                </div>
+                <div class="settings-field">
+                    <label for="stockDaysTargetInput">Норма остатка, дней</label>
+                    <input type="number" id="stockDaysTargetInput" min="1" max="365" step="1" value="30">
+                    <p class="settings-help">Мягкий зеленый цвет означает, что остатка хватает примерно на это количество дней. Дальше избыток плавно уходит из зеленого в фиолетовый.</p>
+                </div>
+                <div class="settings-field">
+                    <label>Расшифровка цветов</label>
+                    <div class="settings-legend">
+                        <div class="settings-legend-row">
+                            <span class="settings-legend-chip" style="background: rgba(239, 68, 68, 0.26); border-color: rgba(220, 38, 38, 0.38);"></span>
+                            <span>Красный: остаток критически низкий или равен нулю.</span>
+                        </div>
+                        <div class="settings-legend-row">
+                            <span class="settings-legend-chip" style="background: rgba(249, 115, 22, 0.24); border-color: rgba(234, 88, 12, 0.38);"></span>
+                            <span>Оранжевый: запаса мало, товара скоро не хватит.</span>
+                        </div>
+                        <div class="settings-legend-row">
+                            <span class="settings-legend-chip" style="background: rgba(250, 204, 21, 0.24); border-color: rgba(202, 138, 4, 0.34);"></span>
+                            <span>Желтый: запас средний, но до нормы еще не дотягивает.</span>
+                        </div>
+                        <div class="settings-legend-row">
+                            <span class="settings-legend-chip" style="background: rgba(34, 197, 94, 0.22); border-color: rgba(22, 163, 74, 0.34);"></span>
+                            <span>Зеленый: остатка хватает примерно на выбранную норму дней.</span>
+                        </div>
+                        <div class="settings-legend-row">
+                            <span class="settings-legend-chip" style="background: rgba(139, 92, 246, 0.2); border-color: rgba(124, 58, 237, 0.34);"></span>
+                            <span>Фиолетовый: большой излишек. Переход от зеленого к нему плавный, чем больше запас сверх нормы, тем насыщеннее оттенок.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-section">
+                <div>
+                    <p class="settings-section-title">Режим "Локомотив"</p>
+                    <p class="settings-section-subtitle">Сортирует товары в склейке по заказам и подсвечивает вклад каждого товара в продажи.</p>
+                </div>
+                <div class="settings-field">
+                    <label class="settings-checkbox">
+                        <input type="checkbox" id="locomotiveEnabledInput">
+                        <span>Показать локомотив</span>
+                    </label>
+                    <p class="settings-help">Карточки внутри склейки строятся от лидера к отстающим, а фон меняется от зеленого к красному.</p>
+                </div>
+            </div>
+        </div>
+        <div class="settings-actions">
+            <button type="button" class="settings-secondary" id="glueSettingsReset">Сбросить</button>
+            <button type="button" class="settings-primary" id="glueSettingsSave">Применить</button>
+        </div>
     </div>
 </div>
 <script>
@@ -216,6 +495,15 @@
     const glueListEl = document.getElementById("glueList");
     const emptyStateEl = document.getElementById("emptyState");
     const paginationEl = document.getElementById("pagination");
+    const glueSettingsBtnEl = document.getElementById("glueSettingsBtn");
+    const glueSettingsModalEl = document.getElementById("glueSettingsModal");
+    const glueSettingsBackdropEl = document.getElementById("glueSettingsBackdrop");
+    const glueSettingsCloseEl = document.getElementById("glueSettingsClose");
+    const glueSettingsSaveEl = document.getElementById("glueSettingsSave");
+    const glueSettingsResetEl = document.getElementById("glueSettingsReset");
+    const heatmapEnabledInputEl = document.getElementById("heatmapEnabledInput");
+    const locomotiveEnabledInputEl = document.getElementById("locomotiveEnabledInput");
+    const stockDaysTargetInputEl = document.getElementById("stockDaysTargetInput");
     const initialQuery = "{{ query|escapejs }}";
     const initialDateFrom = "{{ default_date_from|escapejs }}";
     const initialDateTo = "{{ default_date_to|escapejs }}";
@@ -228,6 +516,13 @@
     let currentQuery = initialQuery;
     let currentDateFrom = currentUrlParams.get("date_from") || initialDateFrom;
     let currentDateTo = currentUrlParams.get("date_to") || initialDateTo;
+    const glueSettingsStorageKey = "vendra.glues.displaySettings.v1";
+    const defaultGlueSettings = {
+        highlightStock: false,
+        showLocomotive: false,
+        targetDays: 30,
+    };
+    let glueDisplaySettings = loadGlueDisplaySettings();
 
     dateFromInputEl.value = currentDateFrom;
     dateToInputEl.value = currentDateTo;
@@ -271,13 +566,218 @@
         periodHintEl.textContent = `Метрики за ${formatDateLabel(dateFromValue)} - ${formatDateLabel(dateToValue)}`;
     }
 
+    function loadGlueDisplaySettings() {
+        try {
+            const raw = window.localStorage.getItem(glueSettingsStorageKey);
+            if (!raw) {
+                return { ...defaultGlueSettings };
+            }
+            const parsed = JSON.parse(raw);
+            const targetDays = Math.max(1, Math.min(365, Number(parsed.targetDays || defaultGlueSettings.targetDays)));
+            const normalized = {
+                highlightStock: Boolean(parsed.highlightStock),
+                showLocomotive: Boolean(parsed.showLocomotive),
+                targetDays,
+            };
+            if (normalized.highlightStock && normalized.showLocomotive) {
+                normalized.showLocomotive = false;
+            }
+            return normalized;
+        } catch (_error) {
+            return { ...defaultGlueSettings };
+        }
+    }
+
+    function persistGlueDisplaySettings() {
+        window.localStorage.setItem(glueSettingsStorageKey, JSON.stringify(glueDisplaySettings));
+    }
+
+    function syncGlueSettingsForm() {
+        heatmapEnabledInputEl.checked = Boolean(glueDisplaySettings.highlightStock);
+        locomotiveEnabledInputEl.checked = Boolean(glueDisplaySettings.showLocomotive);
+        stockDaysTargetInputEl.value = String(glueDisplaySettings.targetDays || defaultGlueSettings.targetDays);
+    }
+
+    function syncExclusiveModes(changedMode) {
+        if (changedMode === "stock" && heatmapEnabledInputEl.checked) {
+            locomotiveEnabledInputEl.checked = false;
+        }
+        if (changedMode === "locomotive" && locomotiveEnabledInputEl.checked) {
+            heatmapEnabledInputEl.checked = false;
+        }
+    }
+
+    function openGlueSettingsModal() {
+        syncGlueSettingsForm();
+        glueSettingsModalEl.classList.add("is-open");
+        glueSettingsModalEl.setAttribute("aria-hidden", "false");
+    }
+
+    function closeGlueSettingsModal() {
+        glueSettingsModalEl.classList.remove("is-open");
+        glueSettingsModalEl.setAttribute("aria-hidden", "true");
+    }
+
+    function getSelectedPeriodDays() {
+        if (!currentDateFrom || !currentDateTo) {
+            return 30;
+        }
+        const fromDate = new Date(`${currentDateFrom}T00:00:00`);
+        const toDate = new Date(`${currentDateTo}T00:00:00`);
+        const diffDays = Math.round((toDate - fromDate) / 86400000) + 1;
+        return Math.max(1, Number.isFinite(diffDays) ? diffDays : 30);
+    }
+
+    function interpolateColor(start, end, ratio) {
+        const clamped = Math.max(0, Math.min(1, Number(ratio) || 0));
+        return {
+            r: Math.round(start.r + (end.r - start.r) * clamped),
+            g: Math.round(start.g + (end.g - start.g) * clamped),
+            b: Math.round(start.b + (end.b - start.b) * clamped),
+        };
+    }
+
+    function asRgba(color, alpha) {
+        return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+    }
+
+    function getHeatmapStyle(coverageDays, targetDays, totalStock, avgOrdersPerDay) {
+        const red = { r: 239, g: 68, b: 68 };
+        const orange = { r: 249, g: 115, b: 22 };
+        const yellow = { r: 250, g: 204, b: 21 };
+        const green = { r: 34, g: 197, b: 94 };
+        const violet = { r: 139, g: 92, b: 246 };
+        if (totalStock <= 0) {
+            return {
+                background: "rgba(239, 68, 68, 0.18)",
+                border: "rgba(220, 38, 38, 0.38)",
+            };
+        }
+        if (avgOrdersPerDay <= 0) {
+            return {
+                background: "rgba(139, 92, 246, 0.18)",
+                border: "rgba(124, 58, 237, 0.4)",
+            };
+        }
+        const normalizedCoverage = Math.max(0, Number(coverageDays) || 0);
+        if (normalizedCoverage <= targetDays) {
+            const progress = normalizedCoverage / Math.max(1, targetDays);
+            let color;
+            if (progress <= 0.34) {
+                color = interpolateColor(red, orange, progress / 0.34);
+            } else if (progress <= 0.67) {
+                color = interpolateColor(orange, yellow, (progress - 0.34) / 0.33);
+            } else {
+                color = interpolateColor(yellow, green, (progress - 0.67) / 0.33);
+            }
+            return {
+                background: asRgba(color, 0.17),
+                border: asRgba(color, 0.42),
+            };
+        }
+        const color = interpolateColor(
+            green,
+            violet,
+            Math.min(1, (normalizedCoverage - targetDays) / Math.max(1, targetDays * 2)),
+        );
+        return {
+            background: asRgba(color, 0.2),
+            border: asRgba(color, 0.44),
+        };
+    }
+
+    function applyStockHeatmap() {
+        const itemEls = glueListEl.querySelectorAll(".item");
+        const periodDays = getSelectedPeriodDays();
+        itemEls.forEach((itemEl) => {
+            itemEl.classList.remove("item-heatmap");
+            itemEl.style.removeProperty("--heat-bg");
+            itemEl.style.removeProperty("--heat-border");
+            itemEl.removeAttribute("title");
+            if (!glueDisplaySettings.highlightStock) {
+                return;
+            }
+            const fbo = Number(itemEl.dataset.fboStock || "0");
+            const fbs = Number(itemEl.dataset.fbsStock || "0");
+            const orders = Number(itemEl.dataset.orders || "0");
+            const totalStock = Math.max(0, fbo + fbs);
+            const avgOrdersPerDay = periodDays > 0 ? (orders / periodDays) : 0;
+            const coverageDays = avgOrdersPerDay > 0 ? (totalStock / avgOrdersPerDay) : Number.POSITIVE_INFINITY;
+            const style = getHeatmapStyle(coverageDays, glueDisplaySettings.targetDays, totalStock, avgOrdersPerDay);
+            itemEl.classList.add("item-heatmap");
+            itemEl.style.setProperty("--heat-bg", style.background);
+            itemEl.style.setProperty("--heat-border", style.border);
+            const coverageLabel = Number.isFinite(coverageDays)
+                ? `${formatNumber(coverageDays, 1)} дн.`
+                : "очень большой запас";
+            itemEl.title = `Остаток ${formatNumber(totalStock)} шт. · темп ${formatNumber(avgOrdersPerDay, 2)} заказа/день · хватит примерно на ${coverageLabel}`;
+        });
+    }
+
+    function getLocomotiveStyle(intensity) {
+        const green = { r: 34, g: 197, b: 94 };
+        const red = { r: 239, g: 68, b: 68 };
+        const color = interpolateColor(green, red, intensity);
+        return {
+            background: asRgba(color, 0.17),
+            border: asRgba(color, 0.42),
+        };
+    }
+
+    function applyLocomotiveMode() {
+        const glueCards = glueListEl.querySelectorAll(".glue-card");
+        glueCards.forEach((glueCardEl) => {
+            const itemsWrapEl = glueCardEl.querySelector(".items");
+            if (!itemsWrapEl) {
+                return;
+            }
+            const itemEls = Array.from(itemsWrapEl.querySelectorAll(".item"));
+            itemEls.forEach((itemEl) => {
+                itemEl.classList.remove("item-locomotive");
+                itemEl.style.removeProperty("--loco-bg");
+                itemEl.style.removeProperty("--loco-border");
+            });
+            if (!glueDisplaySettings.showLocomotive || itemEls.length === 0) {
+                return;
+            }
+            itemEls.sort((leftEl, rightEl) => {
+                const leftOrders = Number(leftEl.dataset.orders || "0");
+                const rightOrders = Number(rightEl.dataset.orders || "0");
+                return rightOrders - leftOrders;
+            });
+            itemEls.forEach((itemEl) => itemsWrapEl.appendChild(itemEl));
+            const ordersValues = itemEls.map((itemEl) => Number(itemEl.dataset.orders || "0"));
+            const maxOrders = Math.max(...ordersValues);
+            const minOrders = Math.min(...ordersValues);
+            const range = maxOrders - minOrders;
+            itemEls.forEach((itemEl) => {
+                const orders = Number(itemEl.dataset.orders || "0");
+                const intensity = range > 0 ? (maxOrders - orders) / range : 0;
+                const style = getLocomotiveStyle(intensity);
+                itemEl.classList.add("item-locomotive");
+                itemEl.style.setProperty("--loco-bg", style.background);
+                itemEl.style.setProperty("--loco-border", style.border);
+            });
+        });
+    }
+
+    function applyDisplayModes() {
+        applyStockHeatmap();
+        applyLocomotiveMode();
+    }
+
     function buildItemCard(item) {
         const title = safe(item.title, "Без названия");
         const photo = item.photo_url
             ? `<img class="thumb" src="${escapeHtml(item.photo_url)}" alt="${escapeHtml(title)}">`
             : '<div class="thumb-fallback">Нет фото</div>';
         return `
-            <article class="item">
+            <article
+                class="item"
+                data-orders="${escapeHtml(String(Number(item.orders_30d || 0)))}"
+                data-fbo-stock="${escapeHtml(String(Number(item.fbo_stock_qty || 0)))}"
+                data-fbs-stock="${escapeHtml(String(Number(item.fbs_stock_qty || 0)))}"
+            >
                 ${photo}
                 <div>
                     <p class="item-title">
@@ -410,6 +910,8 @@
             emptyStateEl.hidden = true;
         }
 
+        applyDisplayModes();
+
         renderPagination(payload.page || {});
     }
 
@@ -531,7 +1033,36 @@
         loadGlues();
     });
 
+    glueSettingsBtnEl.addEventListener("click", openGlueSettingsModal);
+    glueSettingsBackdropEl.addEventListener("click", closeGlueSettingsModal);
+    glueSettingsCloseEl.addEventListener("click", closeGlueSettingsModal);
+    heatmapEnabledInputEl.addEventListener("change", () => syncExclusiveModes("stock"));
+    locomotiveEnabledInputEl.addEventListener("change", () => syncExclusiveModes("locomotive"));
+    glueSettingsResetEl.addEventListener("click", () => {
+        glueDisplaySettings = { ...defaultGlueSettings };
+        syncGlueSettingsForm();
+    });
+    glueSettingsSaveEl.addEventListener("click", () => {
+        const nextTargetDays = Math.max(1, Math.min(365, Number(stockDaysTargetInputEl.value || defaultGlueSettings.targetDays)));
+        syncExclusiveModes("stock");
+        syncExclusiveModes("locomotive");
+        glueDisplaySettings = {
+            highlightStock: Boolean(heatmapEnabledInputEl.checked),
+            showLocomotive: Boolean(locomotiveEnabledInputEl.checked),
+            targetDays: nextTargetDays,
+        };
+        persistGlueDisplaySettings();
+        applyDisplayModes();
+        closeGlueSettingsModal();
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && glueSettingsModalEl.classList.contains("is-open")) {
+            closeGlueSettingsModal();
+        }
+    });
+
     updatePeriodHint(currentDateFrom, currentDateTo);
+    syncGlueSettingsForm();
     loadGlues();
 </script>
 </body>

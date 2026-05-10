@@ -36,6 +36,7 @@
             max-width: var(--page-shell-max-width);
             margin: 0 auto;
             width: 100%;
+            min-width: 0;
             border: 1px solid var(--line);
             border-radius: 28px;
             background: var(--surface);
@@ -44,51 +45,302 @@
             padding: 28px 28px 24px;
         }
 
-        .hero-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: end;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 8px;
-        }
-
-        .hero-copy {
-            max-width: 760px;
-        }
-
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            border-radius: 999px;
-            border: 1px solid rgba(20, 83, 45, 0.12);
-            background: rgba(255, 255, 255, 0.74);
-            color: #166534;
-            font-size: 12px;
-            font-weight: 800;
-            box-shadow: 0 10px 22px rgba(20, 83, 45, 0.08);
-        }
-
-        h1 {
-            margin: 0 0 10px;
-            font-size: clamp(30px, 3.8vw, 48px);
-            letter-spacing: -0.02em;
-        }
-
-        .subtitle {
-            margin: 0;
-            color: var(--muted);
-            font-size: 16px;
-            line-height: 1.45;
-        }
-
         .metrics {
             margin-top: 18px;
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 14px;
+        }
+
+        .kpi-shell {
+            margin-top: 22px;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 252, 255, 0.88) 100%);
+            padding: 18px 18px 16px;
+            box-shadow: var(--soft-shadow);
+        }
+
+        .kpi-shell-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+
+        .kpi-shell-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--ink);
+        }
+
+        .kpi-shell-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.45;
+            max-width: 560px;
+        }
+
+        .kpi-shell .metrics {
+            margin-top: 0;
+        }
+
+        .kpi-shell-toolbar {
+            display: inline-flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .kpi-settings-gear {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            border: 1px solid #dbe3ec;
+            background: #f8fafc;
+            color: #334155;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background-color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .kpi-settings-gear .settings-gear-icon {
+            width: 18px;
+            height: 18px;
+        }
+
+        .kpi-settings-gear:hover {
+            background: #fff;
+            border-color: #cbd5e1;
+        }
+
+        .kpi-settings-gear:focus-visible {
+            outline: 2px solid var(--accent-2);
+            outline-offset: 2px;
+        }
+
+        .kpi-settings-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1300;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+
+        .kpi-settings-modal.is-open {
+            display: flex;
+        }
+
+        .kpi-settings-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            cursor: pointer;
+        }
+
+        .kpi-settings-dialog {
+            position: relative;
+            z-index: 1;
+            width: min(440px, 100%);
+            max-height: min(560px, 90vh);
+            overflow: auto;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: #fff;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+            padding: 18px 18px 16px;
+        }
+
+        .kpi-settings-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-settings-head h3 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--ink);
+        }
+
+        .kpi-settings-close {
+            border: 1px solid #dbe3ec;
+            background: #fff;
+            color: var(--ink);
+            border-radius: 10px;
+            width: 36px;
+            height: 36px;
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .kpi-settings-hint {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .kpi-settings-list {
+            list-style: none;
+            margin: 14px 0 0;
+            padding: 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        .kpi-settings-list label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--ink);
+        }
+
+        .kpi-settings-list input {
+            width: 17px;
+            height: 17px;
+            accent-color: var(--accent-2);
+        }
+
+        .reminders-settings-section {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid rgba(19, 32, 51, 0.08);
+        }
+
+        .reminders-settings-section:first-of-type {
+            margin-top: 12px;
+            padding-top: 0;
+            border-top: none;
+        }
+
+        .reminders-settings-section h4 {
+            margin: 0 0 10px;
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--ink);
+            letter-spacing: -0.01em;
+        }
+
+        .reminders-settings-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 14px;
+            color: var(--ink);
+        }
+
+        .reminders-settings-row label {
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .reminders-settings-row input[type="number"] {
+            width: 72px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid #dbe3ec;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .reminders-settings-row input[type="checkbox"] {
+            width: 17px;
+            height: 17px;
+            accent-color: var(--accent-2);
+        }
+
+        .reminders-settings-error {
+            margin: 10px 0 0;
+            font-size: 13px;
+            color: #991b1b;
+            display: none;
+        }
+
+        .reminders-settings-error.is-visible {
+            display: block;
+        }
+
+        .reminders-settings-restore-row {
+            margin-top: 12px;
+        }
+
+        .reminders-settings-restore {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 11px;
+            border: 1px dashed rgba(6, 95, 70, 0.35);
+            background: rgba(6, 95, 70, 0.04);
+            color: var(--accent-2);
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background-color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .reminders-settings-restore:hover:not(:disabled) {
+            background: rgba(6, 95, 70, 0.08);
+            border-color: rgba(6, 95, 70, 0.5);
+        }
+
+        .reminders-settings-restore:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: rgba(19, 32, 51, 0.12);
+            color: var(--muted);
+            background: rgba(248, 250, 252, 0.8);
+        }
+
+        .kpi-settings-foot {
+            margin-top: 18px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .kpi-settings-foot button {
+            border-radius: 10px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .kpi-settings-reset {
+            border: 1px solid #dbe3ec;
+            background: #fff;
+            color: #334155;
+        }
+
+        .kpi-settings-done {
+            border: none;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+            color: #fff;
         }
 
         .hint-banner {
@@ -112,12 +364,6 @@
             border-color: #bbf7d0;
             background: #dcfce7;
             color: #166534;
-        }
-
-        .hint-banner-info {
-            border-color: #bfdbfe;
-            background: #dbeafe;
-            color: #1e3a8a;
         }
 
         .metric-card {
@@ -144,7 +390,7 @@
 
         .metric-value {
             margin: 7px 0 3px;
-            font-size: 32px;
+            font-size: 27px;
             font-weight: 800;
             letter-spacing: -0.02em;
             color: #0f5132;
@@ -156,10 +402,58 @@
             color: var(--muted);
         }
 
-        .reminders {
+        .metric-footnote {
+            margin-top: 6px;
+            font-size: 11px;
+            line-height: 1.35;
+            color: var(--muted);
+        }
+
+        .metric-delta {
+            margin: 6px 0 0;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        .metric-delta-note {
+            margin: 4px 0 0;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        .reminders-shell {
+            --reminder-card-w: 168px;
             margin-top: 22px;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 252, 250, 0.94) 42%, rgba(240, 253, 244, 0.35) 100%);
+            padding: 20px 20px 18px;
+            box-shadow: var(--soft-shadow);
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .reminders-shell-body {
             display: grid;
             gap: 16px;
+            min-width: 0;
+        }
+
+        .reminders-shell-head {
+            position: relative;
+            padding-right: 48px;
+            margin-bottom: 16px;
+            padding-bottom: 2px;
+            border-bottom: 1px solid rgba(19, 32, 51, 0.06);
+        }
+
+        .reminders-settings-gear {
+            position: absolute;
+            top: 0;
+            right: 0;
         }
 
         .reminders-head {
@@ -172,68 +466,125 @@
 
         .reminders-title {
             margin: 0;
-            font-size: 24px;
-            letter-spacing: -0.02em;
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--ink);
         }
 
         .reminders-subtitle {
-            margin: 4px 0 0;
+            margin: 8px 0 0;
             color: var(--muted);
-            font-size: 14px;
-            max-width: 720px;
+            font-size: 13px;
+            line-height: 1.5;
+            max-width: 640px;
         }
 
         .reminder-groups {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 14px;
+            grid-template-columns: 1fr;
+            gap: 18px;
+            min-width: 0;
         }
 
         .reminder-group {
-            border: 1px solid var(--line);
-            border-radius: 20px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 252, 255, 0.84) 100%);
-            padding: 18px;
-            box-shadow: var(--soft-shadow);
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.72);
+            padding: 16px 16px 14px;
+            box-shadow: 0 8px 24px rgba(19, 32, 51, 0.06);
+            position: relative;
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .reminder-group::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 14px;
+            bottom: 14px;
+            width: 3px;
+            border-radius: 0 4px 4px 0;
+            background: linear-gradient(180deg, var(--accent-2) 0%, var(--accent) 100%);
+            opacity: 0.85;
         }
 
         .reminder-group-head {
             display: flex;
             justify-content: space-between;
-            align-items: start;
-            gap: 10px;
+            align-items: flex-start;
+            gap: 12px;
+            padding-left: 10px;
         }
 
         .reminder-group-title {
             margin: 0;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 800;
-            color: #1e293b;
+            letter-spacing: -0.02em;
+            color: #0f172a;
         }
 
         .reminder-group-desc {
             margin: 6px 0 0;
             color: var(--muted);
-            font-size: 13px;
+            font-size: 12px;
             line-height: 1.45;
+            max-width: 52rem;
         }
 
         .reminder-count {
             flex: 0 0 auto;
-            min-width: 36px;
-            padding: 7px 10px;
+            min-width: 32px;
+            padding: 6px 11px;
             border-radius: 999px;
-            background: #eff6ff;
-            color: #1d4ed8;
+            background: rgba(6, 95, 70, 0.1);
+            color: var(--accent-2);
             font-weight: 800;
-            font-size: 12px;
+            font-size: 11px;
             text-align: center;
+            border: 1px solid rgba(6, 95, 70, 0.15);
         }
 
         .deck-list {
             position: relative;
             margin-top: 14px;
             padding-bottom: 8px;
+        }
+
+        .reminder-group-ribbon {
+            margin-top: 12px;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 6px 4px 14px;
+            scroll-snap-type: x proximity;
+            scroll-padding-inline: 4px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(19, 32, 51, 0.22) transparent;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .reminder-group-ribbon::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        .reminder-group-ribbon::-webkit-scrollbar-thumb {
+            background: rgba(19, 32, 51, 0.18);
+            border-radius: 999px;
+        }
+
+        .reminders-shell .deck-list {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 12px;
+            width: max-content;
+            min-width: min-content;
+            margin: 0;
+            padding: 0;
+            overflow: visible;
         }
 
         .deck-card {
@@ -251,8 +602,184 @@
             transform-origin: top center;
         }
 
+        .reminders-shell .reminder-tile-card {
+            box-sizing: border-box;
+            width: var(--reminder-card-w);
+            flex: 0 0 var(--reminder-card-w);
+            height: auto;
+            min-height: 0;
+            max-height: none;
+            scroll-snap-align: start;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            grid-template-columns: unset;
+            padding: 0;
+            overflow: hidden;
+            border-radius: 14px;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            background: #fff;
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.9) inset,
+                0 10px 22px rgba(19, 32, 51, 0.08);
+            transform-origin: center center;
+        }
+
+        .reminders-shell .reminder-tile-card::before,
+        .reminders-shell .reminder-tile-card::after {
+            display: none;
+        }
+
+        .reminders-shell .reminder-tile-visual {
+            flex: 0 0 auto;
+            width: 100%;
+            aspect-ratio: 3 / 4;
+            min-height: 0;
+            position: relative;
+            background: linear-gradient(160deg, #e8eef6 0%, #dce7f2 100%);
+            border-bottom: 1px solid rgba(19, 32, 51, 0.06);
+        }
+
+        .reminders-shell .reminder-tile-visual-link {
+            display: block;
+            width: 100%;
+            height: 100%;
+            text-decoration: none;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        .reminders-shell .reminder-tile-visual-link:focus-visible {
+            outline: 2px solid rgba(6, 95, 70, 0.45);
+            outline-offset: -2px;
+        }
+
+        .reminders-shell .reminder-tile-thumb,
+        .reminders-shell .reminder-tile-thumb-fallback {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 0;
+            border: none;
+            display: block;
+            vertical-align: top;
+        }
+
+        .reminders-shell .reminder-tile-thumb-fallback {
+            display: grid;
+            place-items: center;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 700;
+            text-align: center;
+            padding: 8px;
+            background: linear-gradient(145deg, #eef4f8 0%, #e2eaf3 100%);
+        }
+
+        .reminders-shell .reminder-tile-content {
+            flex: 1 1 auto;
+            min-height: 148px;
+            padding: 12px 11px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-card-head {
+            flex-shrink: 0;
+            align-items: flex-start;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-title {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 800;
+            line-height: 1.28;
+            letter-spacing: -0.02em;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-badge {
+            padding: 4px 7px;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-subtitle,
+        .reminders-shell .reminder-tile-card .deck-meta,
+        .reminders-shell .reminder-tile-card .deck-footnote {
+            margin: 0;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            font-size: 11px;
+            line-height: 1.38;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-subtitle {
+            -webkit-line-clamp: 3;
+            color: #475569;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-subtitle:empty {
+            display: none;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-meta {
+            -webkit-line-clamp: 2;
+            color: var(--accent-2);
+            font-weight: 700;
+            font-size: 11px;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-footnote {
+            -webkit-line-clamp: 2;
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-actions {
+            margin-top: auto;
+            flex-shrink: 0;
+            padding-top: 4px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .reminders-shell .reminder-tile-card .deck-action {
+            padding: 9px 8px;
+            font-size: 11px;
+            font-weight: 800;
+            border-radius: 12px;
+            text-align: center;
+            justify-content: center;
+        }
+
+        .reminders-shell .reminder-tile-card:hover {
+            transform: translateY(-3px);
+            box-shadow:
+                0 1px 0 rgba(255, 255, 255, 0.9) inset,
+                0 16px 36px rgba(19, 32, 51, 0.13);
+        }
+
+        .reminders-shell .reminder-tile-card:focus-within {
+            outline: 2px solid rgba(6, 95, 70, 0.35);
+            outline-offset: 2px;
+        }
+
         .deck-card + .deck-card {
             margin-top: -178px;
+        }
+
+        .reminders-shell .reminder-tile-card + .reminder-tile-card {
+            margin-top: 0;
         }
 
         .deck-card::before,
@@ -842,16 +1369,46 @@
             line-height: 1.5;
         }
 
+        @media (min-width: 960px) {
+            .reminders-shell {
+                --reminder-card-w: 176px;
+            }
+        }
+
         @media (max-width: 720px) {
             body { padding: 12px; }
             .hero { padding: 14px; border-radius: 16px; }
-            .metric-value { font-size: 24px; }
+            .metric-value { font-size: 21px; }
+            .kpi-shell-toolbar {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .kpi-shell-toolbar .segmented {
+                flex: 1;
+                min-width: 0;
+                justify-content: stretch;
+            }
+            .kpi-shell-toolbar .segmented-btn {
+                flex: 1;
+                text-align: center;
+                padding-inline: 8px;
+            }
             .trend-kpis { grid-template-columns: 1fr; }
             .deck-list {
                 padding-bottom: 12px;
             }
             .deck-card { grid-template-columns: 1fr; }
             .deck-card + .deck-card { margin-top: -162px; }
+            .reminders-shell {
+                --reminder-card-w: 148px;
+                padding: 16px 14px 14px;
+            }
+            .reminders-shell-head {
+                padding-right: 44px;
+            }
+            .reminder-group-head {
+                flex-wrap: wrap;
+            }
             .deck-thumb, .deck-thumb-fallback { width: 64px; height: 84px; }
         }
     </style>
@@ -863,45 +1420,78 @@
     {% include "partials/top_nav.html" with enable_sync_button=True %}
 
     <main class="hero">
-        <div class="hero-head">
-            <div class="hero-copy">
-                <h1>Главная</h1>
-                <p class="subtitle">Ключевые показатели магазина, сигналы для действий и динамика продаж в одном рабочем дашборде.</p>
-            </div>
-            <div class="hero-badge">Dashboard Home</div>
-        </div>
         <div id="sync-status-banner" class="hint-banner hint-banner-info"></div>
 
-        <section class="metrics">
-            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
-                <p class="metric-title">Выручка (30 дней)</p>
-                <p class="metric-value" id="metric-revenue">—</p>
-                <p class="metric-meta" id="metric-avg-check">Нет данных</p>
-            </article>
-            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
-                <p class="metric-title">Заказы / Выкупы</p>
-                <p class="metric-value" id="metric-orders-buyouts">—</p>
-                <p class="metric-meta" id="metric-buyout-rate">Нет данных</p>
-            </article>
-            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
-                <p class="metric-title">Доля локальных заказов</p>
-                <p class="metric-value" id="metric-local-share">—</p>
-                <p class="metric-meta">По всем заказам за 30 дней</p>
-            </article>
-            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
-                <p class="metric-title">Остатки FBO / Остатки FBS</p>
-                <p class="metric-value" id="metric-stocks">—</p>
-                <p class="metric-meta">Текущие остатки по складам WB и продавца</p>
-            </article>
-            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
-                <p class="metric-title">Расход на рекламу (30 дней)</p>
-                <p class="metric-value" id="metric-ad-spend">—</p>
-                <p class="metric-meta" id="metric-active-ads">Нет данных</p>
-            </article>
-            <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}">
-                <p class="metric-title">Последняя синхронизация</p>
-                <p class="metric-value" id="metric-last-sync" style="font-size:22px;">—</p>
-            </article>
+        <section class="kpi-shell" aria-labelledby="kpi-shell-heading">
+            <div class="kpi-shell-head">
+                <div>
+                    <h2 class="kpi-shell-title" id="kpi-shell-heading">Ключевые показатели</h2>
+                    <p class="kpi-shell-subtitle">Выручка, заказы, выкупы, процент выкупа, доля локальных заказов и реклама пересчитываются под выбранный период; там же показано изменение к предыдущему окну той же длины. Остатки и время синхронизации всегда актуальные снимки.</p>
+                </div>
+                <div class="kpi-shell-toolbar">
+                    <div class="segmented" id="kpi-period-control" role="group" aria-label="Период для KPI">
+                        <button type="button" class="segmented-btn is-active" data-weeks="1">1 неделя</button>
+                        <button type="button" class="segmented-btn" data-weeks="2">2 недели</button>
+                        <button type="button" class="segmented-btn" data-weeks="4">4 недели</button>
+                    </div>
+                    <button
+                        type="button"
+                        class="kpi-settings-gear"
+                        id="kpi-settings-open"
+                        aria-label="Настроить видимость карточек KPI"
+                        aria-expanded="false"
+                        title="Настроить карточки KPI"
+                    >{% include "partials/icons/settings_gear.html" %}</button>
+                </div>
+            </div>
+            <div class="metrics">
+                <article class="metric-card kpi-period-sensitive{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="revenue">
+                    <p class="metric-title" id="metric-revenue-title">Выручка (1 неделя)</p>
+                    <p class="metric-value" id="metric-revenue">—</p>
+                    <p class="metric-delta delta-neutral" id="metric-revenue-delta"></p>
+                    <p class="metric-meta" id="metric-avg-check">Нет данных</p>
+                    <p class="metric-delta-note delta-neutral" id="metric-avg-check-delta"></p>
+                </article>
+                <article class="metric-card kpi-period-sensitive{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="orders">
+                    <p class="metric-title">Заказы</p>
+                    <p class="metric-value" id="metric-orders">—</p>
+                    <p class="metric-delta delta-neutral" id="metric-orders-delta"></p>
+                    <p class="metric-meta metric-footnote" id="metric-orders-footnote">Заказы за выбранный период по дате заказа.</p>
+                </article>
+                <article class="metric-card kpi-period-sensitive{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="buyouts">
+                    <p class="metric-title">Выкупы</p>
+                    <p class="metric-value" id="metric-buyouts">—</p>
+                    <p class="metric-delta delta-neutral" id="metric-buyouts-delta"></p>
+                    <p class="metric-meta metric-footnote" id="metric-buyouts-footnote">Выкупы за выбранный период по дате выкупа.</p>
+                </article>
+                <article class="metric-card kpi-period-sensitive{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="buyout_rate">
+                    <p class="metric-title">Процент выкупа</p>
+                    <p class="metric-value" id="metric-buyout-rate-value">—</p>
+                    <p class="metric-delta delta-neutral" id="metric-buyout-delta"></p>
+                    <p class="metric-meta metric-footnote" id="metric-buyout-rate-footnote">Доля выкупов среди заказов с завершённым исходом за период по дате заказа.</p>
+                </article>
+                <article class="metric-card kpi-period-sensitive{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="local_share">
+                    <p class="metric-title">Доля локальных заказов</p>
+                    <p class="metric-value" id="metric-local-share">—</p>
+                    <p class="metric-delta delta-neutral" id="metric-local-delta"></p>
+                    <p class="metric-meta" id="metric-local-share-meta">По всем заказам за выбранный период</p>
+                </article>
+                <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="stocks">
+                    <p class="metric-title">Остатки FBO / Остатки FBS</p>
+                    <p class="metric-value" id="metric-stocks">—</p>
+                    <p class="metric-meta">Текущие остатки по складам WB и продавца</p>
+                </article>
+                <article class="metric-card kpi-period-sensitive{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="ad_spend">
+                    <p class="metric-title" id="metric-ad-spend-title">Расход на рекламу (1 неделя)</p>
+                    <p class="metric-value" id="metric-ad-spend">—</p>
+                    <p class="metric-delta delta-neutral" id="metric-ad-delta"></p>
+                    <p class="metric-meta" id="metric-active-ads">Нет данных</p>
+                </article>
+                <article class="metric-card{% if has_dashboard_data %} is-loading{% endif %}" data-kpi-card="last_sync">
+                    <p class="metric-title">Последняя синхронизация</p>
+                    <p class="metric-value" id="metric-last-sync" style="font-size:22px;">—</p>
+                </article>
+            </div>
         </section>
 
         {% if not has_dashboard_data %}
@@ -914,21 +1504,35 @@
             </div>
         {% endif %}
 
-        <section class="reminders">
-            <div class="reminders-head">
-                <div>
-                    <h2 class="reminders-title">Что требует внимания</h2>
-                    <p class="reminders-subtitle">Сервис собирает карточки-задачи, где сейчас нужно ваше участие: пополнить товар, проверить склейки и другие важные сигналы.</p>
+        <section class="reminders-shell" aria-labelledby="reminders-shell-heading">
+            <div class="reminders-shell-head">
+                {% if has_dashboard_data %}
+                    <button
+                        type="button"
+                        class="kpi-settings-gear reminders-settings-gear"
+                        id="reminders-settings-open"
+                        aria-label="Настройки напоминаний"
+                        aria-expanded="false"
+                        title="Настройки напоминаний"
+                    >{% include "partials/icons/settings_gear.html" %}</button>
+                {% endif %}
+                <div class="reminders-head">
+                    <div>
+                        <h2 class="reminders-title" id="reminders-shell-heading">Что требует внимания</h2>
+                        <p class="reminders-subtitle">Сервис собирает карточки-задачи, где сейчас нужно ваше участие: пополнить товар, проверить склейки и другие важные сигналы.</p>
+                    </div>
                 </div>
             </div>
-            {% if has_dashboard_data %}
-                <div id="reminders-loading" class="reminders-loading">Собираем сигналы, требующие внимания...</div>
-                <div id="reminders-error" class="reminders-error" style="display:none;"></div>
-                <div class="reminder-groups" id="reminder-groups" style="display:none;"></div>
-                <div id="reminders-empty" class="deck-empty" style="display:none;">Когда появятся товары без остатка, рискованные склейки или другие сигналы, они появятся здесь отдельными колодами.</div>
-            {% else %}
-                <div class="deck-empty" style="display:block;">После первой синхронизации здесь появятся карточки с товарами без остатка, рискованными склейками и другими сигналами.</div>
-            {% endif %}
+            <div class="reminders-shell-body">
+                {% if has_dashboard_data %}
+                    <div id="reminders-loading" class="reminders-loading">Собираем сигналы, требующие внимания...</div>
+                    <div id="reminders-error" class="reminders-error" style="display:none;"></div>
+                    <div class="reminder-groups" id="reminder-groups" style="display:none;"></div>
+                    <div id="reminders-empty" class="deck-empty" style="display:none;">Когда появятся товары без остатка, рискованные склейки или другие сигналы, они появятся здесь отдельными колодами.</div>
+                {% else %}
+                    <div class="deck-empty" style="display:block;">После первой синхронизации здесь появятся карточки с товарами без остатка, рискованными склейками и другими сигналами.</div>
+                {% endif %}
+            </div>
         </section>
 
         <section class="orders-feed">
@@ -964,12 +1568,12 @@
             </div>
             <div class="trend-kpis">
                 <div class="trend-kpi">
-                    <p class="trend-kpi-label">Количество</p>
+                    <p class="trend-kpi-label" id="trend-current-label">Количество</p>
                     <p class="trend-kpi-value" id="trend-current-total">—</p>
                     <p class="trend-kpi-sub" id="trend-current-caption">Текущий период</p>
                 </div>
                 <div class="trend-kpi">
-                    <p class="trend-kpi-label">Изменение к предыдущему периоду</p>
+                    <p class="trend-kpi-label" id="trend-delta-label">Изменение к предыдущему периоду</p>
                     <p class="trend-kpi-value delta-neutral" id="trend-delta">—</p>
                     <p class="trend-kpi-sub" id="trend-previous-caption">Предыдущий период</p>
                 </div>
@@ -984,6 +1588,82 @@
             </div>
         </section>
     </main>
+
+    <div id="kpi-settings-modal" class="kpi-settings-modal" aria-hidden="true">
+        <div class="kpi-settings-backdrop" id="kpi-settings-backdrop"></div>
+        <div class="kpi-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="kpi-settings-title">
+            <div class="kpi-settings-head">
+                <h3 id="kpi-settings-title">Карточки KPI на главной</h3>
+                <button type="button" class="kpi-settings-close" id="kpi-settings-close" aria-label="Закрыть">×</button>
+            </div>
+            <p class="kpi-settings-hint">Отметьте, что показывать в блоке «Ключевые показатели». Настройки сохраняются только в этом браузере.</p>
+            <ul class="kpi-settings-list">
+                <li><label><input type="checkbox" id="kpi-vis-revenue" data-kpi-vis="revenue"> Выручка</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-orders" data-kpi-vis="orders"> Заказы</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-buyouts" data-kpi-vis="buyouts"> Выкупы</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-buyout_rate" data-kpi-vis="buyout_rate"> Процент выкупа</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-local_share" data-kpi-vis="local_share"> Доля локальных заказов</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-stocks" data-kpi-vis="stocks"> Остатки FBO / FBS</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-ad_spend" data-kpi-vis="ad_spend"> Расход на рекламу</label></li>
+                <li><label><input type="checkbox" id="kpi-vis-last_sync" data-kpi-vis="last_sync"> Последняя синхронизация</label></li>
+            </ul>
+            <div class="kpi-settings-foot">
+                <button type="button" class="kpi-settings-reset" id="kpi-settings-reset">Показать все</button>
+                <button type="button" class="kpi-settings-done" id="kpi-settings-done">Готово</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="reminders-settings-modal" class="kpi-settings-modal" aria-hidden="true">
+        <div class="kpi-settings-backdrop" id="reminders-settings-backdrop"></div>
+        <div class="kpi-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="reminders-settings-title">
+            <div class="kpi-settings-head">
+                <h3 id="reminders-settings-title">Напоминания на главной</h3>
+                <button type="button" class="kpi-settings-close" id="reminders-settings-close" aria-label="Закрыть">×</button>
+            </div>
+            <p class="kpi-settings-hint">Включите типы сигналов и задайте условия: они сохраняются в аккаунте и участвуют в расчёте списка. Закрытые кнопкой «Закрыть» напоминания можно вернуть отдельно для каждого типа.</p>
+
+            <div class="reminders-settings-section">
+                <h4>Товар закончился</h4>
+                <div class="reminders-settings-row">
+                    <label><input type="checkbox" id="rem-set-sold-enabled"> Показывать напоминания</label>
+                </div>
+                <div class="reminders-settings-row">
+                    <label for="rem-set-sold-days">Окно продаж (дней)</label>
+                    <input type="number" id="rem-set-sold-days" min="7" max="90" step="1">
+                </div>
+                <div class="reminders-settings-restore-row">
+                    <button type="button" class="reminders-settings-restore" id="rem-restore-sold-out" data-restore-group="sold_out" disabled>Закрытых нет</button>
+                </div>
+            </div>
+
+            <div class="reminders-settings-section">
+                <h4>ДРР склейки</h4>
+                <div class="reminders-settings-row">
+                    <label><input type="checkbox" id="rem-set-glue-enabled"> Показывать напоминания</label>
+                </div>
+                <div class="reminders-settings-row">
+                    <label for="rem-set-glue-threshold">Порог ДРР (%)</label>
+                    <input type="number" id="rem-set-glue-threshold" min="1" max="100" step="0.5">
+                    <span style="font-size:12px;color:var(--muted);">Показываем склейки с ДРР выше порога</span>
+                </div>
+                <div class="reminders-settings-row">
+                    <label for="rem-set-glue-days">Окно заказов и рекламы (дней)</label>
+                    <input type="number" id="rem-set-glue-days" min="7" max="90" step="1">
+                </div>
+                <div class="reminders-settings-restore-row">
+                    <button type="button" class="reminders-settings-restore" id="rem-restore-glue-drr" data-restore-group="glue_drr" disabled>Закрытых нет</button>
+                </div>
+            </div>
+
+            <p class="reminders-settings-error" id="reminders-settings-error" role="alert"></p>
+
+            <div class="kpi-settings-foot">
+                <button type="button" class="kpi-settings-reset" id="reminders-settings-cancel">Отмена</button>
+                <button type="button" class="kpi-settings-done" id="reminders-settings-save">Сохранить</button>
+            </div>
+        </div>
+    </div>
 
     {{ has_dashboard_data|json_script:"dashboard-has-data" }}
 
@@ -1004,6 +1684,8 @@
             const trendRetryBtn = document.getElementById("trend-retry-btn");
             const trendCurrentTotal = document.getElementById("trend-current-total");
             const trendDelta = document.getElementById("trend-delta");
+            const trendCurrentLabel = document.getElementById("trend-current-label");
+            const trendDeltaLabel = document.getElementById("trend-delta-label");
             const trendCurrentCaption = document.getElementById("trend-current-caption");
             const trendPreviousCaption = document.getElementById("trend-previous-caption");
             const periodControl = document.getElementById("trend-period-control");
@@ -1012,6 +1694,371 @@
             const ordersFeedCount = document.getElementById("orders-feed-count");
             const ordersFeedEmpty = document.getElementById("orders-feed-empty");
             const ordersFeedError = document.getElementById("orders-feed-error");
+            const kpiPeriodControl = document.getElementById("kpi-period-control");
+
+            const kpiPeriodState = {
+                weeks: 1,
+            };
+
+            const KPI_VISIBILITY_STORAGE_KEY = "vendra_dashboard_kpi_visibility_v1";
+            const KPI_CARD_KEYS = [
+                "revenue",
+                "orders",
+                "buyouts",
+                "buyout_rate",
+                "local_share",
+                "stocks",
+                "ad_spend",
+                "last_sync",
+            ];
+
+            function defaultKpiVisibility() {
+                return KPI_CARD_KEYS.reduce((acc, key) => {
+                    acc[key] = true;
+                    return acc;
+                }, {});
+            }
+
+            function loadKpiVisibilityPrefs() {
+                const defaults = defaultKpiVisibility();
+                try {
+                    const raw = localStorage.getItem(KPI_VISIBILITY_STORAGE_KEY);
+                    if (!raw) return defaults;
+                    const parsed = JSON.parse(raw);
+                    if (!parsed || typeof parsed !== "object") return defaults;
+                    const out = { ...defaults };
+                    KPI_CARD_KEYS.forEach((key) => {
+                        if (typeof parsed[key] === "boolean") out[key] = parsed[key];
+                    });
+                    return out;
+                } catch (_err) {
+                    return defaults;
+                }
+            }
+
+            function saveKpiVisibilityPrefs(prefs) {
+                try {
+                    localStorage.setItem(KPI_VISIBILITY_STORAGE_KEY, JSON.stringify(prefs));
+                } catch (_err) {}
+            }
+
+            function applyKpiCardVisibility(prefs) {
+                KPI_CARD_KEYS.forEach((key) => {
+                    const el = document.querySelector(`[data-kpi-card="${key}"]`);
+                    if (!el) return;
+                    el.style.display = prefs[key] ? "" : "none";
+                });
+            }
+
+            let kpiVisibilityPrefs = loadKpiVisibilityPrefs();
+            applyKpiCardVisibility(kpiVisibilityPrefs);
+
+            function syncKpiVisibilityCheckboxes(prefs) {
+                KPI_CARD_KEYS.forEach((key) => {
+                    const cb = document.getElementById(`kpi-vis-${key}`);
+                    if (cb) cb.checked = Boolean(prefs[key]);
+                });
+            }
+
+            function readKpiVisibilityFromCheckboxes() {
+                const next = defaultKpiVisibility();
+                KPI_CARD_KEYS.forEach((key) => {
+                    const cb = document.getElementById(`kpi-vis-${key}`);
+                    if (cb) next[key] = cb.checked;
+                });
+                return next;
+            }
+
+            function updateKpiCheckboxDisabledState(prefs) {
+                const visibleCount = KPI_CARD_KEYS.filter((key) => prefs[key]).length;
+                KPI_CARD_KEYS.forEach((key) => {
+                    const cb = document.getElementById(`kpi-vis-${key}`);
+                    if (!cb) return;
+                    cb.disabled = visibleCount === 1 && prefs[key];
+                });
+            }
+
+            function openKpiSettingsModal() {
+                const modal = document.getElementById("kpi-settings-modal");
+                syncKpiVisibilityCheckboxes(kpiVisibilityPrefs);
+                updateKpiCheckboxDisabledState(kpiVisibilityPrefs);
+                if (modal) {
+                    modal.classList.add("is-open");
+                    modal.setAttribute("aria-hidden", "false");
+                }
+                document.getElementById("kpi-settings-open")?.setAttribute("aria-expanded", "true");
+            }
+
+            function closeKpiSettingsModal() {
+                const modal = document.getElementById("kpi-settings-modal");
+                if (modal) {
+                    modal.classList.remove("is-open");
+                    modal.setAttribute("aria-hidden", "true");
+                }
+                document.getElementById("kpi-settings-open")?.setAttribute("aria-expanded", "false");
+            }
+
+            function setupKpiSettingsUi() {
+                const modal = document.getElementById("kpi-settings-modal");
+                const openBtn = document.getElementById("kpi-settings-open");
+                const closeBtn = document.getElementById("kpi-settings-close");
+                const backdrop = document.getElementById("kpi-settings-backdrop");
+                const doneBtn = document.getElementById("kpi-settings-done");
+                const resetBtn = document.getElementById("kpi-settings-reset");
+
+                openBtn?.addEventListener("click", () => openKpiSettingsModal());
+                closeBtn?.addEventListener("click", () => closeKpiSettingsModal());
+                backdrop?.addEventListener("click", () => closeKpiSettingsModal());
+                doneBtn?.addEventListener("click", () => closeKpiSettingsModal());
+
+                resetBtn?.addEventListener("click", () => {
+                    kpiVisibilityPrefs = defaultKpiVisibility();
+                    saveKpiVisibilityPrefs(kpiVisibilityPrefs);
+                    applyKpiCardVisibility(kpiVisibilityPrefs);
+                    syncKpiVisibilityCheckboxes(kpiVisibilityPrefs);
+                    updateKpiCheckboxDisabledState(kpiVisibilityPrefs);
+                });
+
+                KPI_CARD_KEYS.forEach((key) => {
+                    const cb = document.getElementById(`kpi-vis-${key}`);
+                    cb?.addEventListener("change", () => {
+                        const next = readKpiVisibilityFromCheckboxes();
+                        const visibleCount = KPI_CARD_KEYS.filter((k) => next[k]).length;
+                        if (visibleCount === 0) {
+                            cb.checked = true;
+                            return;
+                        }
+                        kpiVisibilityPrefs = next;
+                        saveKpiVisibilityPrefs(kpiVisibilityPrefs);
+                        applyKpiCardVisibility(kpiVisibilityPrefs);
+                        updateKpiCheckboxDisabledState(kpiVisibilityPrefs);
+                    });
+                });
+            }
+
+            setupKpiSettingsUi();
+
+            function remindersSettingsHideError() {
+                const el = document.getElementById("reminders-settings-error");
+                if (!el) return;
+                el.textContent = "";
+                el.classList.remove("is-visible");
+            }
+
+            function remindersSettingsShowError(text) {
+                const el = document.getElementById("reminders-settings-error");
+                if (!el) return;
+                el.textContent = text || "";
+                el.classList.toggle("is-visible", Boolean(text));
+            }
+
+            function applyRemindersLimitsToInputs(limits) {
+                if (!limits || typeof limits !== "object") return;
+                const soldDays = document.getElementById("rem-set-sold-days");
+                const glueDays = document.getElementById("rem-set-glue-days");
+                const glueThr = document.getElementById("rem-set-glue-threshold");
+                const sd = limits.sold_out_period_days;
+                const gd = limits.glue_drr_period_days;
+                const gt = limits.glue_drr_threshold_pct;
+                if (soldDays && sd && typeof sd.min === "number") {
+                    soldDays.min = String(sd.min);
+                    soldDays.max = String(sd.max);
+                }
+                if (glueDays && gd && typeof gd.min === "number") {
+                    glueDays.min = String(gd.min);
+                    glueDays.max = String(gd.max);
+                }
+                if (glueThr && gt && typeof gt.min === "number") {
+                    glueThr.min = String(gt.min);
+                    glueThr.max = String(gt.max);
+                }
+            }
+
+            function fillRemindersSettingsForm(prefs) {
+                const soldEn = document.getElementById("rem-set-sold-enabled");
+                const soldDays = document.getElementById("rem-set-sold-days");
+                const glueEn = document.getElementById("rem-set-glue-enabled");
+                const glueDays = document.getElementById("rem-set-glue-days");
+                const glueThr = document.getElementById("rem-set-glue-threshold");
+                if (soldEn) soldEn.checked = Boolean(prefs.sold_out_enabled);
+                if (soldDays) soldDays.value = String(prefs.sold_out_period_days ?? 30);
+                if (glueEn) glueEn.checked = Boolean(prefs.glue_drr_enabled);
+                if (glueDays) glueDays.value = String(prefs.glue_drr_period_days ?? 30);
+                if (glueThr) glueThr.value = String(prefs.glue_drr_threshold_pct ?? 20);
+            }
+
+            function syncRemindersRestoreButtons(counts) {
+                const sold = Number(counts && counts.sold_out != null ? counts.sold_out : 0);
+                const glue = Number(counts && counts.glue_drr != null ? counts.glue_drr : 0);
+                const btnSold = document.getElementById("rem-restore-sold-out");
+                const btnGlue = document.getElementById("rem-restore-glue-drr");
+                if (btnSold) {
+                    btnSold.disabled = sold <= 0;
+                    btnSold.textContent = sold > 0 ? `Вернуть закрытые (${sold})` : "Закрытых нет";
+                }
+                if (btnGlue) {
+                    btnGlue.disabled = glue <= 0;
+                    btnGlue.textContent = glue > 0 ? `Вернуть закрытые (${glue})` : "Закрытых нет";
+                }
+            }
+
+            function closeRemindersSettingsModal() {
+                const modal = document.getElementById("reminders-settings-modal");
+                if (modal) {
+                    modal.classList.remove("is-open");
+                    modal.setAttribute("aria-hidden", "true");
+                }
+                document.getElementById("reminders-settings-open")?.setAttribute("aria-expanded", "false");
+                remindersSettingsHideError();
+            }
+
+            async function openRemindersSettingsModal() {
+                remindersSettingsHideError();
+                const modal = document.getElementById("reminders-settings-modal");
+                try {
+                    const res = await fetch("{% url 'dashboard_reminders_settings_api' %}", {
+                        headers: { "Accept": "application/json" },
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) {
+                        throw new Error(data.error || "Не удалось загрузить настройки");
+                    }
+                    applyRemindersLimitsToInputs(data.limits || {});
+                    fillRemindersSettingsForm(data.prefs || {});
+                    syncRemindersRestoreButtons(data.dismissed_counts || { sold_out: 0, glue_drr: 0 });
+                } catch (err) {
+                    remindersSettingsShowError(err && err.message ? err.message : "Не удалось загрузить настройки.");
+                    fillRemindersSettingsForm({});
+                    applyRemindersLimitsToInputs({
+                        sold_out_period_days: { min: 7, max: 90 },
+                        glue_drr_period_days: { min: 7, max: 90 },
+                        glue_drr_threshold_pct: { min: 1, max: 100 },
+                    });
+                    syncRemindersRestoreButtons({ sold_out: 0, glue_drr: 0 });
+                }
+                if (modal) {
+                    modal.classList.add("is-open");
+                    modal.setAttribute("aria-hidden", "false");
+                }
+                document.getElementById("reminders-settings-open")?.setAttribute("aria-expanded", "true");
+            }
+
+            async function saveRemindersSettingsFromForm() {
+                remindersSettingsHideError();
+                const soldEn = document.getElementById("rem-set-sold-enabled");
+                const soldDays = document.getElementById("rem-set-sold-days");
+                const glueEn = document.getElementById("rem-set-glue-enabled");
+                const glueDays = document.getElementById("rem-set-glue-days");
+                const glueThr = document.getElementById("rem-set-glue-threshold");
+                const body = {
+                    sold_out_enabled: soldEn ? soldEn.checked : true,
+                    sold_out_period_days: soldDays ? Number(soldDays.value) : 30,
+                    glue_drr_enabled: glueEn ? glueEn.checked : true,
+                    glue_drr_period_days: glueDays ? Number(glueDays.value) : 30,
+                    glue_drr_threshold_pct: glueThr ? Number(glueThr.value) : 20,
+                };
+                const saveBtn = document.getElementById("reminders-settings-save");
+                if (saveBtn) saveBtn.disabled = true;
+                try {
+                    const res = await fetch("{% url 'dashboard_reminders_settings_save_api' %}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "X-CSRFToken": getCookie("csrftoken"),
+                        },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) {
+                        throw new Error(data.error || "Не удалось сохранить");
+                    }
+                    closeRemindersSettingsModal();
+                    await loadDashboardReminders();
+                } catch (err) {
+                    remindersSettingsShowError(err && err.message ? err.message : "Не удалось сохранить настройки.");
+                } finally {
+                    if (saveBtn) saveBtn.disabled = false;
+                }
+            }
+
+            async function restoreDismissedRemindersForGroup(groupId) {
+                remindersSettingsHideError();
+                const restoreBtns = Array.from(document.querySelectorAll("[data-restore-group]"));
+                restoreBtns.forEach((b) => {
+                    b.disabled = true;
+                });
+                let countsPayload = { sold_out: 0, glue_drr: 0 };
+                try {
+                    const res = await fetch("{{ reminders_restore_dismissed_url }}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "X-CSRFToken": getCookie("csrftoken"),
+                        },
+                        body: JSON.stringify({ group_id: groupId }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) {
+                        throw new Error(data.error || "Не удалось восстановить напоминания.");
+                    }
+                    countsPayload = data.dismissed_counts || { sold_out: 0, glue_drr: 0 };
+                    await loadDashboardReminders();
+                } catch (err) {
+                    remindersSettingsShowError(
+                        err && err.message ? err.message : "Не удалось восстановить напоминания.",
+                    );
+                    try {
+                        const res = await fetch("{% url 'dashboard_reminders_settings_api' %}", {
+                            headers: { "Accept": "application/json" },
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.ok) {
+                            countsPayload = data.dismissed_counts || { sold_out: 0, glue_drr: 0 };
+                        }
+                    } catch (_e) {
+                        /* keep defaults */
+                    }
+                }
+                syncRemindersRestoreButtons(countsPayload);
+            }
+
+            function setupRemindersSettingsUi() {
+                if (!hasDashboardData) return;
+                const modal = document.getElementById("reminders-settings-modal");
+                const openBtn = document.getElementById("reminders-settings-open");
+                const closeBtn = document.getElementById("reminders-settings-close");
+                const backdrop = document.getElementById("reminders-settings-backdrop");
+                const cancelBtn = document.getElementById("reminders-settings-cancel");
+                const saveBtn = document.getElementById("reminders-settings-save");
+                openBtn?.addEventListener("click", () => openRemindersSettingsModal());
+                closeBtn?.addEventListener("click", () => closeRemindersSettingsModal());
+                backdrop?.addEventListener("click", () => closeRemindersSettingsModal());
+                cancelBtn?.addEventListener("click", () => closeRemindersSettingsModal());
+                saveBtn?.addEventListener("click", () => saveRemindersSettingsFromForm());
+                document.querySelectorAll("[data-restore-group]").forEach((btn) => {
+                    btn.addEventListener("click", () => {
+                        const gid = btn.getAttribute("data-restore-group");
+                        if (gid) restoreDismissedRemindersForGroup(gid);
+                    });
+                });
+            }
+
+            setupRemindersSettingsUi();
+
+            document.addEventListener("keydown", (event) => {
+                if (event.key !== "Escape") return;
+                const remModal = document.getElementById("reminders-settings-modal");
+                if (remModal?.classList.contains("is-open")) {
+                    closeRemindersSettingsModal();
+                    return;
+                }
+                const kpiModal = document.getElementById("kpi-settings-modal");
+                if (kpiModal?.classList.contains("is-open")) {
+                    closeKpiSettingsModal();
+                }
+            });
 
             const trendState = {
                 period: "14d",
@@ -1030,6 +2077,204 @@
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                 }).format(Number(value || 0));
+            }
+
+            function formatMoneyRubWhole(value) {
+                return new Intl.NumberFormat("ru-RU", {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0,
+                }).format(Math.round(Number(value || 0)));
+            }
+
+            function formatSignedRubWhole(n) {
+                const v = Math.round(Number(n || 0));
+                const mag = new Intl.NumberFormat("ru-RU", {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0,
+                }).format(Math.abs(v));
+                if (v === 0) return "0 ₽";
+                const sign = v > 0 ? "+" : "−";
+                return `${sign}${mag} ₽`;
+            }
+
+            function formatSignedMoney2(n) {
+                const v = Number(n || 0);
+                const mag = formatMoney(Math.abs(v));
+                if (Math.abs(v) < 1e-12) return "0,00 ₽";
+                const sign = v > 0 ? "+" : "−";
+                return `${sign}${mag} ₽`;
+            }
+
+            function formatSignedPctOptional(pct) {
+                if (pct === null || pct === undefined) return null;
+                const num = Number(pct);
+                const sign = num > 0 ? "+" : "";
+                return `${sign}${num.toFixed(1)}%`;
+            }
+
+            function formatSignedInt(n) {
+                const v = Math.trunc(Number(n || 0));
+                if (v === 0) return "0";
+                const sign = v > 0 ? "+" : "−";
+                return `${sign}${Math.abs(v)}`;
+            }
+
+            function formatSignedPp(pp) {
+                const num = Number(pp || 0);
+                const sign = num > 0 ? "+" : "";
+                return `${sign}${num.toFixed(1)} п.п.`;
+            }
+
+            function setDeltaEl(elId, text, semantic) {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                el.textContent = text || "";
+                el.classList.remove("delta-pos", "delta-neg", "delta-neutral");
+                el.classList.add(
+                    semantic === "pos" ? "delta-pos" : semantic === "neg" ? "delta-neg" : "delta-neutral",
+                );
+            }
+
+            function semanticFromValue(v, invertColors) {
+                const n = Number(v);
+                if (!Number.isFinite(n) || n === 0) return "neutral";
+                const up = n > 0;
+                const good = invertColors ? !up : up;
+                return good ? "pos" : "neg";
+            }
+
+            function clearKpiComparisons() {
+                [
+                    "metric-revenue-delta",
+                    "metric-avg-check-delta",
+                    "metric-orders-delta",
+                    "metric-buyouts-delta",
+                    "metric-buyout-delta",
+                    "metric-local-delta",
+                    "metric-ad-delta",
+                ].forEach((id) => setDeltaEl(id, "", "neutral"));
+            }
+
+            function applyKpiComparisons(summary) {
+                const revCurr = Number(summary.revenue_30d || 0);
+                const revPrev = Number(summary.revenue_prev || 0);
+                const revAbs = Number(summary.revenue_delta_abs || 0);
+                const revPct = summary.revenue_delta_pct;
+
+                let revText = "";
+                let revSem = "neutral";
+                if (revPrev === 0 && revCurr === 0) {
+                    revText = "К прошлому периоду: без изменений";
+                } else if (revPrev === 0 && revCurr > 0) {
+                    revText = "К прошлому периоду: рост с нуля";
+                    revSem = "pos";
+                } else {
+                    const parts = [formatSignedRubWhole(revAbs)];
+                    const pctStr = formatSignedPctOptional(revPct);
+                    if (pctStr) parts.push(pctStr);
+                    revText = `К прошлому периоду: ${parts.join(" · ")}`;
+                    revSem = semanticFromValue(revAbs, false);
+                }
+                setDeltaEl("metric-revenue-delta", revText, revSem);
+
+                const acCurr = Number(summary.avg_check_30d || 0);
+                const acPrev = Number(summary.avg_check_prev || 0);
+                const acAbs = Number(summary.avg_check_delta_abs || 0);
+                const acPct = summary.avg_check_delta_pct;
+                let acText = "";
+                let acSem = "neutral";
+                if (acPrev === 0 && acCurr === 0) {
+                    acText = "";
+                } else if (acPrev === 0 && acCurr > 0) {
+                    acText = "Средний чек к прошлому: появился с нуля";
+                    acSem = "pos";
+                } else if (acPrev > 0 || acCurr > 0) {
+                    const parts = [formatSignedMoney2(acAbs)];
+                    const pctStr = formatSignedPctOptional(acPct);
+                    if (pctStr) parts.push(pctStr);
+                    acText = `Средний чек к прошлому: ${parts.join(" · ")}`;
+                    acSem = semanticFromValue(acAbs, false);
+                }
+                setDeltaEl("metric-avg-check-delta", acText, acSem);
+
+                const oAbs = Number(summary.total_orders_delta_abs || 0);
+                const oPct = summary.total_orders_delta_pct;
+                let ordersLine = "";
+                let ordersSem = "neutral";
+                if (oAbs === 0) {
+                    ordersLine = "К прошлому периоду: без изменений";
+                } else {
+                    const parts = [formatSignedInt(oAbs)];
+                    const op = formatSignedPctOptional(oPct);
+                    if (op) parts.push(op);
+                    ordersLine = `К прошлому периоду: ${parts.join(" · ")}`;
+                    ordersSem = semanticFromValue(oAbs, false);
+                }
+                setDeltaEl("metric-orders-delta", ordersLine, ordersSem);
+
+                const bAbs = Number(summary.buyouts_delta_abs || 0);
+                const bPct = summary.buyouts_delta_pct;
+                let buyoutsLine = "";
+                let buyoutsSem = "neutral";
+                if (bAbs === 0) {
+                    buyoutsLine = "К прошлому периоду: без изменений";
+                } else {
+                    const parts = [formatSignedInt(bAbs)];
+                    const bp = formatSignedPctOptional(bPct);
+                    if (bp) parts.push(bp);
+                    buyoutsLine = `К прошлому периоду: ${parts.join(" · ")}`;
+                    buyoutsSem = semanticFromValue(bAbs, false);
+                }
+                setDeltaEl("metric-buyouts-delta", buyoutsLine, buyoutsSem);
+
+                const bpp = Number(summary.buyout_rate_delta_pp || 0);
+                const brPrev = Number(summary.buyout_rate_prev || 0);
+                const brCurr = Number(summary.buyout_rate_30d || 0);
+                let brText = "";
+                let brSem = "neutral";
+                if (bpp === 0 && brPrev === brCurr) {
+                    brText = "К прошлому периоду: без изменений";
+                } else {
+                    brText = `К прошлому периоду: ${formatSignedPp(bpp)}`;
+                    brSem = semanticFromValue(bpp, false);
+                }
+                setDeltaEl("metric-buyout-delta", brText, brSem);
+
+                const lsPp = Number(summary.local_share_delta_pp || 0);
+                const lsPct = summary.local_share_delta_pct;
+                const lsPrev = Number(summary.local_share_prev || 0);
+                let lsLine = "";
+                let lsSem = "neutral";
+                if (lsPp === 0) {
+                    lsLine = "К прошлому периоду: без изменений";
+                } else {
+                    const lsParts = [formatSignedPp(lsPp)];
+                    const lsp = formatSignedPctOptional(lsPct);
+                    if (lsp && lsPrev > 0) lsParts.push(lsp);
+                    lsLine = `К прошлому периоду: ${lsParts.join(" · ")}`;
+                    lsSem = semanticFromValue(lsPp, false);
+                }
+                setDeltaEl("metric-local-delta", lsLine, lsSem);
+
+                const adCurr = Number(summary.ad_spend_30d || 0);
+                const adPrev = Number(summary.ad_spend_prev || 0);
+                const adAbs = Number(summary.ad_spend_delta_abs || 0);
+                const adPct = summary.ad_spend_delta_pct;
+                let adText = "";
+                let adSem = "neutral";
+                if (adPrev === 0 && adCurr === 0) {
+                    adText = "К прошлому периоду: без изменений";
+                } else if (adPrev === 0 && adCurr > 0) {
+                    adText = "К прошлому периоду: расход появился";
+                    adSem = "neg";
+                } else {
+                    const parts = [formatSignedMoney2(adAbs)];
+                    const ap = formatSignedPctOptional(adPct);
+                    if (ap) parts.push(ap);
+                    adText = `К прошлому периоду: ${parts.join(" · ")}`;
+                    adSem = semanticFromValue(adAbs, true);
+                }
+                setDeltaEl("metric-ad-delta", adText, adSem);
             }
 
             function escapeHtml(value) {
@@ -1065,13 +2310,60 @@
                 }
             }
 
+            function kpiPeriodShortLabel(weeks) {
+                const w = Number(weeks);
+                if (w === 1) return "1 неделя";
+                if (w === 2) return "2 недели";
+                return "4 недели";
+            }
+
             function renderSummary(summary) {
-                fillMetricCard("metric-revenue", `${formatMoney(summary.revenue_30d)} ₽`, "metric-avg-check", `Средний чек: ${formatMoney(summary.avg_check_30d)} ₽`);
-                fillMetricCard("metric-orders-buyouts", `${summary.total_orders_30d} / ${summary.buyouts_30d}`, "metric-buyout-rate", `Процент выкупа: ${Number(summary.buyout_rate_30d || 0).toFixed(2)}%`);
+                const weeks = Number(summary.period_weeks || kpiPeriodState.weeks || 1);
+                const days = Number(summary.period_days || 7);
+                kpiPeriodState.weeks = [1, 2, 4].includes(weeks) ? weeks : 1;
+
+                const revenueTitleEl = document.getElementById("metric-revenue-title");
+                if (revenueTitleEl) revenueTitleEl.textContent = `Выручка (${kpiPeriodShortLabel(kpiPeriodState.weeks)})`;
+                const adTitleEl = document.getElementById("metric-ad-spend-title");
+                if (adTitleEl) adTitleEl.textContent = `Расход на рекламу (${kpiPeriodShortLabel(kpiPeriodState.weeks)})`;
+
+                const ordersFootnoteEl = document.getElementById("metric-orders-footnote");
+                if (ordersFootnoteEl) {
+                    ordersFootnoteEl.textContent = `Заказы за последние ${days}×24 ч. до последней синхронизации.`;
+                }
+                const buyoutsFootnoteEl = document.getElementById("metric-buyouts-footnote");
+                if (buyoutsFootnoteEl) {
+                    buyoutsFootnoteEl.textContent = `Выкупы за последние ${days}×24 ч. до последней синхронизации.`;
+                }
+                const avgCheckEl = document.getElementById("metric-avg-check");
+                if (avgCheckEl) {
+                    avgCheckEl.textContent = `Средний чек: ${formatMoney(summary.avg_check_30d)} ₽ · по заказам без отмен за последние ${days}×24 ч.`;
+                }
+                const localShareMetaEl = document.getElementById("metric-local-share-meta");
+                if (localShareMetaEl) localShareMetaEl.textContent = `По заказам за последние ${days}×24 ч.`;
+
+                setSegmentedActive(kpiPeriodControl, "data-weeks", String(kpiPeriodState.weeks));
+
+                fillMetricCard(
+                    "metric-revenue",
+                    `${formatMoneyRubWhole(summary.revenue_30d)} ₽`,
+                    null,
+                    null,
+                );
+                fillMetricCard("metric-orders", `${summary.total_orders_30d}`, null, null);
+                fillMetricCard("metric-buyouts", `${summary.buyouts_30d}`, null, null);
+                fillMetricCard(
+                    "metric-buyout-rate-value",
+                    `${Number(summary.buyout_rate_30d || 0).toFixed(2)}%`,
+                    "metric-buyout-rate-footnote",
+                    `Среди выкупов и отмен за последние ${days}×24 ч. до последней синхронизации.`,
+                );
                 fillMetricCard("metric-local-share", `${Number(summary.local_share_orders_30d || 0).toFixed(2)}%`);
                 fillMetricCard("metric-stocks", `${summary.fbo_stock_total} / ${summary.fbs_stock_total}`);
                 fillMetricCard("metric-ad-spend", `${formatMoney(summary.ad_spend_30d)} ₽`, "metric-active-ads", `Активных РК: ${summary.active_ads_count || 0}`);
                 fillMetricCard("metric-last-sync", summary.last_sync_at_label || "не было");
+
+                applyKpiComparisons(summary);
             }
 
             function buildOrderTileHtml(row) {
@@ -1190,18 +2482,21 @@
             function buildReminderGroupsHtml(groups) {
                 return groups.map((group) => {
                     const cards = Array.isArray(group.cards) ? group.cards : [];
-                    const cardsHtml = cards.map((card) => `
-                        <article class="deck-card" data-reminder-id="${escapeHtml(card.reminder_id || "")}">
-                            ${card.photo_url
-                                ? `<img class="deck-thumb" src="${escapeHtml(card.photo_url)}" alt="${escapeHtml(card.title || "")}">`
-                                : '<div class="deck-thumb-fallback">Нет фото</div>'}
-                            <div>
+                    const cardsHtml = cards.map((card) => {
+                        const thumbPhoto = card.photo_url
+                            ? `<img class="deck-thumb reminder-tile-thumb" src="${escapeHtml(card.photo_url)}" alt="${escapeHtml(card.title || "Товар")}">`
+                            : '<div class="deck-thumb-fallback reminder-tile-thumb-fallback">Нет фото</div>';
+                        const visualBlock = card.link
+                            ? `<a class="reminder-tile-visual-link" href="${escapeHtml(card.link)}" aria-label="Открыть карточку" title="Открыть карточку">${thumbPhoto}</a>`
+                            : thumbPhoto;
+                        return `
+                        <article class="deck-card reminder-tile-card" data-reminder-id="${escapeHtml(card.reminder_id || "")}">
+                            <div class="reminder-tile-visual">
+                                ${visualBlock}
+                            </div>
+                            <div class="reminder-tile-content">
                                 <div class="deck-card-head">
-                                    <h4 class="deck-title">
-                                        ${card.link
-                                            ? `<a href="${escapeHtml(card.link)}">${escapeHtml(card.title || "")}</a>`
-                                            : escapeHtml(card.title || "")}
-                                    </h4>
+                                    <h4 class="deck-title">${escapeHtml(card.title || "")}</h4>
                                     ${card.badge
                                         ? `<span class="deck-badge ${card.badge_tone === "danger" ? "deck-badge-danger" : "deck-badge-warn"}">${escapeHtml(card.badge)}</span>`
                                         : ""}
@@ -1210,13 +2505,13 @@
                                 <p class="deck-meta">${escapeHtml(card.meta || "")}</p>
                                 <p class="deck-footnote">${escapeHtml(card.footnote || "")}</p>
                                 <div class="deck-actions">
-                                    ${card.link ? `<a class="deck-action deck-action-primary" href="${escapeHtml(card.link)}">Открыть</a>` : ""}
-                                    <button class="deck-action" type="button" data-reminder-action="snooze">Отложить вниз</button>
+                                    <button class="deck-action" type="button" data-reminder-action="snooze">В конец</button>
                                     <button class="deck-action" type="button" data-reminder-action="dismiss">Закрыть</button>
                                 </div>
                             </div>
                         </article>
-                    `).join("");
+                    `;
+                    }).join("");
                     return `
                         <section class="reminder-group" data-group-id="${escapeHtml(group.group_id || "")}">
                             <div class="reminder-group-head">
@@ -1226,7 +2521,9 @@
                                 </div>
                                 <div class="reminder-count" data-role="count">${cards.length}</div>
                             </div>
-                            <div class="deck-list" data-role="deck-list">${cardsHtml}</div>
+                            <div class="reminder-group-ribbon">
+                                <div class="deck-list" data-role="deck-list">${cardsHtml}</div>
+                            </div>
                             <div class="deck-empty" data-role="empty" ${cards.length ? 'style="display:none;"' : ""}>${escapeHtml(group.empty_text || "Нет активных сигналов.")}</div>
                         </section>
                     `;
@@ -1253,7 +2550,10 @@
             }
 
             async function loadDashboardSummary() {
-                const res = await fetch("{% url 'dashboard_summary_api' %}", { headers: { "Accept": "application/json" } });
+                const params = new URLSearchParams({ weeks: String(kpiPeriodState.weeks) });
+                const res = await fetch(`{% url 'dashboard_summary_api' %}?${params.toString()}`, {
+                    headers: { "Accept": "application/json" },
+                });
                 const data = await res.json();
                 if (!res.ok || !data.ok) {
                     throw new Error(data.error || "Не удалось загрузить KPI");
@@ -1294,12 +2594,20 @@
 
             function renderTrendChart(data) {
                 if (!trendChartHost || !trendWrap) return;
-                window.VendraCharts.renderComparisonTrendChart(trendChartHost, data, {
+                const chartPayload = {
+                    labels: data.labels || [],
+                    current_values: data.current_values || [],
+                    previous_values: data.previous_values || [],
+                };
+                window.VendraCharts.renderComparisonTrendChart(trendChartHost, chartPayload, {
                     currentColor: "#14532d",
                     previousColor: "#94a3b8",
                     currentLabel: "Текущий период",
                     previousLabel: "Предыдущий период",
                     emptyText: "Недостаточно данных",
+                    axisValueFormatter(value) {
+                        return String(Math.round(Number(value || 0)));
+                    },
                 });
             }
 
@@ -1307,16 +2615,42 @@
                 const currentTotal = Number(data.current_total || 0);
                 const previousTotal = Number(data.previous_total || 0);
                 const deltaAbs = Number(data.delta_abs || 0);
-                const deltaPct = data.delta_percent === null || data.delta_percent === undefined
+                const deltaPct = data.delta_percent === null
+                    || data.delta_percent === undefined
                     ? null
                     : Number(data.delta_percent || 0);
-                if (trendCurrentTotal) trendCurrentTotal.textContent = String(currentTotal);
-                if (trendCurrentCaption) trendCurrentCaption.textContent = `Текущий: ${currentTotal}, прошлый: ${previousTotal}`;
-                if (trendPreviousCaption) trendPreviousCaption.textContent = trendState.metric === "orders" ? "Метрика: заказы" : "Метрика: выкупы";
+                const currentAmount = Number(data.current_amount_total || 0);
+                const previousAmount = Number(data.previous_amount_total || 0);
+                const amountDeltaAbs = Number(data.amount_delta_abs || 0);
+                const amountDeltaPct = data.amount_delta_percent === null
+                    || data.amount_delta_percent === undefined
+                    ? null
+                    : Number(data.amount_delta_percent || 0);
+                if (trendCurrentLabel) {
+                    trendCurrentLabel.textContent = "Количество";
+                }
+                if (trendDeltaLabel) {
+                    trendDeltaLabel.textContent = "Изменение к предыдущему периоду";
+                }
+                if (trendCurrentTotal) {
+                    trendCurrentTotal.textContent = String(Math.round(currentTotal));
+                }
+                if (trendCurrentCaption) {
+                    const amountDeltaPctPart = amountDeltaPct === null ? "н/д" : `${amountDeltaPct > 0 ? "+" : ""}${amountDeltaPct.toFixed(2)}%`;
+                    trendCurrentCaption.textContent = `Сумма: ${formatMoneyRubWhole(currentAmount)} ₽ · к прошлому ${formatSignedRubWhole(amountDeltaAbs)} (${amountDeltaPctPart})`;
+                }
+                if (trendPreviousCaption) {
+                    const metricLabel = trendState.metric === "orders" ? "Заказы" : "Выкупы";
+                    const periodLabel = trendState.period === "today"
+                        ? "Сегодня до времени последнего синка vs вчера до того же времени"
+                        : trendState.period === "24h"
+                        ? "Rolling-окно: последние 24 ч. до синка"
+                        : `Rolling-окно: последние ${trendState.period.replace("d", "")}×24 ч. до синка`;
+                    trendPreviousCaption.textContent = `${metricLabel} · ${periodLabel} · прошлый период: ${Math.round(previousTotal)} шт. / ${formatMoneyRubWhole(previousAmount)} ₽`;
+                }
                 if (trendDelta) {
-                    const sign = deltaAbs > 0 ? "+" : "";
                     const pctPart = deltaPct === null ? "н/д" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(2)}%`;
-                    trendDelta.textContent = `${sign}${deltaAbs} (${pctPart})`;
+                    trendDelta.textContent = `${formatSignedInt(deltaAbs)} (${pctPart})`;
                     trendDelta.classList.remove("delta-pos", "delta-neg", "delta-neutral");
                     trendDelta.classList.add(deltaAbs > 0 ? "delta-pos" : deltaAbs < 0 ? "delta-neg" : "delta-neutral");
                 }
@@ -1362,12 +2696,33 @@
                 loadTrendData();
             });
 
+            kpiPeriodControl?.addEventListener("click", (ev) => {
+                const btn = ev.target.closest(".segmented-btn[data-weeks]");
+                if (!btn || !hasDashboardData) return;
+                const nextWeeks = Number(btn.getAttribute("data-weeks"));
+                if (![1, 2, 4].includes(nextWeeks) || nextWeeks === kpiPeriodState.weeks) return;
+                kpiPeriodState.weeks = nextWeeks;
+                setSegmentedActive(kpiPeriodControl, "data-weeks", String(nextWeeks));
+                document.querySelectorAll(".metric-card.kpi-period-sensitive").forEach((el) => el.classList.add("is-loading"));
+                loadDashboardSummary().catch((_err) => {
+                    document.querySelectorAll(".metric-card").forEach((cardEl) => cardEl.classList.remove("is-loading"));
+                });
+            });
+
             trendRetryBtn?.addEventListener("click", loadTrendData);
             async function loadDashboardTopToBottom() {
                 if (!hasDashboardData) {
                     document.querySelectorAll(".metric-card").forEach((cardEl) => cardEl.classList.remove("is-loading"));
+                    clearKpiComparisons();
                     fillMetricCard("metric-revenue", "—", "metric-avg-check", "Появится после первой синхронизации");
-                    fillMetricCard("metric-orders-buyouts", "—", "metric-buyout-rate", "Появится после первой синхронизации");
+                    fillMetricCard("metric-orders", "—", "metric-orders-footnote", "Появится после первой синхронизации");
+                    fillMetricCard("metric-buyouts", "—", "metric-buyouts-footnote", "Появится после первой синхронизации");
+                    fillMetricCard(
+                        "metric-buyout-rate-value",
+                        "—",
+                        "metric-buyout-rate-footnote",
+                        "Появится после первой синхронизации",
+                    );
                     fillMetricCard("metric-local-share", "—");
                     fillMetricCard("metric-stocks", "—");
                     fillMetricCard("metric-ad-spend", "—", "metric-active-ads", "Появится после первой синхронизации");
@@ -1430,6 +2785,14 @@
             function applyDeckStack(groupEl) {
                 if (!groupEl) return;
                 const cards = Array.from(groupEl.querySelectorAll(".deck-card"));
+                if (cards.length && cards[0].classList.contains("reminder-tile-card")) {
+                    cards.forEach((cardEl) => {
+                        cardEl.classList.remove("is-stacked", "is-deep-stack");
+                        cardEl.style.zIndex = "";
+                        cardEl.removeAttribute("aria-hidden");
+                    });
+                    return;
+                }
                 const total = cards.length;
                 cards.forEach((cardEl, idx) => {
                     const depth = total - idx;

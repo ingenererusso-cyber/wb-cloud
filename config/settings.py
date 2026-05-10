@@ -78,6 +78,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.legal_context',
             ],
         },
     },
@@ -219,3 +220,32 @@ DEFAULT_FROM_EMAIL = os.getenv(
     "DEFAULT_FROM_EMAIL",
     EMAIL_HOST_USER or "noreply@vendra.local",
 )
+
+LEGAL_DOC_VERSIONS = {
+    "privacy": "2026-05-01",
+    "consent": "2026-05-01",
+    "terms": "2026-05-01",
+}
+LEGAL_OPERATOR_NAME = os.getenv("LEGAL_OPERATOR_NAME", "ИП Новикова О.Н.").strip()
+LEGAL_OPERATOR_STATUS = os.getenv("LEGAL_OPERATOR_STATUS", "Индивидуальный предприниматель").strip()
+LEGAL_OPERATOR_INN = os.getenv("LEGAL_OPERATOR_INN", "323407107554").strip()
+LEGAL_OPERATOR_OGRN = os.getenv("LEGAL_OPERATOR_OGRN", "").strip()
+LEGAL_OPERATOR_ADDRESS = os.getenv("LEGAL_OPERATOR_ADDRESS", "").strip()
+LEGAL_OPERATOR_EMAIL = os.getenv("LEGAL_OPERATOR_EMAIL", DEFAULT_FROM_EMAIL).strip()
+LEGAL_OPERATOR_PHONE = os.getenv("LEGAL_OPERATOR_PHONE", "").strip()
+LEGAL_OPERATOR_BANK_ACCOUNT = os.getenv("LEGAL_OPERATOR_BANK_ACCOUNT", "40802810300004947710").strip()
+LEGAL_OPERATOR_BANK_BIK = os.getenv("LEGAL_OPERATOR_BANK_BIK", "044525974").strip()
+LEGAL_OPERATOR_BANK_NAME = os.getenv("LEGAL_OPERATOR_BANK_NAME", "").strip()
+LEGAL_OPERATOR_BANK_CORR = os.getenv("LEGAL_OPERATOR_BANK_CORR", "").strip()
+
+if _env_bool("ENABLE_SECURITY_HARDENING", False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", True)
+    SECURE_HSTS_PRELOAD = _env_bool("SECURE_HSTS_PRELOAD", False)
+    SECURE_REFERRER_POLICY = os.getenv("SECURE_REFERRER_POLICY", "same-origin")

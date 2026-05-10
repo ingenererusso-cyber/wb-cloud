@@ -272,6 +272,152 @@
             font-size: 13px;
         }
 
+        .task-list {
+            margin-top: 14px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .task-card {
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.84);
+            padding: 14px;
+        }
+
+        .task-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .task-title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 800;
+            color: #1e293b;
+        }
+
+        .task-meta {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .task-pills {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .task-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            background: rgba(255, 255, 255, 0.86);
+            color: #334155;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .task-pill-running {
+            background: #eefbf3;
+            border-color: rgba(20, 83, 45, 0.16);
+            color: #166534;
+        }
+
+        .task-pill-success {
+            background: #ecfeff;
+            border-color: rgba(8, 145, 178, 0.16);
+            color: #155e75;
+        }
+
+        .task-pill-error {
+            background: #fff1f2;
+            border-color: rgba(190, 24, 93, 0.14);
+            color: #9f1239;
+        }
+
+        .task-grid {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .task-mini {
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            border-radius: 14px;
+            background: rgba(248, 252, 255, 0.78);
+            padding: 10px 12px;
+        }
+
+        .task-mini-label {
+            margin: 0;
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .task-mini-value {
+            margin: 7px 0 0;
+            color: #1e293b;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .consent-row {
+            margin-top: 16px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .consent-row label {
+            margin: 0;
+            display: inline-flex;
+            align-items: flex-start;
+            gap: 10px;
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        .consent-row small {
+            display: block;
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            font-weight: 400;
+        }
+
+        .consent-note {
+            margin-top: 12px;
+            color: #475569;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .consent-note.is-ok {
+            color: #166534;
+        }
+
+        .consent-note.is-error {
+            color: #9f1239;
+        }
+
         label {
             display: block;
             margin-bottom: 6px;
@@ -498,6 +644,14 @@
                         <span class="settings-nav-btn-title">Авто-синхронизация</span>
                         <span class="settings-nav-btn-meta">Ежедневный запуск по расписанию</span>
                     </button>
+                    <button class="settings-nav-btn" type="button" data-settings-target="section-consent">
+                        <span class="settings-nav-btn-title">Согласия и приватность</span>
+                        <span class="settings-nav-btn-meta">Рассылки, ПДн и запрос на удаление аккаунта</span>
+                    </button>
+                    <button class="settings-nav-btn" type="button" data-settings-target="section-sync-tasks">
+                        <span class="settings-nav-btn-title">Задачи синхронизации</span>
+                        <span class="settings-nav-btn-meta">Текущие и недавние запуски, ручная остановка</span>
+                    </button>
                     <button class="settings-nav-btn" type="button" data-settings-target="section-danger">
                         <span class="settings-nav-btn-title">Опасные действия</span>
                         <span class="settings-nav-btn-meta">Удаление данных и аккаунта</span>
@@ -591,6 +745,93 @@
                     </form>
                 </section>
 
+                <section id="section-consent" class="section-card settings-panel" data-settings-panel="section-consent">
+                    <h2 class="section-title">Согласия и приватность</h2>
+                    <p class="section-subtitle">Управляйте маркетинговыми сообщениями и юридически значимыми действиями по аккаунту.</p>
+                    <div class="consent-row">
+                        <label for="marketingConsentToggle">
+                            <input type="checkbox" id="marketingConsentToggle" {% if marketing_consent_enabled %}checked{% endif %}>
+                            <span>
+                                Получать информационные и рекламные сообщения от Vendra
+                                <small>Опциональное согласие. Не влияет на сервисные письма о доступе, безопасности и оплате.</small>
+                            </span>
+                        </label>
+                    </div>
+                    <p class="consent-note" id="marketingConsentNote">
+                        {% if marketing_consent_enabled %}
+                            Сейчас рассылки включены.
+                        {% else %}
+                            Сейчас рассылки отключены.
+                        {% endif %}
+                    </p>
+                    <div class="actions">
+                        <a class="btn" href="{% url 'legal_privacy' %}">Политика ПДн</a>
+                        <a class="btn" href="{% url 'legal_consent' %}">Согласие на ПДн</a>
+                        <a class="btn" href="{% url 'legal_terms' %}">Оферта</a>
+                    </div>
+                </section>
+
+                <section id="section-sync-tasks" class="section-card settings-panel" data-settings-panel="section-sync-tasks">
+                    <h2 class="section-title">Задачи синхронизации</h2>
+                    <p class="section-subtitle">Здесь можно посмотреть текущие и недавние задачи синка, а также вручную остановить зависший процесс.</p>
+                    {% if sync_tasks %}
+                        <div class="task-list">
+                            {% for task in sync_tasks %}
+                                <article class="task-card">
+                                    <div class="task-head">
+                                        <div>
+                                            <h3 class="task-title">
+                                                {% if task.kind == "ads_full" %}
+                                                    Полный синк рекламной статы
+                                                {% else %}
+                                                    Общая синхронизация
+                                                {% endif %}
+                                            </h3>
+                                            <p class="task-meta">
+                                                ID: {{ task.task_id }}<br>
+                                                Этап: {{ task.step }}
+                                            </p>
+                                        </div>
+                                        <div class="task-pills">
+                                            <span class="task-pill task-pill-{{ task.status_tone }}">{{ task.status_label }}</span>
+                                            <span class="task-pill">{{ task.progress }}%</span>
+                                        </div>
+                                    </div>
+                                    <div class="task-grid">
+                                        <div class="task-mini">
+                                            <p class="task-mini-label">Запущена</p>
+                                            <p class="task-mini-value">{{ task.created_at|date:"d.m.Y H:i:s" }}</p>
+                                        </div>
+                                        <div class="task-mini">
+                                            <p class="task-mini-label">Последнее обновление</p>
+                                            <p class="task-mini-value">{{ task.updated_at|date:"d.m.Y H:i:s" }}</p>
+                                        </div>
+                                        <div class="task-mini">
+                                            <p class="task-mini-label">Завершена</p>
+                                            <p class="task-mini-value">{% if task.finished_at %}{{ task.finished_at|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</p>
+                                        </div>
+                                        <div class="task-mini">
+                                            <p class="task-mini-label">Простой</p>
+                                            <p class="task-mini-value">{% if task.idle_seconds is not None %}{{ task.idle_seconds }} сек{% else %}—{% endif %}</p>
+                                        </div>
+                                    </div>
+                                    <p class="muted">{{ task.message|default:"Сообщение отсутствует." }}</p>
+                                    {% if task.can_stop %}
+                                        <form method="post" class="actions" data-settings-form="section-sync-tasks">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="stop_sync_task">
+                                            <input type="hidden" name="task_id" value="{{ task.task_id }}">
+                                            <button class="btn btn-danger" type="submit">Принудительно остановить</button>
+                                        </form>
+                                    {% endif %}
+                                </article>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="deck-empty">Задач синхронизации пока нет.</div>
+                    {% endif %}
+                </section>
+
                 <section id="section-danger" class="danger-card settings-panel" data-settings-panel="section-danger">
                     <h2 class="danger-title">Опасные действия</h2>
                     <p class="danger-subtitle">
@@ -598,7 +839,7 @@
                     </p>
                     <div class="actions">
                         <button id="openPurgeSellerData" class="btn btn-danger" type="button">Удалить данные селлера с этого сервера</button>
-                        <button id="openDeleteAccount" class="btn btn-danger" type="button">Удалить аккаунт</button>
+                        <button id="openDeleteAccount" class="btn btn-danger" type="button">Запросить удаление аккаунта</button>
                     </div>
                     <form method="post" action="{% url 'logout' %}" class="head-form bottom-exit">
                         {% csrf_token %}
@@ -655,20 +896,19 @@
     <div id="deleteAccountModal" class="modal" aria-hidden="true">
         <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="deleteAccountTitle">
             <div class="modal-head">
-                <h2 id="deleteAccountTitle" class="modal-title">Удалить аккаунт целиком?</h2>
+                <h2 id="deleteAccountTitle" class="modal-title">Отправить запрос на удаление аккаунта?</h2>
                 <button class="modal-close" type="button" data-close-modal="deleteAccountModal">Закрыть</button>
             </div>
             <p class="confirm-text">
-                Будет удален ваш пользовательский аккаунт и все связанные с ним данные, включая seller-кабинет.
-                После этого вход в систему станет невозможен.
+                Мы создадим обращение в поддержку с запросом на удаление аккаунта. Автоматическое удаление не выполняется:
+                сначала команда проверит запрос и свяжется с вами по e-mail.
             </p>
-            <form method="post" class="actions" data-settings-form="section-danger">
+            <form class="actions" id="deleteAccountRequestForm">
                 {% csrf_token %}
-                <input type="hidden" name="action" value="delete_account">
-                <input type="hidden" name="confirm_delete_account" value="1">
-                <button class="btn btn-danger" type="submit">Подтверждаю удаление аккаунта</button>
+                <button class="btn btn-danger" type="submit">Отправить запрос</button>
                 <button class="btn" type="button" data-close-modal="deleteAccountModal">Отмена</button>
             </form>
+            <p class="consent-note" id="deleteAccountRequestNote"></p>
         </div>
     </div>
 
@@ -680,6 +920,10 @@
         const deleteAccountModal = document.getElementById("deleteAccountModal");
         const openPurgeSellerDataBtn = document.getElementById("openPurgeSellerData");
         const openDeleteAccountBtn = document.getElementById("openDeleteAccount");
+        const marketingConsentToggle = document.getElementById("marketingConsentToggle");
+        const marketingConsentNote = document.getElementById("marketingConsentNote");
+        const deleteAccountRequestForm = document.getElementById("deleteAccountRequestForm");
+        const deleteAccountRequestNote = document.getElementById("deleteAccountRequestNote");
         const settingsNavButtons = Array.from(document.querySelectorAll("[data-settings-target]"));
         const settingsPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
         const settingsForms = Array.from(document.querySelectorAll("[data-settings-form]"));
@@ -710,6 +954,15 @@
         closeGuideBtn.addEventListener("click", closeGuide);
         openPurgeSellerDataBtn.addEventListener("click", () => openModal(purgeSellerDataModal));
         openDeleteAccountBtn.addEventListener("click", () => openModal(deleteAccountModal));
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) {
+                return parts.pop().split(";").shift();
+            }
+            return "";
+        }
 
         function activateSettingsSection(targetId, updateHash = true) {
             if (!targetId) return;
@@ -770,6 +1023,68 @@
                 closeModal(modal);
             });
         });
+
+        marketingConsentToggle?.addEventListener("change", async () => {
+            const prevValue = !marketingConsentToggle.checked;
+            marketingConsentNote.textContent = "Сохраняем изменение...";
+            marketingConsentNote.className = "consent-note";
+            try {
+                const body = new URLSearchParams();
+                body.set("enabled", marketingConsentToggle.checked ? "1" : "0");
+                const res = await fetch("{% url 'account_marketing_consent_api' %}", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        "X-CSRFToken": getCookie("csrftoken"),
+                        "Accept": "application/json",
+                    },
+                    body: body.toString(),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Не удалось обновить согласие");
+                }
+                marketingConsentNote.textContent = data.message || "Согласие обновлено.";
+                marketingConsentNote.className = "consent-note is-ok";
+            } catch (error) {
+                marketingConsentToggle.checked = prevValue;
+                marketingConsentNote.textContent = error && error.message ? error.message : "Не удалось обновить согласие.";
+                marketingConsentNote.className = "consent-note is-error";
+            }
+        });
+
+        deleteAccountRequestForm?.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            deleteAccountRequestNote.textContent = "Отправляем запрос...";
+            deleteAccountRequestNote.className = "consent-note";
+            try {
+                const fd = new FormData();
+                fd.set("category", "account_delete_request");
+                fd.set("priority", "high");
+                fd.set("page_url", window.location.pathname);
+                fd.set("message", "Пользователь просит удалить аккаунт и связанные с ним данные.");
+                fd.set("include_context", "1");
+                fd.set("context_json", JSON.stringify({ source: "account_settings", email: "{{ request.user.email|escapejs }}" }));
+                const res = await fetch("{% url 'create_feedback_api' %}", {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCookie("csrftoken"),
+                        "Accept": "application/json",
+                    },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Не удалось создать запрос");
+                }
+                deleteAccountRequestNote.textContent = "Запрос отправлен. Поддержка свяжется с вами по e-mail.";
+                deleteAccountRequestNote.className = "consent-note is-ok";
+                window.setTimeout(() => closeModal(deleteAccountModal), 1200);
+            } catch (error) {
+                deleteAccountRequestNote.textContent = error && error.message ? error.message : "Не удалось отправить запрос.";
+                deleteAccountRequestNote.className = "consent-note is-error";
+            }
+        });
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && guideModal.classList.contains("open")) {
                 closeGuide();
@@ -782,5 +1097,6 @@
             }
         });
     </script>
+    {% include "partials/site_footer.html" %}
 </body>
 </html>

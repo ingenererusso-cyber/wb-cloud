@@ -29,58 +29,463 @@
             box-shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
             padding: 16px;
         }
+        .page-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .page-head-copy {
+            min-width: 0;
+        }
+        .page-head-actions {
+            display: grid;
+            gap: 8px;
+            justify-items: end;
+        }
         h1 { margin: 0 0 4px; font-size: 28px; }
         .subtitle { margin: 0; color: #5a6778; font-size: 14px; }
-        .toolbar { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
-        .field { display: grid; gap: 6px; min-width: 170px; }
-        .field label { font-size: 12px; color: #5a6778; }
+        .sync-action {
+            --sync-progress: 0%;
+            min-height: 46px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 14px;
+            padding: 11px 16px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #14532d;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            box-shadow: 0 12px 22px rgba(19, 32, 51, 0.08);
+            transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+        }
+        .sync-action:hover,
+        .sync-action:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 24px rgba(19, 32, 51, 0.12);
+            filter: saturate(1.04);
+        }
+        .sync-action.sync-busy {
+            color: #ffffff;
+            border-color: #7fb89d;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.24);
+            background: linear-gradient(
+                90deg,
+                #22a06b 0%,
+                #22a06b var(--sync-progress),
+                #e5e7eb var(--sync-progress),
+                #e5e7eb 100%
+            );
+            animation: page-sync-busy-pulse 1.25s ease-in-out infinite;
+        }
+        .sync-action:disabled {
+            cursor: default;
+        }
+        .sync-action-note {
+            min-height: 18px;
+            color: #64748b;
+            font-size: 12px;
+            text-align: right;
+        }
+        .sync-action-note.is-error {
+            color: #991b1b;
+        }
+        .sync-action-note.is-success {
+            color: #166534;
+        }
+        @keyframes page-sync-busy-pulse {
+            0%, 100% {
+                box-shadow:
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+                    0 0 0 0 rgba(34, 160, 107, 0.22);
+            }
+            50% {
+                box-shadow:
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+                    0 0 0 6px rgba(34, 160, 107, 0.1);
+            }
+        }
+        .toolbar {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: minmax(240px, 1.4fr) repeat(3, minmax(170px, 1fr)) auto;
+            gap: 12px;
+            align-items: end;
+            padding: 16px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 18px;
+            background:
+                radial-gradient(circle at top left, rgba(20, 83, 45, 0.07), rgba(255, 255, 255, 0.98) 42%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 252, 255, 0.92) 100%);
+            box-shadow: 0 14px 28px rgba(19, 32, 51, 0.08);
+        }
+        .field { display: grid; gap: 7px; min-width: 0; }
+        .field label { font-size: 12px; color: #5a6778; font-weight: 700; letter-spacing: 0.01em; }
+        .select-wrap {
+            position: relative;
+            display: block;
+            width: 100%;
+        }
+        .field-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 46px;
+            padding: 0 4px;
+        }
+        .field-toggle input {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: #6d28d9;
+            cursor: pointer;
+        }
+        .field-toggle label {
+            margin: 0;
+            font-size: 13px;
+            color: #334155;
+            font-weight: 700;
+            letter-spacing: 0;
+            cursor: pointer;
+        }
         .field input, .field select {
             border: 1px solid rgba(19, 32, 51, 0.18);
-            border-radius: 10px;
-            padding: 10px 12px;
+            border-radius: 12px;
+            padding: 11px 13px;
             font: inherit;
             background: #fff;
+            color: #132033;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+        .field select,
+        .page-size-form select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            padding-right: 38px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='10' viewBox='0 0 14 10'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%2364748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 14px center;
+            background-size: 14px 10px;
+        }
+        .field input:focus,
+        .field select:focus {
+            outline: none;
+            border-color: rgba(109, 40, 217, 0.42);
+            box-shadow: 0 0 0 4px rgba(109, 40, 217, 0.1);
         }
         .toolbar .btn {
             border: 0;
-            border-radius: 10px;
-            padding: 10px 14px;
+            border-radius: 12px;
+            padding: 11px 16px;
             background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%);
             color: #fff;
             font-weight: 700;
             cursor: pointer;
-            height: 42px;
+            height: 46px;
+            box-shadow: 0 12px 22px rgba(109, 40, 217, 0.2);
+        }
+        .chart-section {
+            margin-top: 16px;
+            padding: 18px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 18px;
+            background:
+                radial-gradient(circle at top left, rgba(20, 83, 45, 0.08), rgba(255, 255, 255, 0.98) 42%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 252, 255, 0.92) 100%);
+            box-shadow: 0 14px 28px rgba(19, 32, 51, 0.08);
+        }
+        .chart-head {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .chart-title {
+            margin: 0;
+            font-size: 18px;
+            color: #1f2a37;
+        }
+        .chart-subtitle {
+            margin: 4px 0 0;
+            color: #64748b;
+            font-size: 13px;
+        }
+        .chart-kpi {
+            margin: 6px 0 0;
+            color: #14532d;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        .chart-periods {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .chart-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .chart-period-link {
+            text-decoration: none;
+            color: #475569;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            background: rgba(255, 255, 255, 0.86);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 800;
+            transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, color .16s ease;
+        }
+        .chart-period-link:hover,
+        .chart-period-link:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 18px rgba(19, 32, 51, 0.1);
+            border-color: rgba(109, 40, 217, 0.2);
+            color: #5b21b6;
+        }
+        .chart-period-link.is-active {
+            color: #fff;
+            border-color: transparent;
+            background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%);
+            box-shadow: 0 12px 22px rgba(109, 40, 217, 0.2);
+        }
+        .chart-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.84);
+            color: #334155;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .chart-toggle input {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            accent-color: #0f766e;
+            cursor: pointer;
+        }
+        .chart-toggle-secondary input {
+            accent-color: #475569;
+        }
+        .chart-toggle-muted input {
+            accent-color: #0f766e;
+        }
+        .chart-host {
+            height: 260px;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.94);
+            padding: 8px;
         }
         .table-wrap { margin-top: 14px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; overflow: auto; background: #fff; }
-        table { width: 100%; border-collapse: collapse; min-width: 1200px; }
+        table { width: 100%; border-collapse: collapse; min-width: 1160px; }
         th, td { border-bottom: 1px solid rgba(19, 32, 51, 0.08); padding: 10px 8px; text-align: left; font-size: 13px; }
         th { position: sticky; top: 0; background: #f8fbff; color: #5a6778; font-size: 12px; z-index: 1; }
         .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .cover-cell { width: 88px; min-width: 88px; }
+        .campaign-cover {
+            position: relative;
+            width: 58px;
+            height: 74px;
+            margin: 0 auto;
+        }
+        .campaign-cover.is-stack::before,
+        .campaign-cover.is-stack::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            border: 1px solid rgba(19, 32, 51, 0.08);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.92));
+            box-shadow: 0 8px 18px rgba(19, 32, 51, 0.08);
+        }
+        .campaign-cover.is-stack::before {
+            transform: rotate(-7deg) translate(-6px, 3px);
+        }
+        .campaign-cover.is-stack::after {
+            transform: rotate(5deg) translate(5px, 1px);
+        }
+        .campaign-cover-main {
+            position: relative;
+            z-index: 2;
+            width: 58px;
+            height: 74px;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            background:
+                radial-gradient(circle at top left, rgba(20, 83, 45, 0.14), rgba(255, 255, 255, 0.96) 50%),
+                linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            box-shadow: 0 10px 22px rgba(19, 32, 51, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .campaign-cover-main img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .campaign-cover-fallback {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            font-size: 11px;
+            font-weight: 800;
+            color: #166534;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .campaign-cover-count {
+            position: absolute;
+            right: -8px;
+            bottom: -8px;
+            z-index: 3;
+            min-width: 26px;
+            height: 26px;
+            border-radius: 999px;
+            padding: 0 7px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #14532d 0%, #22c55e 100%);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 10px 18px rgba(20, 83, 45, 0.2);
+        }
         .name-cell { min-width: 280px; }
+        .campaign-link {
+            color: inherit;
+            text-decoration: none;
+        }
+        .campaign-link:hover .name-title,
+        .campaign-link:focus-visible .name-title {
+            color: #5b21b6;
+        }
         .name-title { font-weight: 700; color: #1f2a37; }
         .name-meta { color: #7b8696; font-size: 11px; margin-top: 2px; }
+        .name-product { margin-top: 5px; color: #5a6778; font-size: 11px; line-height: 1.4; }
         .status-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid; }
         .status-green { color: #166534; background: #dcfce7; border-color: #86efac; }
         .status-yellow { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
         .status-red { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
         .status-gray { color: #475569; background: #f1f5f9; border-color: #cbd5e1; }
         .status-blue { color: #1e3a8a; background: #dbeafe; border-color: #93c5fd; }
-        .pagination { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .pagination { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .pagination-meta {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
         .pagination-nav { display: inline-flex; align-items: center; gap: 8px; }
+        .page-size-form {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid rgba(19, 32, 51, 0.12);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.84);
+        }
+        .page-size-form label {
+            color: #5a6778;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .page-size-form .select-wrap {
+            min-width: 78px;
+        }
+        .page-size-form select {
+            border: 1px solid rgba(19, 32, 51, 0.16);
+            border-radius: 10px;
+            padding: 7px 34px 7px 10px;
+            font: inherit;
+            background: #fff;
+            color: #132033;
+            width: 100%;
+        }
         .page-link, .page-current {
             min-width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
             border-radius: 8px; border: 1px solid #dbe3ec; text-decoration: none; color: #334155; background: #fff; font-weight: 600;
         }
         .page-current { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
         .muted { color: #64748b; font-size: 12px; }
+
+        @media (max-width: 1120px) {
+            .toolbar {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .toolbar .btn {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .toolbar {
+                grid-template-columns: 1fr;
+            }
+
+            .pagination {
+                align-items: stretch;
+            }
+
+            .pagination-meta,
+            .pagination-nav {
+                justify-content: space-between;
+            }
+        }
     </style>
     {% include "partials/top_nav_css.html" %}
 </head>
 <body>
 {% include "partials/top_nav.html" %}
 <main class="page">
-    <h1>WB Продвижение</h1>
-    <p class="subtitle">Список рекламных кампаний с основной статистикой за выбранный период.</p>
+    <section class="page-head">
+        <div class="page-head-copy">
+            <h1>WB Продвижение</h1>
+            <p class="subtitle">Список рекламных кампаний с основной статистикой за выбранный период.</p>
+        </div>
+        <div class="page-head-actions">
+            <button
+                id="ads-full-sync-btn"
+                class="sync-action"
+                type="button"
+                data-start-url="{% url 'sync_ads_full_start_api' %}"
+                data-status-url="{% url 'sync_orders_status_api' %}"
+                data-current-url="{% url 'sync_orders_current_api' %}"
+                data-campaigns-count="{{ full_ads_sync_estimate.campaigns_count|default:0 }}"
+                data-periods-total="{{ full_ads_sync_estimate.periods_total|default:0 }}"
+                data-request-cycles-total="{{ full_ads_sync_estimate.request_cycles_total|default:0 }}"
+                data-estimated-minutes="{{ full_ads_sync_estimate.estimated_minutes|default:0 }}"
+            >
+                Полный синк РК
+            </button>
+            <div id="ads-full-sync-note" class="sync-action-note">
+                Загрузит рекламную стату активных и приостановленных РК по всем периодам с даты самой старой кампании, окнами по 14 дней.
+            </div>
+        </div>
+    </section>
 
     <form class="toolbar" method="get" data-no-nav-loader="1">
         <div class="field" style="min-width:240px;">
@@ -97,32 +502,56 @@
         </div>
         <div class="field">
             <label for="sort">Сортировка</label>
-            <select id="sort" name="sort">
-                <option value="create_desc" {% if sort == "create_desc" %}selected{% endif %}>По дате создания (новые)</option>
-                <option value="create_asc" {% if sort == "create_asc" %}selected{% endif %}>По дате создания (старые)</option>
-                <option value="updated_desc" {% if sort == "updated_desc" %}selected{% endif %}>По обновлению (новые)</option>
-            </select>
+            <div class="select-wrap">
+                <select id="sort" name="sort">
+                    <option value="create_desc" {% if sort == "create_desc" %}selected{% endif %}>По дате создания (новые)</option>
+                    <option value="create_asc" {% if sort == "create_asc" %}selected{% endif %}>По дате создания (старые)</option>
+                    <option value="updated_desc" {% if sort == "updated_desc" %}selected{% endif %}>По обновлению (новые)</option>
+                </select>
+            </div>
         </div>
-        <div class="field">
-            <label for="page_size">Показать записей</label>
-            <select id="page_size" name="page_size">
-                <option value="10" {% if page_size == 10 %}selected{% endif %}>10</option>
-                <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
-                <option value="30" {% if page_size == 30 %}selected{% endif %}>30</option>
-                <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
-            </select>
+        <div class="field-toggle">
+            <input id="show_completed" type="checkbox" name="show_completed" value="1" {% if show_completed %}checked{% endif %}>
+            <label for="show_completed">Показывать завершенные</label>
         </div>
+        <input type="hidden" name="page_size" value="{{ page_size }}">
         <button class="btn" type="submit">Применить</button>
     </form>
+
+    <section class="chart-section">
+        <div class="chart-head">
+            <div>
+                <h2 class="chart-title">Общие затраты на РК</h2>
+                <p class="chart-subtitle">Сиреневая линия показывает расходы по отфильтрованным РК. Дополнительно можно наложить заказы из РК и все заказы магазина за день.</p>
+                <p class="chart-kpi">{{ chart_total_spend|floatformat:2 }} ₽</p>
+            </div>
+            <div class="chart-controls">
+                <label class="chart-toggle chart-toggle-secondary">
+                    <input id="show-ad-orders-on-chart" type="checkbox">
+                    <span>Заказы из РК</span>
+                </label>
+                <label class="chart-toggle chart-toggle-muted">
+                    <input id="show-all-orders-on-chart" type="checkbox">
+                    <span>Все заказы</span>
+                </label>
+                <div class="chart-periods">
+                    <a class="chart-period-link {% if chart_period_weeks == 1 %}is-active{% endif %}" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}{% if show_completed %}&show_completed=1{% endif %}&chart_period_weeks=1">1 неделя</a>
+                    <a class="chart-period-link {% if chart_period_weeks == 2 %}is-active{% endif %}" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}{% if show_completed %}&show_completed=1{% endif %}&chart_period_weeks=2">2 недели</a>
+                    <a class="chart-period-link {% if chart_period_weeks == 4 %}is-active{% endif %}" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}{% if show_completed %}&show_completed=1{% endif %}&chart_period_weeks=4">4 недели</a>
+                </div>
+            </div>
+        </div>
+        <div id="campaign-spend-chart" class="chart-host"></div>
+    </section>
 
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
+                    <th class="cover-cell">Товар</th>
                     <th class="name-cell">Кампания</th>
                     <th>Тип</th>
                     <th>Статус</th>
-                    <th class="num">Дн. бюджет</th>
                     <th class="num">Затраты</th>
                     <th class="num">Показы</th>
                     <th class="num">Клики</th>
@@ -135,15 +564,40 @@
             <tbody>
             {% for row in rows %}
                 <tr>
+                    <td class="cover-cell">
+                        <a class="campaign-link" href="{% url 'wb_promotion_campaign_detail' row.advert_id %}?date_from={{ date_from }}&date_to={{ date_to }}">
+                            <div class="campaign-cover {% if row.participants_count > 1 %}is-stack{% endif %}">
+                                <div class="campaign-cover-main">
+                                    {% if row.product_photo_url %}
+                                        <img src="{{ row.product_photo_url }}" alt="{{ row.product_title|default:row.campaign_name }}">
+                                    {% else %}
+                                        <span class="campaign-cover-fallback">WB</span>
+                                    {% endif %}
+                                </div>
+                                {% if row.participants_count > 1 %}
+                                    <span class="campaign-cover-count">{{ row.participants_count }}</span>
+                                {% endif %}
+                            </div>
+                        </a>
+                    </td>
                     <td class="name-cell">
-                        <div class="name-title">{{ row.campaign_name }}</div>
-                        <div class="name-meta">ID {{ row.advert_id }}</div>
+                        <a class="campaign-link" href="{% url 'wb_promotion_campaign_detail' row.advert_id %}?date_from={{ date_from }}&date_to={{ date_to }}">
+                            <div class="name-title">{{ row.campaign_name }}</div>
+                            <div class="name-meta">ID {{ row.advert_id }}</div>
+                            {% if row.product_title or row.product_vendor_code %}
+                                <div class="name-product">
+                                    {{ row.product_title|default:"Товар из кампании" }}
+                                    {% if row.product_vendor_code %} · {{ row.product_vendor_code }}{% endif %}
+                                </div>
+                            {% elif row.participants_count > 0 %}
+                                <div class="name-product">Товаров в кампании: {{ row.participants_count }}</div>
+                            {% endif %}
+                        </a>
                     </td>
                     <td>{{ row.advert_type }}</td>
                     <td>
                         <span class="status-pill status-{{ row.status_color }}">{{ row.status_label }}</span>
                     </td>
-                    <td class="num">{{ row.daily_budget|floatformat:2 }} ₽</td>
                     <td class="num">{{ row.spend|floatformat:2 }} ₽</td>
                     <td class="num">{{ row.views }}</td>
                     <td class="num">{{ row.clicks }}</td>
@@ -160,21 +614,394 @@
     </div>
 
     <div class="pagination">
-        <span class="muted">Всего кампаний: {{ total_count }}</span>
+        <div class="pagination-meta">
+            <span class="muted">Всего кампаний: {{ total_count }}</span>
+            <form class="page-size-form" method="get" data-no-nav-loader="1">
+                <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="date_from" value="{{ date_from }}">
+                <input type="hidden" name="date_to" value="{{ date_to }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                {% if show_completed %}
+                    <input type="hidden" name="show_completed" value="1">
+                {% endif %}
+                <label for="page_size_bottom">На странице</label>
+                <div class="select-wrap">
+                    <select id="page_size_bottom" name="page_size" onchange="this.form.submit()">
+                        <option value="10" {% if page_size == 10 %}selected{% endif %}>10</option>
+                        <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
+                        <option value="30" {% if page_size == 30 %}selected{% endif %}>30</option>
+                        <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+                    </select>
+                </div>
+            </form>
+        </div>
         <div class="pagination-nav">
             {% if page_obj.has_previous %}
-                <a class="page-link" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}&page={{ page_obj.previous_page_number }}">←</a>
+                <a class="page-link" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}{% if show_completed %}&show_completed=1{% endif %}&page={{ page_obj.previous_page_number }}">←</a>
             {% else %}
                 <span class="page-link" style="opacity:.5;">←</span>
             {% endif %}
             <span class="page-current">{{ page_obj.number }}</span>
             {% if page_obj.has_next %}
-                <a class="page-link" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}&page={{ page_obj.next_page_number }}">→</a>
+                <a class="page-link" href="?q={{ query|urlencode }}&date_from={{ date_from }}&date_to={{ date_to }}&sort={{ sort }}&page_size={{ page_size }}{% if show_completed %}&show_completed=1{% endif %}&page={{ page_obj.next_page_number }}">→</a>
             {% else %}
                 <span class="page-link" style="opacity:.5;">→</span>
             {% endif %}
         </div>
     </div>
 </main>
+{{ chart_points|json_script:"campaign-spend-chart-data" }}
+<script src="{% static 'vendor/echarts/echarts.min.js' %}"></script>
+<script src="{% static 'js/vendra-charts.js' %}"></script>
+<script>
+    (function bindAdsFullSync() {
+        const syncBtn = document.getElementById("ads-full-sync-btn");
+        const syncNote = document.getElementById("ads-full-sync-note");
+        if (!syncBtn) {
+            return;
+        }
+
+        const startUrl = syncBtn.dataset.startUrl;
+        const statusUrl = syncBtn.dataset.statusUrl;
+        const currentUrl = syncBtn.dataset.currentUrl;
+        const campaignsCount = Number(syncBtn.dataset.campaignsCount || 0);
+        const periodsTotal = Number(syncBtn.dataset.periodsTotal || 0);
+        const requestCyclesTotal = Number(syncBtn.dataset.requestCyclesTotal || 0);
+        const estimatedMinutes = Number(syncBtn.dataset.estimatedMinutes || 0);
+        let pollTimer = null;
+        let currentTaskId = null;
+
+        function getCookie(name) {
+            const cookies = document.cookie ? document.cookie.split(";") : [];
+            for (const cookie of cookies) {
+                const trimmed = cookie.trim();
+                if (trimmed.startsWith(`${name}=`)) {
+                    return decodeURIComponent(trimmed.slice(name.length + 1));
+                }
+            }
+            return "";
+        }
+
+        function setNote(text, mode) {
+            if (!syncNote) {
+                return;
+            }
+            syncNote.textContent = text || "";
+            syncNote.classList.remove("is-error", "is-success");
+            if (mode === "error") {
+                syncNote.classList.add("is-error");
+            } else if (mode === "success") {
+                syncNote.classList.add("is-success");
+            }
+        }
+
+        function setButtonState(isBusy, progress, text) {
+            const bounded = Math.max(0, Math.min(100, Number(progress || 0)));
+            syncBtn.disabled = Boolean(isBusy);
+            syncBtn.classList.toggle("sync-busy", Boolean(isBusy));
+            syncBtn.style.setProperty("--sync-progress", `${bounded}%`);
+            if (text) {
+                syncBtn.textContent = text;
+                return;
+            }
+            syncBtn.textContent = isBusy ? `Полный синк РК (${bounded}%)` : "Полный синк РК";
+        }
+
+        function clearPoll() {
+            if (pollTimer) {
+                window.clearTimeout(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function schedulePoll(taskId, delayMs = 2200) {
+            clearPoll();
+            pollTimer = window.setTimeout(() => pollStatus(taskId), delayMs);
+        }
+
+        function isAdsFullTask(data) {
+            return (data?.result?.kind || "") === "ads_full";
+        }
+
+        async function pollStatus(taskId) {
+            if (!taskId) {
+                return;
+            }
+            try {
+                const res = await fetch(`${statusUrl}?task_id=${encodeURIComponent(taskId)}`, {
+                    method: "GET",
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || "Не удалось получить статус синка");
+                }
+                if (!isAdsFullTask(data)) {
+                    setButtonState(false, 0, "Полный синк РК");
+                    clearPoll();
+                    currentTaskId = null;
+                    return;
+                }
+                const status = String(data.status || "").toLowerCase();
+                const progress = Number(data.progress || 0);
+                if (status === "running") {
+                    currentTaskId = taskId;
+                    setButtonState(true, progress);
+                    setNote(data.message || "Идет полный синк рекламной статы...", "info");
+                    schedulePoll(taskId);
+                    return;
+                }
+                setButtonState(false, 100, "Полный синк РК");
+                currentTaskId = null;
+                clearPoll();
+                if (status === "success") {
+                    setNote(data.message || "Полный синк РК завершен.", "success");
+                } else {
+                    setNote(data.message || "Не удалось завершить полный синк РК.", "error");
+                }
+            } catch (error) {
+                setButtonState(false, 0, "Полный синк РК");
+                clearPoll();
+                currentTaskId = null;
+                setNote(error instanceof Error ? error.message : "Не удалось запустить полный синк РК.", "error");
+            }
+        }
+
+        syncBtn.addEventListener("click", async () => {
+            if (currentTaskId) {
+                pollStatus(currentTaskId);
+                return;
+            }
+            const warningText = campaignsCount > 0
+                ? [
+                    "Полный синк рекламной статы может занять продолжительное время.",
+                    "",
+                    `Активных и приостановленных РК: ${campaignsCount}.`,
+                    `14-дневных периодов истории: ${periodsTotal}.`,
+                    `Оценка циклов запросов: ${requestCyclesTotal}.`,
+                    `Примерная длительность: около ${estimatedMinutes} мин.`,
+                    "",
+                    "Оценка уже включает минимум 20 секунд ожидания между запросами к WB, время записи в БД и округлена в большую сторону.",
+                    "",
+                    "Запустить полный синк сейчас?",
+                ].join("\n")
+                : [
+                    "По локальным данным не найдено активных или приостановленных РК.",
+                    "Полный синк, скорее всего, ничего не загрузит.",
+                    "",
+                    "Все равно запустить?",
+                ].join("\n");
+            if (!window.confirm(warningText)) {
+                return;
+            }
+            try {
+                setButtonState(true, 0, "Полный синк РК (0%)");
+                setNote("Запускаем полный синк рекламной статы...", "info");
+                const res = await fetch(startUrl, {
+                    method: "POST",
+                    headers: {
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": getCookie("csrftoken"),
+                    },
+                    body: "{}",
+                });
+                const data = await res.json();
+                if (res.status === 409 && data.task_id && isAdsFullTask(data)) {
+                    currentTaskId = data.task_id;
+                    setButtonState(true, Number(data.progress || 0));
+                    setNote(data.message || "Полный синк РК уже выполняется...", "info");
+                    schedulePoll(currentTaskId, 800);
+                    return;
+                }
+                if (!res.ok) {
+                    throw new Error(data.error || "Не удалось запустить полный синк РК");
+                }
+                currentTaskId = data.task_id || null;
+                schedulePoll(currentTaskId, 800);
+            } catch (error) {
+                setButtonState(false, 0, "Полный синк РК");
+                setNote(error instanceof Error ? error.message : "Не удалось запустить полный синк РК.", "error");
+            }
+        });
+
+        fetch(currentUrl, {
+            method: "GET",
+            headers: { "Accept": "application/json" },
+        })
+            .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok || !data?.has_running || !isAdsFullTask(data)) {
+                    return;
+                }
+                currentTaskId = data.task_id || null;
+                setButtonState(true, Number(data.progress || 0));
+                setNote(data.message || "Идет полный синк рекламной статы...", "info");
+                schedulePoll(currentTaskId, 900);
+            })
+            .catch(() => {});
+    })();
+
+    (function renderCampaignSpendChart() {
+        const host = document.getElementById("campaign-spend-chart");
+        const adOrdersToggle = document.getElementById("show-ad-orders-on-chart");
+        const allOrdersToggle = document.getElementById("show-all-orders-on-chart");
+        const raw = document.getElementById("campaign-spend-chart-data")?.textContent || "[]";
+        if (!host || !window.echarts) {
+            return;
+        }
+        try {
+            const points = JSON.parse(raw);
+            if (!Array.isArray(points) || !points.length) {
+                host.innerHTML = '<div class="empty">Нет данных по расходам за выбранный период.</div>';
+                return;
+            }
+            const chart = window.echarts.init(host, null, { renderer: "canvas" });
+            const labels = points.map((point) => point.label);
+            const spendValues = points.map((point) => Number(point.value || 0));
+            const adOrderValues = points.map((point) => Number(point.orders || 0));
+            const allOrderValues = points.map((point) => Number(point.all_orders || 0));
+
+            const render = () => {
+                const showAdOrders = Boolean(adOrdersToggle?.checked);
+                const showAllOrders = Boolean(allOrdersToggle?.checked);
+                const showAnyOrders = showAdOrders || showAllOrders;
+                chart.setOption({
+                    animationDuration: 500,
+                    animationDurationUpdate: 350,
+                    grid: { left: 18, right: showAnyOrders ? 58 : 18, top: 26, bottom: 26, containLabel: true },
+                    tooltip: {
+                        trigger: "axis",
+                        backgroundColor: "rgba(19, 32, 51, 0.96)",
+                        borderWidth: 0,
+                        textStyle: { color: "#f8fafc", fontSize: 12 },
+                        padding: [10, 12],
+                        axisPointer: {
+                            type: "line",
+                            lineStyle: { color: "rgba(109, 40, 217, 0.22)", width: 1.5 },
+                        },
+                        formatter(params) {
+                            const items = Array.isArray(params) ? params : [params];
+                            const point = points[items[0].dataIndex] || {};
+                            const rows = [`<strong>${point.label || ""}</strong>`];
+                            items.forEach((item) => {
+                                if (item.seriesName === "Заказы из РК") {
+                                    rows.push(`Заказы из РК: ${Math.round(Number(item.data || 0))}`);
+                                } else if (item.seriesName === "Все заказы") {
+                                    rows.push(`Все заказы: ${Math.round(Number(item.data || 0))}`);
+                                } else {
+                                    rows.push(`Расходы на РК: ${Number(item.data || 0).toFixed(2)} ₽`);
+                                }
+                            });
+                            return rows.join("<br>");
+                        },
+                    },
+                    xAxis: {
+                        type: "category",
+                        boundaryGap: false,
+                        data: labels,
+                        axisLine: { lineStyle: { color: "rgba(19, 32, 51, 0.16)" } },
+                        axisTick: { show: false },
+                        axisLabel: { color: "#64748b", fontSize: 11, margin: 10 },
+                    },
+                    yAxis: [
+                        {
+                            type: "value",
+                            splitNumber: 4,
+                            axisLine: { show: false },
+                            axisTick: { show: false },
+                            axisLabel: {
+                                color: "#64748b",
+                                fontSize: 11,
+                                formatter(value) {
+                                    return `${Math.round(Number(value || 0))} ₽`;
+                                },
+                            },
+                            splitLine: { lineStyle: { color: "rgba(19, 32, 51, 0.08)" } },
+                        },
+                        {
+                            type: "value",
+                            splitNumber: 4,
+                            axisLine: { show: false },
+                            axisTick: { show: false },
+                            axisLabel: {
+                                color: "#0f766e",
+                                fontSize: 11,
+                                formatter(value) {
+                                    return `${Math.round(Number(value || 0))}`;
+                                },
+                            },
+                            splitLine: { show: false },
+                            show: showAnyOrders,
+                        },
+                    ],
+                    series: [
+                        {
+                            name: "Расходы на РК",
+                            type: "line",
+                            smooth: 0.35,
+                            symbol: "circle",
+                            symbolSize: 7,
+                            data: spendValues,
+                            lineStyle: { width: 3, color: "#6d28d9" },
+                            itemStyle: {
+                                color: "#ffffff",
+                                borderColor: "#6d28d9",
+                                borderWidth: 3,
+                            },
+                            areaStyle: {
+                                color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                    { offset: 0, color: "rgba(109, 40, 217, 0.12)" },
+                                    { offset: 1, color: "rgba(255,255,255,0)" },
+                                ]),
+                            },
+                        },
+                        {
+                            name: "Заказы из РК",
+                            type: "line",
+                            smooth: 0.28,
+                            symbol: "circle",
+                            symbolSize: 6,
+                            yAxisIndex: 1,
+                            data: showAdOrders ? adOrderValues : adOrderValues.map(() => null),
+                            lineStyle: { width: 2.5, color: "#475569", type: "dashed" },
+                            itemStyle: {
+                                color: "#ffffff",
+                                borderColor: "#475569",
+                                borderWidth: 2.5,
+                            },
+                        },
+                        {
+                            name: "Все заказы",
+                            type: "line",
+                            smooth: 0.2,
+                            symbol: "circle",
+                            symbolSize: 6,
+                            yAxisIndex: 1,
+                            data: showAllOrders ? allOrderValues : allOrderValues.map(() => null),
+                            lineStyle: { width: 2.5, color: "#0f766e" },
+                            itemStyle: {
+                                color: "#ffffff",
+                                borderColor: "#0f766e",
+                                borderWidth: 2.5,
+                            },
+                        },
+                    ],
+                }, true);
+                chart.resize();
+            };
+
+            render();
+            if (adOrdersToggle) adOrdersToggle.addEventListener("change", render);
+            if (allOrdersToggle) allOrdersToggle.addEventListener("change", render);
+            if (window.ResizeObserver) {
+                const observer = new ResizeObserver(() => chart.resize());
+                observer.observe(host);
+            }
+        } catch (_err) {
+            host.innerHTML = '<div class="empty">Не удалось построить график.</div>';
+        }
+    })();
+</script>
 </body>
 </html>

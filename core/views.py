@@ -1,5 +1,6 @@
 from datetime import date, datetime, time as dt_time, timedelta
 from collections import defaultdict
+import hashlib
 import json
 import math
 import sqlite3
@@ -15,6 +16,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.conf import settings
 from django.db.models import F
 from django.db.models import Count
 from django.db.models import Max
@@ -23,12 +25,12 @@ from django.db.models import Q
 from django.db.models import Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce
-from django.db.models.functions import TruncDate, TruncHour
+from django.db.models.functions import TruncDate
 from django.db import OperationalError, ProgrammingError, close_old_connections, transaction
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.crypto import get_random_string
@@ -39,6 +41,7 @@ from app.services.supply_recommendations.loaders import list_available_transit_w
 from app.services.supply_recommendations.service import get_dashboard_supply_recommendations
 from core.models import (
     AppErrorLog,
+    ConsentLog,
     Order,
     Product,
     ProductSizePrice,
@@ -61,6 +64,7 @@ from core.models import (
     WbAdvertCampaign,
     WbAdvertStatDaily,
     WbCategoryCommission,
+    WbSaleFact,
     WbWarehouseTariff,
     UserSubscription,
 )
@@ -75,7 +79,10 @@ from core.services_realization import (
     get_fact_localization_index_trend_last_full_weeks,
     sync_realization_report_detail,
 )
-from core.services_advertising import sync_ad_campaigns_and_stats
+from core.services_advertising import (
+    sync_ad_campaigns_and_stats,
+    sync_active_paused_ad_campaigns_full_history,
+)
 from core.services_offices import sync_wb_offices
 from core.services_orders import sync_fbw_orders, sync_sales_buyout_flags
 from core.services_products import sync_products_content
@@ -104,11 +111,89 @@ from core.services.localization import (
     get_theoretical_localization_index_trend_last_full_weeks,
     get_top_non_local_districts_last_full_weeks,
 )
+from core.services.consent import record_consent
 
 SYNC_TASK_STALE_MINUTES = 8
+ADS_FULL_SYNC_STALE_MINUTES = 45
+ADS_FULL_SYNC_PERIOD_DAYS = 14
 REALIZATION_SYNC_PAGE_LIMIT = 30000
 HOME_REMINDERS_META_KEY = "home_reminders"
+HOME_REMINDERS_CARD_COPY_VERSION = 2
 GLUE_DRR_REMINDER_THRESHOLD = 20.0
+MARKETING_CONSENT_TEXT = "Согласен получать информационные и рекламные сообщения от Vendra на указанный e-mail."
+
+
+def _home_reminders_prefs_signature(prefs: dict) -> str:
+    payload = json.dumps(
+        {"prefs": prefs, "card_copy_v": HOME_REMINDERS_CARD_COPY_VERSION},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _normalize_home_reminders_prefs(raw: dict | None) -> dict:
+    base = {
+        "sold_out_enabled": True,
+        "sold_out_period_days": 30,
+        "glue_drr_enabled": True,
+        "glue_drr_threshold_pct": float(GLUE_DRR_REMINDER_THRESHOLD),
+        "glue_drr_period_days": 30,
+    }
+    if not isinstance(raw, dict):
+        return base
+    out = dict(base)
+    out["sold_out_enabled"] = bool(raw.get("sold_out_enabled", True))
+    out["glue_drr_enabled"] = bool(raw.get("glue_drr_enabled", True))
+    try:
+        d = int(raw.get("sold_out_period_days", base["sold_out_period_days"]))
+        out["sold_out_period_days"] = max(7, min(90, d))
+    except (TypeError, ValueError):
+        pass
+    try:
+        d = int(raw.get("glue_drr_period_days", base["glue_drr_period_days"]))
+        out["glue_drr_period_days"] = max(7, min(90, d))
+    except (TypeError, ValueError):
+        pass
+    try:
+        t = float(raw.get("glue_drr_threshold_pct", base["glue_drr_threshold_pct"]))
+        out["glue_drr_threshold_pct"] = round(max(1.0, min(100.0, t)), 2)
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def _get_home_reminders_prefs(seller: SellerAccount | None) -> dict:
+    if not seller:
+        return _normalize_home_reminders_prefs(None)
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        return _normalize_home_reminders_prefs(None)
+    prefs_raw = reminders_meta.get("prefs")
+    return _normalize_home_reminders_prefs(prefs_raw if isinstance(prefs_raw, dict) else None)
+
+
+def _get_home_reminders_snapshot_prefs_signature(seller: SellerAccount | None) -> str:
+    if not seller:
+        return ""
+    meta = seller.sync_meta if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        return ""
+    return str(reminders_meta.get("prefs_signature") or "")
+
+
+def _save_home_reminders_prefs_only(seller: SellerAccount, prefs: dict) -> None:
+    meta = dict(seller.sync_meta) if isinstance(seller.sync_meta, dict) else {}
+    reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
+    if not isinstance(reminders_meta, dict):
+        reminders_meta = {}
+    reminders_meta["prefs"] = prefs
+    meta[HOME_REMINDERS_META_KEY] = reminders_meta
+    seller.sync_meta = meta
+    _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
 UNIT_MODEL_FBO = "fbo"
 UNIT_MODEL_FBS = "fbs"
 UNIT_MODEL_TYPES = {UNIT_MODEL_FBO, UNIT_MODEL_FBS}
@@ -188,33 +273,387 @@ def _format_seller_purge_message(deleted_summary: dict[str, int]) -> str:
     return f"Данные seller очищены. Удалено записей: {total_deleted}. Детализация: {details}."
 
 
+_KPI_SUMMARY_WEEKS_TO_DAYS = {1: 7, 2: 14, 4: 28}
+
+
+def _pct_change_vs_prev(curr: float, prev: float) -> float | None:
+    if prev == 0:
+        return None
+    return round((float(curr) - float(prev)) / float(prev) * 100.0, 2)
+
+
+def _resolve_rolling_window_bounds(*, end_dt, period_days: int) -> dict:
+    if timezone.is_aware(end_dt):
+        window_end = timezone.localtime(end_dt)
+    else:
+        window_end = timezone.make_aware(end_dt, timezone.get_current_timezone())
+    window_start = window_end - timedelta(days=max(1, int(period_days)))
+    prev_window_end = window_start
+    prev_window_start = prev_window_end - timedelta(days=max(1, int(period_days)))
+    return {
+        "window_start": window_start,
+        "window_end": window_end,
+        "previous_window_start": prev_window_start,
+        "previous_window_end": prev_window_end,
+    }
+
+
+def _resolve_full_date_bounds(window_start, window_end) -> tuple[date, date]:
+    start_local = timezone.localtime(window_start) if timezone.is_aware(window_start) else window_start
+    end_local = timezone.localtime(window_end) if timezone.is_aware(window_end) else window_end
+    start_date = start_local.date()
+    if start_local.time() != datetime.min.time():
+        start_date = start_date + timedelta(days=1)
+    end_date = (end_local - timedelta(microseconds=1)).date()
+    return start_date, end_date
+
+
+def _build_dashboard_trend_payload(
+    seller: SellerAccount,
+    *,
+    metric: str,
+    period: str,
+    end_dt,
+) -> dict:
+    period_key = period if period in {"today", "24h", "7d", "14d", "28d"} else "14d"
+    if metric not in {"orders", "buyouts"}:
+        metric = "orders"
+
+    if timezone.is_aware(end_dt):
+        anchor_end = timezone.localtime(end_dt)
+    else:
+        anchor_end = timezone.make_aware(end_dt, timezone.get_current_timezone())
+
+    if period_key == "today":
+        window_start = anchor_end.replace(hour=0, minute=0, second=0, microsecond=0)
+        window_end = anchor_end
+        prev_window_start = window_start - timedelta(days=1)
+        prev_window_end = prev_window_start + (window_end - window_start)
+        bucket_count = max(1, anchor_end.hour + 1)
+        bucket_size = timedelta(hours=1)
+    else:
+        window_days = 1 if period_key == "24h" else {"7d": 7, "14d": 14, "28d": 28}[period_key]
+        bounds = _resolve_rolling_window_bounds(end_dt=anchor_end, period_days=window_days)
+        window_start = bounds["window_start"]
+        window_end = bounds["window_end"]
+        prev_window_start = bounds["previous_window_start"]
+        prev_window_end = bounds["previous_window_end"]
+        bucket_count = 24 if period_key == "24h" else window_days
+        bucket_size = timedelta(hours=1) if period_key == "24h" else timedelta(days=1)
+
+    def _init_values():
+        return [0] * bucket_count, [0.0] * bucket_count
+
+    current_counts, current_amounts = _init_values()
+    previous_counts, previous_amounts = _init_values()
+
+    def _bucket_index(ts, *, start_dt):
+        if not ts:
+            return None
+        local_dt = timezone.localtime(ts) if timezone.is_aware(ts) else timezone.make_aware(ts, timezone.get_current_timezone())
+        delta_seconds = (local_dt - start_dt).total_seconds()
+        if delta_seconds < 0:
+            return None
+        idx = int(delta_seconds // bucket_size.total_seconds())
+        if idx < 0 or idx >= bucket_count:
+            return None
+        return idx
+
+    if metric == "buyouts":
+        current_rows = WbSaleFact.objects.filter(
+            seller=seller,
+            is_buyout=True,
+            sale_date__gte=window_start,
+            sale_date__lt=window_end,
+        ).values_list("sale_date", "finished_price")
+        previous_rows = WbSaleFact.objects.filter(
+            seller=seller,
+            is_buyout=True,
+            sale_date__gte=prev_window_start,
+            sale_date__lt=prev_window_end,
+        ).values_list("sale_date", "finished_price")
+
+        for sale_date, finished_price in current_rows:
+            idx = _bucket_index(sale_date, start_dt=window_start)
+            if idx is None:
+                continue
+            current_counts[idx] += 1
+            current_amounts[idx] += float(finished_price or 0.0)
+        for sale_date, finished_price in previous_rows:
+            idx = _bucket_index(sale_date, start_dt=prev_window_start)
+            if idx is None:
+                continue
+            previous_counts[idx] += 1
+            previous_amounts[idx] += float(finished_price or 0.0)
+    else:
+        current_rows = Order.objects.filter(
+            seller=seller,
+            order_date__gte=window_start,
+            order_date__lt=window_end,
+        ).values_list("order_date", "finished_price", "is_cancel")
+        previous_rows = Order.objects.filter(
+            seller=seller,
+            order_date__gte=prev_window_start,
+            order_date__lt=prev_window_end,
+        ).values_list("order_date", "finished_price", "is_cancel")
+
+        for order_date, finished_price, is_cancel in current_rows:
+            idx = _bucket_index(order_date, start_dt=window_start)
+            if idx is None:
+                continue
+            current_counts[idx] += 1
+            if not is_cancel:
+                current_amounts[idx] += float(finished_price or 0.0)
+        for order_date, finished_price, is_cancel in previous_rows:
+            idx = _bucket_index(order_date, start_dt=prev_window_start)
+            if idx is None:
+                continue
+            previous_counts[idx] += 1
+            if not is_cancel:
+                previous_amounts[idx] += float(finished_price or 0.0)
+
+    labels = []
+    for idx in range(bucket_count):
+        bucket_end = window_start + bucket_size * (idx + 1)
+        labels.append(bucket_end.strftime("%H:%M") if period_key in {"today", "24h"} else bucket_end.strftime("%d.%m"))
+
+    current_total = int(sum(current_counts))
+    previous_total = int(sum(previous_counts))
+    delta_abs = int(current_total - previous_total)
+    delta_percent = round((delta_abs / previous_total) * 100.0, 2) if previous_total > 0 else None
+
+    current_amount_total = round(float(sum(current_amounts)), 2)
+    previous_amount_total = round(float(sum(previous_amounts)), 2)
+    amount_delta_abs = round(current_amount_total - previous_amount_total, 2)
+    amount_delta_percent = (
+        round((amount_delta_abs / previous_amount_total) * 100.0, 2)
+        if previous_amount_total > 0
+        else None
+    )
+
+    return {
+        "period": period_key,
+        "metric": metric,
+        "labels": labels,
+        "current_values": current_counts,
+        "previous_values": previous_counts,
+        "current_total": current_total,
+        "previous_total": previous_total,
+        "delta_abs": delta_abs,
+        "delta_percent": delta_percent,
+        "current_amount_values": [round(value, 2) for value in current_amounts],
+        "previous_amount_values": [round(value, 2) for value in previous_amounts],
+        "current_amount_total": current_amount_total,
+        "previous_amount_total": previous_amount_total,
+        "amount_delta_abs": amount_delta_abs,
+        "amount_delta_percent": amount_delta_percent,
+        "period_started_at": window_start.isoformat(),
+        "period_ended_at": window_end.isoformat(),
+        "previous_period_started_at": prev_window_start.isoformat(),
+        "previous_period_ended_at": prev_window_end.isoformat(),
+    }
+
+
+def _aggregate_kpi_rolling_window(
+    seller: SellerAccount,
+    *,
+    end_dt,
+    period_days: int,
+) -> dict:
+    bounds = _resolve_rolling_window_bounds(end_dt=end_dt, period_days=period_days)
+    window_start = bounds["window_start"]
+    window_end = bounds["window_end"]
+    prev_window_start = bounds["previous_window_start"]
+    prev_window_end = bounds["previous_window_end"]
+
+    current_orders_qs = Order.objects.filter(
+        seller=seller,
+        order_date__gte=window_start,
+        order_date__lt=window_end,
+    )
+    previous_orders_qs = Order.objects.filter(
+        seller=seller,
+        order_date__gte=prev_window_start,
+        order_date__lt=prev_window_end,
+    )
+
+    current_commercial_qs = current_orders_qs.filter(is_cancel=False)
+    previous_commercial_qs = previous_orders_qs.filter(is_cancel=False)
+
+    current_total_orders = current_orders_qs.count()
+    previous_total_orders = previous_orders_qs.count()
+    current_local_base_qs = current_orders_qs.filter(warehouse_type="Склад WB")
+    previous_local_base_qs = previous_orders_qs.filter(warehouse_type="Склад WB")
+    current_local_orders = current_local_base_qs.filter(is_local=True).count()
+    previous_local_orders = previous_local_base_qs.filter(is_local=True).count()
+    current_local_total_orders = current_local_base_qs.count()
+    previous_local_total_orders = previous_local_base_qs.count()
+
+    current_revenue = float(current_commercial_qs.aggregate(total=Sum("finished_price")).get("total") or 0.0)
+    previous_revenue = float(previous_commercial_qs.aggregate(total=Sum("finished_price")).get("total") or 0.0)
+    current_commercial_count = current_commercial_qs.count()
+    previous_commercial_count = previous_commercial_qs.count()
+
+    current_buyouts = WbSaleFact.objects.filter(
+        seller=seller,
+        is_buyout=True,
+        sale_date__gte=window_start,
+        sale_date__lt=window_end,
+    ).count()
+    previous_buyouts = WbSaleFact.objects.filter(
+        seller=seller,
+        is_buyout=True,
+        sale_date__gte=prev_window_start,
+        sale_date__lt=prev_window_end,
+    ).count()
+
+    current_cancels = Order.objects.filter(
+        seller=seller,
+        is_cancel=True,
+        last_change_date__gte=window_start,
+        last_change_date__lt=window_end,
+    ).count()
+    previous_cancels = Order.objects.filter(
+        seller=seller,
+        is_cancel=True,
+        last_change_date__gte=prev_window_start,
+        last_change_date__lt=prev_window_end,
+    ).count()
+
+    current_ad_date_from, current_ad_date_to = _resolve_full_date_bounds(window_start, window_end)
+    previous_ad_date_from, previous_ad_date_to = _resolve_full_date_bounds(prev_window_start, prev_window_end)
+    current_ad_spend = float(
+        WbAdvertStatDaily.objects.filter(
+            seller=seller,
+            nm_id=0,
+            stat_date__gte=current_ad_date_from,
+            stat_date__lte=current_ad_date_to,
+        ).aggregate(total=Sum("spend")).get("total") or 0.0
+    )
+    previous_ad_spend = float(
+        WbAdvertStatDaily.objects.filter(
+            seller=seller,
+            nm_id=0,
+            stat_date__gte=previous_ad_date_from,
+            stat_date__lte=previous_ad_date_to,
+        ).aggregate(total=Sum("spend")).get("total") or 0.0
+    )
+
+    current_buyout_denominator = current_buyouts + current_cancels
+    previous_buyout_denominator = previous_buyouts + previous_cancels
+
+    return {
+        "current_total_orders": int(current_total_orders or 0),
+        "previous_total_orders": int(previous_total_orders or 0),
+        "current_buyouts": int(current_buyouts or 0),
+        "previous_buyouts": int(previous_buyouts or 0),
+        "current_revenue": round(current_revenue, 2),
+        "previous_revenue": round(previous_revenue, 2),
+        "current_avg_check": round(current_revenue / current_commercial_count, 2) if current_commercial_count > 0 else 0.0,
+        "previous_avg_check": round(previous_revenue / previous_commercial_count, 2) if previous_commercial_count > 0 else 0.0,
+        "current_local_share": round((current_local_orders / current_local_total_orders) * 100.0, 2) if current_local_total_orders > 0 else 0.0,
+        "previous_local_share": round((previous_local_orders / previous_local_total_orders) * 100.0, 2) if previous_local_total_orders > 0 else 0.0,
+        "current_buyout_rate": round((current_buyouts / current_buyout_denominator) * 100.0, 2) if current_buyout_denominator > 0 else 0.0,
+        "previous_buyout_rate": round((previous_buyouts / previous_buyout_denominator) * 100.0, 2) if previous_buyout_denominator > 0 else 0.0,
+        "current_ad_spend": round(current_ad_spend, 2),
+        "previous_ad_spend": round(previous_ad_spend, 2),
+        "window_start": window_start,
+        "window_end": window_end,
+        "previous_window_start": prev_window_start,
+        "previous_window_end": prev_window_end,
+    }
+
+
+def _aggregate_kpi_window(seller: SellerAccount, date_from: date, date_to: date) -> dict:
+    orders_qs = Order.objects.filter(
+        seller=seller,
+        order_date__date__gte=date_from,
+        order_date__date__lte=date_to,
+    )
+    commercial_orders_qs = orders_qs.filter(is_cancel=False)
+    terminal_order_filter = Q(is_buyout=True) | Q(is_cancel=True) | Q(is_return=True)
+    agg = orders_qs.aggregate(
+        total_orders=Count("id"),
+        terminal_orders=Count("id", filter=terminal_order_filter),
+        terminal_buyouts=Count("id", filter=Q(is_buyout=True)),
+        local_orders=Count("id", filter=Q(is_local=True)),
+    )
+    total_orders = int(agg.get("total_orders") or 0)
+    terminal_orders = int(agg.get("terminal_orders") or 0)
+    terminal_buyouts = int(agg.get("terminal_buyouts") or 0)
+    buyout_rate = (
+        round((terminal_buyouts / terminal_orders) * 100.0, 2)
+        if terminal_orders > 0
+        else 0.0
+    )
+    buyouts_qs = WbSaleFact.objects.filter(
+        seller=seller,
+        is_buyout=True,
+        sale_date__date__gte=date_from,
+        sale_date__date__lte=date_to,
+    )
+    buyouts = buyouts_qs.count()
+    commercial_orders = commercial_orders_qs.count()
+    revenue = float(commercial_orders_qs.aggregate(total=Sum("finished_price")).get("total") or 0.0)
+    local_orders = int(agg.get("local_orders") or 0)
+    avg_check = round(revenue / commercial_orders, 2) if commercial_orders > 0 else 0.0
+    local_share = round((local_orders / total_orders) * 100.0, 2) if total_orders > 0 else 0.0
+    ad_spend = float(
+        WbAdvertStatDaily.objects.filter(
+            seller=seller,
+            stat_date__gte=date_from,
+            stat_date__lte=date_to,
+        )
+        .aggregate(total=Sum("spend"))
+        .get("total")
+        or 0.0
+    )
+    return {
+        "total_orders": total_orders,
+        "buyouts": buyouts,
+        "revenue": revenue,
+        "buyout_rate": buyout_rate,
+        "local_share": local_share,
+        "avg_check": avg_check,
+        "ad_spend": ad_spend,
+    }
+
+
+def _parse_dashboard_summary_weeks(request) -> int:
+    raw = request.GET.get("weeks") or request.GET.get("period_weeks")
+    try:
+        w = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    if w in _KPI_SUMMARY_WEEKS_TO_DAYS:
+        return w
+    return 1
+
+
 def _build_home_summary_payload(
     *,
     seller: SellerAccount,
     last_sync_at,
+    period_weeks: int = 1,
 ) -> dict:
-    today = timezone.localdate()
-    date_from_30d = today - timedelta(days=29)
+    period_weeks = int(period_weeks)
+    if period_weeks not in _KPI_SUMMARY_WEEKS_TO_DAYS:
+        period_weeks = 1
+    period_days = _KPI_SUMMARY_WEEKS_TO_DAYS[period_weeks]
 
-    orders_30_qs = Order.objects.filter(
-        seller=seller,
-        order_date__date__gte=date_from_30d,
-        order_date__date__lte=today,
-    )
-    orders_30_stats = orders_30_qs.aggregate(
-        total_orders=Count("id"),
-        buyouts=Count("id", filter=Q(is_buyout=True)),
-        revenue=Sum("finished_price", filter=Q(is_buyout=True, finished_price__isnull=False)),
-        local_orders=Count("id", filter=Q(is_local=True)),
+    kpi_anchor_dt = last_sync_at or timezone.now()
+    kpi_rollup = _aggregate_kpi_rolling_window(
+        seller,
+        end_dt=kpi_anchor_dt,
+        period_days=period_days,
     )
 
-    total_orders_30d = int(orders_30_stats.get("total_orders") or 0)
-    buyouts_30d = int(orders_30_stats.get("buyouts") or 0)
-    revenue_30d = float(orders_30_stats.get("revenue") or 0.0)
-    local_orders_30d = int(orders_30_stats.get("local_orders") or 0)
-    buyout_rate_30d = round((buyouts_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
-    avg_check_30d = round(revenue_30d / buyouts_30d, 2) if buyouts_30d > 0 else 0.0
-    local_share_orders_30d = round((local_orders_30d / total_orders_30d) * 100.0, 2) if total_orders_30d > 0 else 0.0
+    total_orders_30d = kpi_rollup["current_total_orders"]
+    buyouts_30d = kpi_rollup["current_buyouts"]
+    revenue_30d = kpi_rollup["current_revenue"]
+    buyout_rate_30d = kpi_rollup["current_buyout_rate"]
+    avg_check_30d = kpi_rollup["current_avg_check"]
+    local_share_orders_30d = kpi_rollup["current_local_share"]
 
     fbo_stock_total = int(
         WarehouseStockDetailed.objects.filter(seller=seller).aggregate(total=Sum("quantity")).get("total") or 0
@@ -222,37 +661,82 @@ def _build_home_summary_payload(
     fbs_stock_total = int(
         SellerFbsStock.objects.filter(seller=seller).aggregate(total=Sum("amount")).get("total") or 0
     )
-    ad_spend_30d = float(
-        WbAdvertStatDaily.objects
-        .filter(seller=seller, stat_date__gte=date_from_30d, stat_date__lte=today)
-        .aggregate(total=Sum("spend"))
-        .get("total")
-        or 0.0
-    )
+    ad_spend_30d = kpi_rollup["current_ad_spend"]
     active_ads_count = WbAdvertCampaign.objects.filter(seller=seller, status=9).count()
 
+    rev_prev = kpi_rollup["previous_revenue"]
+    orders_prev = kpi_rollup["previous_total_orders"]
+    buy_prev = kpi_rollup["previous_buyouts"]
+    br_prev = kpi_rollup["previous_buyout_rate"]
+    ls_prev = kpi_rollup["previous_local_share"]
+    ad_prev = kpi_rollup["previous_ad_spend"]
+    avg_prev = kpi_rollup["previous_avg_check"]
+
     return {
+        "period_weeks": period_weeks,
+        "period_days": period_days,
+        "period_date_from": kpi_rollup["window_start"].date().isoformat(),
+        "period_date_to": (kpi_rollup["window_end"] - timedelta(microseconds=1)).date().isoformat(),
+        "prev_period_date_from": kpi_rollup["previous_window_start"].date().isoformat(),
+        "prev_period_date_to": (kpi_rollup["previous_window_end"] - timedelta(microseconds=1)).date().isoformat(),
+        "orders_period_started_at": kpi_rollup["window_start"].isoformat(),
+        "orders_period_ended_at": kpi_rollup["window_end"].isoformat(),
+        "orders_prev_period_started_at": kpi_rollup["previous_window_start"].isoformat(),
+        "orders_prev_period_ended_at": kpi_rollup["previous_window_end"].isoformat(),
+        "buyouts_period_started_at": kpi_rollup["window_start"].isoformat(),
+        "buyouts_period_ended_at": kpi_rollup["window_end"].isoformat(),
+        "buyouts_prev_period_started_at": kpi_rollup["previous_window_start"].isoformat(),
+        "buyouts_prev_period_ended_at": kpi_rollup["previous_window_end"].isoformat(),
         "revenue_30d": round(revenue_30d, 2),
+        "revenue_prev": round(rev_prev, 2),
+        "revenue_delta_abs": round(revenue_30d - rev_prev, 2),
+        "revenue_delta_pct": _pct_change_vs_prev(revenue_30d, rev_prev),
         "avg_check_30d": avg_check_30d,
+        "avg_check_prev": avg_prev,
+        "avg_check_delta_abs": round(avg_check_30d - avg_prev, 2),
+        "avg_check_delta_pct": _pct_change_vs_prev(avg_check_30d, avg_prev)
+        if avg_check_30d > 0 or avg_prev > 0
+        else None,
         "total_orders_30d": total_orders_30d,
+        "total_orders_prev": orders_prev,
+        "total_orders_delta_abs": total_orders_30d - orders_prev,
+        "total_orders_delta_pct": _pct_change_vs_prev(total_orders_30d, orders_prev),
         "buyouts_30d": buyouts_30d,
+        "buyouts_prev": buy_prev,
+        "buyouts_delta_abs": buyouts_30d - buy_prev,
+        "buyouts_delta_pct": _pct_change_vs_prev(buyouts_30d, buy_prev),
         "buyout_rate_30d": buyout_rate_30d,
+        "buyout_rate_prev": br_prev,
+        "buyout_rate_delta_pp": round(buyout_rate_30d - br_prev, 2),
         "local_share_orders_30d": local_share_orders_30d,
+        "local_share_prev": ls_prev,
+        "local_share_delta_pp": round(local_share_orders_30d - ls_prev, 2),
+        "local_share_delta_pct": _pct_change_vs_prev(local_share_orders_30d, ls_prev),
         "fbo_stock_total": fbo_stock_total,
         "fbs_stock_total": fbs_stock_total,
         "ad_spend_30d": round(ad_spend_30d, 2),
+        "ad_spend_prev": round(ad_prev, 2),
+        "ad_spend_delta_abs": round(ad_spend_30d - ad_prev, 2),
+        "ad_spend_delta_pct": _pct_change_vs_prev(ad_spend_30d, ad_prev),
         "active_ads_count": active_ads_count,
         "last_sync_at": last_sync_at.isoformat() if last_sync_at else "",
-        "last_sync_at_label": last_sync_at.strftime("%d.%m.%Y %H:%M") if last_sync_at else "не было",
+        "last_sync_at_label": (
+            timezone.localtime(last_sync_at).strftime("%d.%m.%Y %H:%M")
+            if last_sync_at else "не было"
+        ),
     }
 
 
 def _build_home_reminders_payload(seller: SellerAccount) -> dict:
+    prefs = _get_home_reminders_prefs(seller)
+    prefs_sig = _home_reminders_prefs_signature(prefs)
     reminder_snapshot = _get_home_reminders_snapshot(seller)
     reminder_generated_at = _get_home_reminders_generated_at(seller)
+    stored_sig = _get_home_reminders_snapshot_prefs_signature(seller)
     is_snapshot_stale = (
         reminder_generated_at is None
         or timezone.localtime(reminder_generated_at).date() < timezone.localdate()
+        or stored_sig != prefs_sig
     )
     if not reminder_snapshot or is_snapshot_stale:
         try:
@@ -401,6 +885,15 @@ def _extract_campaign_nm_ids_from_payload(payload: dict | None) -> list[int]:
     return unique
 
 
+def _nm_ids_with_active_wb_adverts(seller: SellerAccount) -> set[int]:
+    """Множество nm_id, которые состоят хотя бы в одной активной (WB status=9) рекламной кампании."""
+    nm_ids: set[int] = set()
+    for campaign in WbAdvertCampaign.objects.filter(seller=seller, status=9).only("raw_payload"):
+        for nm_id in _extract_campaign_nm_ids_from_payload(campaign.raw_payload):
+            nm_ids.add(int(nm_id))
+    return nm_ids
+
+
 def _is_buyout_rr_row(row: RealizationReportDetail, payload: dict | None) -> bool:
     if _is_cancel_or_return_rr_row(row, payload):
         return False
@@ -511,6 +1004,118 @@ def _build_campaign_spend_totals(
     return totals
 
 
+def _build_campaign_day_rollup(
+    *,
+    seller: SellerAccount,
+    advert_ids: list[int],
+    date_from: date,
+    date_to: date,
+) -> dict[tuple[int, date], dict[str, float]]:
+    if not advert_ids or date_from > date_to:
+        return {}
+
+    grouped_rows = list(
+        WbAdvertStatDaily.objects
+        .filter(seller=seller, advert_id__in=advert_ids, stat_date__gte=date_from, stat_date__lte=date_to)
+        .values("advert_id", "stat_date")
+        .annotate(
+            day_sum_max=Max("day_sum"),
+            nm_sum=Sum("spend"),
+            views_max=Max("views"),
+            clicks_max=Max("clicks"),
+            orders_max=Max("orders"),
+            add_to_cart_max=Max("add_to_cart"),
+            sample_id=Min("id"),
+        )
+        .order_by("advert_id", "stat_date")
+    )
+
+    raw_fallback_ids: list[int] = []
+    grouped_by_key: dict[tuple[int, date], dict] = {}
+    for row in grouped_rows:
+        try:
+            advert_id_int = int(row.get("advert_id"))
+        except (TypeError, ValueError):
+            continue
+        stat_date = row.get("stat_date")
+        if advert_id_int <= 0 or stat_date is None:
+            continue
+        key = (advert_id_int, stat_date)
+        grouped_by_key[key] = row
+        if (
+            row.get("views_max") is None
+            and row.get("clicks_max") is None
+            and row.get("orders_max") is None
+            and row.get("add_to_cart_max") is None
+        ):
+            sample_id = row.get("sample_id")
+            if sample_id is not None:
+                raw_fallback_ids.append(int(sample_id))
+
+    raw_metrics_by_key: dict[tuple[int, date], dict[str, float]] = {}
+    if raw_fallback_ids:
+        for stat_row in (
+            WbAdvertStatDaily.objects
+            .filter(id__in=raw_fallback_ids)
+            .only("advert_id", "stat_date", "day_sum", "views", "clicks", "orders", "add_to_cart", "raw_payload")
+        ):
+            advert_id = int(stat_row.advert_id or 0)
+            stat_date = stat_row.stat_date
+            if advert_id <= 0 or stat_date is None:
+                continue
+            raw_metrics_by_key[(advert_id, stat_date)] = _extract_advert_day_metrics(stat_row)
+
+    rollup: dict[tuple[int, date], dict[str, float]] = {}
+    for key, row in grouped_by_key.items():
+        raw_metrics = raw_metrics_by_key.get(key, {})
+        day_sum_max = _to_float_or_default(row.get("day_sum_max"), 0.0)
+        nm_sum = _to_float_or_default(row.get("nm_sum"), 0.0)
+        rollup[key] = {
+            "day_sum": day_sum_max if day_sum_max > 0 else (nm_sum if nm_sum > 0 else _to_float_or_default(raw_metrics.get("day_sum"), 0.0)),
+            "views": _to_float_or_default(row.get("views_max"), _to_float_or_default(raw_metrics.get("views"), 0.0)),
+            "clicks": _to_float_or_default(row.get("clicks_max"), _to_float_or_default(raw_metrics.get("clicks"), 0.0)),
+            "orders": _to_float_or_default(row.get("orders_max"), _to_float_or_default(raw_metrics.get("orders"), 0.0)),
+            "add_to_cart": _to_float_or_default(row.get("add_to_cart_max"), _to_float_or_default(raw_metrics.get("add_to_cart"), 0.0)),
+        }
+    return rollup
+
+
+def _build_campaign_spend_points(
+    *,
+    seller: SellerAccount,
+    advert_ids: list[int],
+    date_from: date,
+    date_to: date,
+) -> list[dict]:
+    by_advert_day = _build_campaign_day_rollup(
+        seller=seller,
+        advert_ids=advert_ids,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    by_day: dict[date, dict[str, float]] = {}
+    for (_advert_id, stat_date), metrics in by_advert_day.items():
+        target = by_day.setdefault(stat_date, {"value": 0.0, "orders": 0.0})
+        target["value"] += float(metrics["day_sum"] or 0.0)
+        target["orders"] += float(metrics["orders"] or 0.0)
+
+    points: list[dict] = []
+    cursor = date_from
+    while cursor <= date_to:
+        metrics = by_day.get(cursor, {"value": 0.0, "orders": 0.0})
+        points.append(
+            {
+                "label": cursor.strftime("%d.%m"),
+                "date": cursor.isoformat(),
+                "value": round(float(metrics["value"] or 0.0), 2),
+                "orders": int(round(float(metrics["orders"] or 0.0))),
+            }
+        )
+        cursor += timedelta(days=1)
+    return points
+
+
 def _allocate_campaign_spend_for_nm(
     *,
     target_nm_id: int,
@@ -574,6 +1179,274 @@ def _extract_advert_day_metrics(stat_row: WbAdvertStatDaily) -> dict[str, float]
         "orders": _to_float_or_default(stat_row.orders, _to_float_or_default(day_payload.get("orders"), 0.0)),
         "add_to_cart": _to_float_or_default(stat_row.add_to_cart, _to_float_or_default(day_payload.get("atbs"), 0.0)),
         "day_sum": _to_float_or_default(stat_row.day_sum, _to_float_or_default(day_payload.get("sum"), 0.0)),
+    }
+
+
+def _extract_advert_nm_metrics(stat_row: WbAdvertStatDaily) -> dict[str, float]:
+    payload = stat_row.raw_payload if isinstance(stat_row.raw_payload, dict) else {}
+    nm_payload = payload.get("nm") if isinstance(payload.get("nm"), dict) else {}
+    return {
+        "views": _to_float_or_default(nm_payload.get("views"), 0.0),
+        "clicks": _to_float_or_default(nm_payload.get("clicks"), 0.0),
+        "orders": _to_float_or_default(nm_payload.get("orders"), 0.0),
+        "add_to_cart": _to_float_or_default(nm_payload.get("atbs"), 0.0),
+        "sum_price": _to_float_or_default(nm_payload.get("sum_price"), 0.0),
+        "spend": _to_float_or_default(stat_row.spend, _to_float_or_default(nm_payload.get("sum"), 0.0)),
+    }
+
+
+def _estimate_full_ads_sync_for_seller(seller: SellerAccount | None) -> dict:
+    if not seller:
+        return {
+            "campaigns_count": 0,
+            "periods_total": 0,
+            "request_cycles_total": 0,
+            "estimated_minutes": 0,
+        }
+
+    campaigns = list(
+        WbAdvertCampaign.objects
+        .filter(seller=seller, status__in=[9, 11])
+        .only("advert_id", "start_time", "create_time", "change_time")
+    )
+    campaigns_count = len(campaigns)
+    if campaigns_count <= 0:
+        return {
+            "campaigns_count": 0,
+            "periods_total": 0,
+            "request_cycles_total": 0,
+            "estimated_minutes": 0,
+        }
+
+    oldest_start: date | None = None
+    for campaign in campaigns:
+        start_dt = campaign.start_time or campaign.create_time or campaign.change_time
+        if start_dt is None:
+            continue
+        start_day = timezone.localtime(start_dt).date() if timezone.is_aware(start_dt) else start_dt.date()
+        oldest_start = start_day if oldest_start is None else min(oldest_start, start_day)
+
+    today = timezone.localdate()
+    if oldest_start is None:
+        oldest_start = today
+
+    days_span = max(1, (today - oldest_start).days + 1)
+    periods_total = max(1, math.ceil(days_span / ADS_FULL_SYNC_PERIOD_DAYS))
+    campaign_batches = max(1, math.ceil(campaigns_count / 50))
+    request_cycles_total = periods_total * campaign_batches
+    estimated_seconds = (request_cycles_total * 20) + (request_cycles_total * 4) + 15
+    estimated_minutes = max(1, math.ceil(estimated_seconds / 60))
+
+    return {
+        "campaigns_count": campaigns_count,
+        "periods_total": periods_total,
+        "request_cycles_total": request_cycles_total,
+        "estimated_minutes": estimated_minutes,
+        "date_from": oldest_start.isoformat(),
+        "date_to": today.isoformat(),
+    }
+
+
+def _build_campaign_nm_rollup(
+    *,
+    seller: SellerAccount,
+    advert_id: int,
+    date_from: date,
+    date_to: date,
+) -> dict[int, dict[str, float]]:
+    rows = list(
+        WbAdvertStatDaily.objects
+        .filter(
+            seller=seller,
+            advert_id=advert_id,
+            stat_date__gte=date_from,
+            stat_date__lte=date_to,
+        )
+        .exclude(nm_id__isnull=True)
+        .exclude(nm_id=0)
+        .only("nm_id", "spend", "raw_payload")
+    )
+    by_nm: dict[int, dict[str, float]] = {}
+    for stat_row in rows:
+        nm_id = int(stat_row.nm_id or 0)
+        if nm_id <= 0:
+            continue
+        metrics = _extract_advert_nm_metrics(stat_row)
+        bucket = by_nm.setdefault(
+            nm_id,
+            {
+                "spend": 0.0,
+                "views": 0.0,
+                "clicks": 0.0,
+                "orders": 0.0,
+                "add_to_cart": 0.0,
+                "sum_price": 0.0,
+            },
+        )
+        bucket["spend"] += float(metrics["spend"] or 0.0)
+        bucket["views"] += float(metrics["views"] or 0.0)
+        bucket["clicks"] += float(metrics["clicks"] or 0.0)
+        bucket["orders"] += float(metrics["orders"] or 0.0)
+        bucket["add_to_cart"] += float(metrics["add_to_cart"] or 0.0)
+        bucket["sum_price"] += float(metrics["sum_price"] or 0.0)
+    return by_nm
+
+
+def _build_campaign_detail_payload(
+    *,
+    seller: SellerAccount,
+    campaign: WbAdvertCampaign,
+    date_from: date,
+    date_to: date,
+) -> dict:
+    advert_id = int(campaign.advert_id or 0)
+    day_rollup = _build_campaign_day_rollup(
+        seller=seller,
+        advert_ids=[advert_id],
+        date_from=date_from,
+        date_to=date_to,
+    )
+    nm_rollup = _build_campaign_nm_rollup(
+        seller=seller,
+        advert_id=advert_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+    participant_nm_ids = []
+    seen_nm_ids: set[int] = set()
+    for raw_nm_id in _extract_campaign_nm_ids_from_payload(campaign.raw_payload):
+        try:
+            nm_id_int = int(raw_nm_id)
+        except (TypeError, ValueError):
+            continue
+        if nm_id_int <= 0 or nm_id_int in seen_nm_ids:
+            continue
+        seen_nm_ids.add(nm_id_int)
+        participant_nm_ids.append(nm_id_int)
+
+    relevant_nm_ids = list(dict.fromkeys(participant_nm_ids + sorted(nm_rollup.keys())))
+    products_by_nm: dict[int, Product] = {}
+    if relevant_nm_ids:
+        for product in Product.objects.filter(seller=seller, nm_id__in=relevant_nm_ids).order_by("nm_id", "-id"):
+            nm_id_int = int(product.nm_id or 0)
+            if nm_id_int > 0 and nm_id_int not in products_by_nm:
+                products_by_nm[nm_id_int] = product
+
+    daily_points = []
+    daily_rows = []
+    total_spend = 0.0
+    total_views = 0
+    total_clicks = 0
+    total_orders = 0
+    total_atc = 0
+    cursor = date_from
+    while cursor <= date_to:
+        metrics = day_rollup.get((advert_id, cursor), {})
+        spend = round(float(metrics.get("day_sum") or 0.0), 2)
+        views = int(round(float(metrics.get("views") or 0.0)))
+        clicks = int(round(float(metrics.get("clicks") or 0.0)))
+        orders = int(round(float(metrics.get("orders") or 0.0)))
+        atc = int(round(float(metrics.get("add_to_cart") or 0.0)))
+        ctr = round((clicks / views) * 100.0, 2) if views > 0 else 0.0
+        cpc = round(spend / clicks, 2) if clicks > 0 else 0.0
+        cpo = round(spend / orders, 2) if orders > 0 else 0.0
+        point = {
+            "label": cursor.strftime("%d.%m"),
+            "date": cursor.isoformat(),
+            "spend": spend,
+            "views": views,
+            "clicks": clicks,
+            "orders": orders,
+            "add_to_cart": atc,
+            "ctr": ctr,
+            "cpc": cpc,
+            "cpo": cpo,
+        }
+        daily_points.append(point)
+        if spend > 0 or views > 0 or clicks > 0 or orders > 0 or atc > 0:
+            daily_rows.append(point)
+        total_spend += spend
+        total_views += views
+        total_clicks += clicks
+        total_orders += orders
+        total_atc += atc
+        cursor += timedelta(days=1)
+
+    product_rows = []
+    for nm_id in relevant_nm_ids:
+        metrics = nm_rollup.get(nm_id, {})
+        product = products_by_nm.get(nm_id)
+        spend = round(float(metrics.get("spend") or 0.0), 2)
+        views = int(round(float(metrics.get("views") or 0.0)))
+        clicks = int(round(float(metrics.get("clicks") or 0.0)))
+        orders = int(round(float(metrics.get("orders") or 0.0)))
+        atc = int(round(float(metrics.get("add_to_cart") or 0.0)))
+        revenue = round(float(metrics.get("sum_price") or 0.0), 2)
+        ctr = round((clicks / views) * 100.0, 2) if views > 0 else 0.0
+        cpc = round(spend / clicks, 2) if clicks > 0 else 0.0
+        cpo = round(spend / orders, 2) if orders > 0 else 0.0
+        share = round((spend / total_spend) * 100.0, 2) if total_spend > 0 else 0.0
+        has_activity = any([
+            spend > 0,
+            views > 0,
+            clicks > 0,
+            orders > 0,
+            atc > 0,
+            revenue > 0,
+        ])
+        if not has_activity:
+            continue
+        product_rows.append(
+            {
+                "nm_id": nm_id,
+                "title": (product.title or "").strip() if product else "",
+                "vendor_code": (product.vendor_code or "").strip() if product else "",
+                "photo_url": (product.photo_url or "").strip() if product else "",
+                "product_id": product.id if product else None,
+                "spend": spend,
+                "views": views,
+                "clicks": clicks,
+                "orders": orders,
+                "add_to_cart": atc,
+                "revenue": revenue,
+                "ctr": ctr,
+                "cpc": cpc,
+                "cpo": cpo,
+                "share": share,
+            }
+        )
+    product_rows.sort(key=lambda item: (-(item.get("spend") or 0.0), -(item.get("orders") or 0), item.get("nm_id") or 0))
+
+    top_product = next((row for row in product_rows if row.get("photo_url") or row.get("title")), None)
+    status_label, status_color = _advert_status_meta(campaign.status)
+    summary = {
+        "spend": round(total_spend, 2),
+        "views": total_views,
+        "clicks": total_clicks,
+        "orders": total_orders,
+        "add_to_cart": total_atc,
+        "ctr": round((total_clicks / total_views) * 100.0, 2) if total_views > 0 else 0.0,
+        "cpc": round(total_spend / total_clicks, 2) if total_clicks > 0 else 0.0,
+        "cpo": round(total_spend / total_orders, 2) if total_orders > 0 else 0.0,
+        "days_with_stats": len(daily_rows),
+    }
+
+    return {
+        "campaign_name": campaign.campaign_name or f"Кампания {advert_id}",
+        "advert_id": advert_id,
+        "advert_type_label": _advert_type_label(campaign.advert_type),
+        "status_label": status_label,
+        "status_color": status_color,
+        "create_time": campaign.create_time,
+        "change_time": campaign.change_time,
+        "start_time": campaign.start_time,
+        "participants_count": len(participant_nm_ids),
+        "top_product": top_product or {},
+        "summary": summary,
+        "daily_points": daily_points,
+        "daily_rows": sorted(daily_rows, key=lambda item: item["date"], reverse=True),
+        "product_rows": product_rows,
     }
 
 
@@ -1138,6 +2011,41 @@ def _get_home_reminders_state(seller: SellerAccount | None) -> dict:
     }
 
 
+def _dismissed_home_reminder_counts_by_group(seller: SellerAccount | None) -> dict[str, int]:
+    counts = {"sold_out": 0, "glue_drr": 0}
+    if not seller:
+        return counts
+    state = _get_home_reminders_state(seller)
+    dismissed_raw = state.get("dismissed")
+    if not isinstance(dismissed_raw, dict):
+        return counts
+    for rid in dismissed_raw.keys():
+        if not isinstance(rid, str):
+            continue
+        if rid.startswith("sold_out:"):
+            counts["sold_out"] += 1
+        elif rid.startswith("glue_drr:"):
+            counts["glue_drr"] += 1
+    return counts
+
+
+def _restore_dismissed_home_reminders_for_group(seller: SellerAccount, group_id: str) -> int:
+    gid = (group_id or "").strip()
+    if gid not in {"sold_out", "glue_drr"}:
+        return 0
+    prefix = f"{gid}:"
+    state = _get_home_reminders_state(seller)
+    dismissed = dict(state.get("dismissed")) if isinstance(state.get("dismissed"), dict) else {}
+    snoozed = dict(state.get("snoozed")) if isinstance(state.get("snoozed"), dict) else {}
+    removed = 0
+    for rid in list(dismissed.keys()):
+        if isinstance(rid, str) and rid.startswith(prefix):
+            dismissed.pop(rid, None)
+            removed += 1
+    _save_home_reminders_state(seller, {"dismissed": dismissed, "snoozed": snoozed})
+    return removed
+
+
 def _save_home_reminders_state(seller: SellerAccount, state: dict) -> None:
     meta = dict(seller.sync_meta) if isinstance(seller.sync_meta, dict) else {}
     reminders_meta = meta.get(HOME_REMINDERS_META_KEY)
@@ -1157,6 +2065,7 @@ def _save_home_reminders_snapshot(seller: SellerAccount, groups: list[dict], *, 
         reminders_meta = {}
     reminders_meta["groups"] = groups if isinstance(groups, list) else []
     reminders_meta["generated_at"] = (generated_at or timezone.now()).isoformat()
+    reminders_meta["prefs_signature"] = _home_reminders_prefs_signature(_get_home_reminders_prefs(seller))
     meta[HOME_REMINDERS_META_KEY] = reminders_meta
     seller.sync_meta = meta
     _run_with_db_lock_retry(lambda: seller.save(update_fields=["sync_meta"]))
@@ -1343,21 +2252,28 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
     if not seller:
         return []
 
+    prefs = _get_home_reminders_prefs(seller)
     today = timezone.localdate()
-    period_from = today - timedelta(days=29)
+    sold_period_days = int(prefs["sold_out_period_days"])
+    glue_period_days = int(prefs["glue_drr_period_days"])
+    glue_drr_threshold = float(prefs["glue_drr_threshold_pct"])
+    period_from_sold = today - timedelta(days=sold_period_days - 1)
+    period_from_glue = today - timedelta(days=glue_period_days - 1)
 
     groups: list[dict] = []
 
-    sold_rows = list(
-        Order.objects
-        .filter(seller=seller, order_date__date__gte=period_from, order_date__date__lte=today)
-        .values("nm_id")
-        .annotate(
-            orders_30d=Count("id", filter=Q(is_cancel=False)),
-            buyouts_30d=Count("id", filter=Q(is_buyout=True)),
-            last_order_date=Max("order_date"),
+    sold_rows = []
+    if prefs["sold_out_enabled"]:
+        sold_rows = list(
+            Order.objects
+            .filter(seller=seller, order_date__date__gte=period_from_sold, order_date__date__lte=today)
+            .values("nm_id")
+            .annotate(
+                orders_30d=Count("id", filter=Q(is_cancel=False)),
+                buyouts_30d=Count("id", filter=Q(is_buyout=True)),
+                last_order_date=Max("order_date"),
+            )
         )
-    )
     sold_by_nm = {
         int(row["nm_id"]): {
             "orders_30d": int(row.get("orders_30d") or 0),
@@ -1401,12 +2317,10 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             continue
         product = latest_products_by_nm.get(nm_id)
         title = ""
-        vendor_code = ""
         photo_url = ""
         link = ""
         if product:
             title = (product.title or "").strip()
-            vendor_code = (product.vendor_code or "").strip()
             photo_url = (product.photo_url or "").strip()
             link = reverse("product_card_detail", args=[product.id])
         last_order_date = stats.get("last_order_date")
@@ -1419,10 +2333,10 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             {
                 "reminder_id": f"sold_out:{nm_id}",
                 "title": title or f"Товар WB {nm_id}",
-                "subtitle": f"WB {nm_id} · {vendor_code or 'артикул не указан'}",
-                "meta": f"Заказы за 30 дней: {stats['orders_30d']} · Выкупы: {stats['buyouts_30d']}",
-                "footnote": f"Последний заказ: {last_order_label}. Остаток FBO/FBS: 0 / 0.",
-                "badge": "Нужна поставка",
+                "subtitle": "",
+                "meta": f"Заказы за {sold_period_days} дн.: {stats['orders_30d']}",
+                "footnote": f"Последний заказ: {last_order_label}",
+                "badge": "",
                 "badge_tone": "danger",
                 "link": link,
                 "photo_url": photo_url,
@@ -1435,19 +2349,21 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             {
                 "group_id": "sold_out",
                 "title": "Товар закончился",
-                "description": "Карточки с продажами за последние 30 дней и нулевым остатком сейчас.",
+                "description": f"Карточки с продажами за последние {sold_period_days} дней и нулевым остатком сейчас.",
                 "empty_text": "Нет товаров, которые продавались и полностью закончились.",
                 "cards": sold_out_cards[:18],
             }
         )
 
-    glue_groups = list(
-        Product.objects
-        .filter(seller=seller, imt_id__isnull=False)
-        .values("imt_id")
-        .annotate(items_count=Count("id"))
-        .filter(items_count__gt=1)
-    )
+    glue_groups = []
+    if prefs["glue_drr_enabled"]:
+        glue_groups = list(
+            Product.objects
+            .filter(seller=seller, imt_id__isnull=False)
+            .values("imt_id")
+            .annotate(items_count=Count("id"))
+            .filter(items_count__gt=1)
+        )
     imt_ids = [int(row["imt_id"]) for row in glue_groups if row.get("imt_id") is not None]
     if imt_ids:
         products = list(
@@ -1464,7 +2380,7 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             }
             for row in (
                 Order.objects
-                .filter(seller=seller, nm_id__in=list(nm_ids), order_date__date__gte=period_from, order_date__date__lte=today)
+                .filter(seller=seller, nm_id__in=list(nm_ids), order_date__date__gte=period_from_glue, order_date__date__lte=today)
                 .values("nm_id")
                 .annotate(
                     orders=Count("id"),
@@ -1477,7 +2393,7 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
         ad_by_nm = _build_ad_spend_by_nm(
             seller=seller,
             nm_ids=nm_ids,
-            date_from=period_from,
+            date_from=period_from_glue,
             date_to=today,
         )
         fbo_by_nm = {
@@ -1526,7 +2442,7 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             if revenue_30d <= 0:
                 continue
             drr_30d = round((ad_spend_30d / revenue_30d) * 100.0, 2)
-            if drr_30d <= GLUE_DRR_REMINDER_THRESHOLD:
+            if drr_30d <= glue_drr_threshold:
                 continue
             buyouts_30d = sum(item["buyouts_30d"] for item in items)
             orders_30d = sum(item["orders_30d"] for item in items)
@@ -1538,7 +2454,7 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
                     "subtitle": f"Товаров в склейке: {len(items)} · Заказы: {orders_30d} · Выкупы: {buyouts_30d}",
                     "meta": f"ДРР: {drr_30d:.2f}% · Реклама: {ad_spend_30d:.2f} ₽ · Выручка: {revenue_30d:.2f} ₽",
                     "footnote": "Внутри: " + ", ".join(item_titles),
-                    "badge": f"ДРР > {GLUE_DRR_REMINDER_THRESHOLD:.0f}%",
+                    "badge": f"ДРР > {glue_drr_threshold:.0f}%",
                     "badge_tone": "warn",
                     "link": f"{reverse('product_glues_report')}?q={imt_id_int}",
                     "photo_url": next((item["photo_url"] for item in items if item["photo_url"]), ""),
@@ -1551,7 +2467,10 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
                 {
                     "group_id": "glue_drr",
                     "title": "ДРР склейки вырос",
-                    "description": "Склейки, у которых рекламные расходы за 30 дней превысили 20% от выручки.",
+                    "description": (
+                        f"Склейки, у которых рекламные расходы за {glue_period_days} дн. превысили "
+                        f"{glue_drr_threshold:.0f}% от выручки за тот же период."
+                    ),
                     "empty_text": "Нет склеек с ДРР выше порога.",
                     "cards": glue_cards[:12],
                 }
@@ -1649,6 +2568,13 @@ def _get_sync_task(task_id: str) -> SyncTask | None:
     return SyncTask.objects.filter(task_id=task_id).first()
 
 
+def _get_sync_task_stale_minutes(task: SyncTask) -> int:
+    task_result = task.result if isinstance(task.result, dict) else {}
+    if task_result.get("kind") == "ads_full":
+        return ADS_FULL_SYNC_STALE_MINUTES
+    return SYNC_TASK_STALE_MINUTES
+
+
 def _expire_stale_running_sync_tasks_for_user(user) -> int:
     """
     Помечает "зависшие" running-задачи как error.
@@ -1662,7 +2588,7 @@ def _expire_stale_running_sync_tasks_for_user(user) -> int:
     )
     now = timezone.now()
     for task in running_tasks:
-        stale_minutes = SYNC_TASK_STALE_MINUTES
+        stale_minutes = _get_sync_task_stale_minutes(task)
         threshold = now - timedelta(minutes=stale_minutes)
         if not task.updated_at or task.updated_at >= threshold:
             continue
@@ -2007,6 +2933,121 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         close_old_connections()
 
 
+def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
+    close_old_connections()
+    try:
+        seller = SellerAccount.objects.filter(id=seller_id, user_id=user_id).first()
+        if not seller:
+            _set_sync_task(
+                task_id,
+                {
+                    "task_id": task_id,
+                    "status": "error",
+                    "progress": 0,
+                    "step": "Ошибка",
+                    "message": "SellerAccount не найден для текущего пользователя.",
+                    "finished_at": timezone.now(),
+                    "result": {"kind": "ads_full"},
+                },
+            )
+            return
+
+        result = {"kind": "ads_full"}
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "running",
+                "progress": 0,
+                "step": "Подготовка",
+                "message": "Собираем активные и приостановленные РК для полного синка...",
+                "finished_at": None,
+                "result": result,
+            },
+        )
+
+        def on_progress(period_index: int, periods_total: int, period_start: date, period_end: date) -> None:
+            progress = int(((period_index - 1) / max(periods_total, 1)) * 100)
+            _set_sync_task(
+                task_id,
+                {
+                    "task_id": task_id,
+                    "status": "running",
+                    "progress": progress,
+                    "step": "Полный синк рекламной статы",
+                    "message": (
+                        f"Период {period_index}/{periods_total}: "
+                        f"{period_start.strftime('%d.%m.%Y')} - {period_end.strftime('%d.%m.%Y')}"
+                    ),
+                    "finished_at": None,
+                    "result": result,
+                },
+            )
+
+        sync_result = _run_with_db_lock_retry(
+            lambda: sync_active_paused_ad_campaigns_full_history(
+                seller=seller,
+                period_days=ADS_FULL_SYNC_PERIOD_DAYS,
+                on_progress=on_progress,
+            )
+        )
+        if isinstance(sync_result, dict):
+            result.update(sync_result)
+
+        message = (
+            f"Полный синк РК завершен: кампаний {int(result.get('campaigns_synced') or 0)}, "
+            f"строк рекламной статистики {int(result.get('stats_rows_upserted') or 0)}, "
+            f"периодов {int(result.get('periods_processed') or 0)}/{int(result.get('periods_total') or 0)}."
+        )
+        if result.get("date_from") and result.get("date_to"):
+            message += f" Окно истории: {result['date_from']} - {result['date_to']}."
+        if result.get("error"):
+            message += f" Часть данных могла быть пропущена: {result['error']}"
+
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "success",
+                "progress": 100,
+                "step": "Готово",
+                "message": message,
+                "finished_at": timezone.now(),
+                "result": result,
+            },
+        )
+    except Exception as exc:
+        log_user = None
+        log_seller = None
+        if isinstance(user_id, int):
+            from django.contrib.auth.models import User
+            log_user = User.objects.filter(id=user_id).first()
+        if isinstance(seller_id, int):
+            log_seller = SellerAccount.objects.filter(id=seller_id).first()
+        _log_app_error(
+            source="sync.ads_full.worker",
+            message=f"Ошибка полного синка рекламной статы: {exc}",
+            user=log_user,
+            seller=log_seller,
+            context={"task_id": task_id},
+            traceback_text=traceback.format_exc(),
+        )
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "error",
+                "progress": 100,
+                "step": "Ошибка",
+                "message": _ui_error_message("Ошибка полного синка рекламной статы", exc),
+                "finished_at": timezone.now(),
+                "result": {"kind": "ads_full"},
+            },
+        )
+    finally:
+        close_old_connections()
+
+
 def _generate_unique_username_from_email(email: str) -> str:
     base = (email.split("@")[0] or "user").strip().lower()
     safe = "".join(ch for ch in base if ch.isalnum() or ch in {"_", "."})[:24] or "user"
@@ -2027,6 +3068,30 @@ def _build_pricing_context(user=None) -> dict:
     }
 
 
+def _render_document_hash(template_name: str, request=None) -> str:
+    rendered = render_to_string(template_name, {}, request=request)
+    normalized = " ".join(rendered.split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _latest_marketing_consent_state(*, user=None, email: str = "") -> bool:
+    logs_qs = ConsentLog.objects.filter(kind="marketing")
+    if user and getattr(user, "is_authenticated", False):
+        logs_qs = logs_qs.filter(Q(user=user) | Q(email__iexact=(email or user.email or "")))
+    elif email:
+        logs_qs = logs_qs.filter(email__iexact=email)
+    else:
+        return False
+    latest = logs_qs.order_by("-created_at", "-id").first()
+    if not latest:
+        return False
+    return latest.action == ConsentLog.ACTION_GRANT
+
+
+def _legal_versions() -> dict:
+    return getattr(settings, "LEGAL_DOC_VERSIONS", {}) or {}
+
+
 def promo_landing(request):
     """Старый URL /promo/ — редирект на главную (лендинг для гостей, дашборд для авторизованных)."""
     return redirect("home")
@@ -2038,12 +3103,27 @@ def pricing_page(request):
     return render(request, "marketing/pricing.html", ctx)
 
 
+def legal_privacy(request):
+    return render(request, "legal/privacy.html")
+
+
+def legal_consent(request):
+    return render(request, "legal/consent.html")
+
+
+def legal_terms(request):
+    return render(request, "legal/terms.html")
+
+
 @require_POST
 def register_trial(request):
     full_name = (request.POST.get("full_name") or "").strip()
     email = (request.POST.get("email") or "").strip().lower()
     password = (request.POST.get("password") or "").strip()
     password_confirm = (request.POST.get("password_confirm") or "").strip()
+    pdn_consent = (request.POST.get("pdn_consent") or "").strip().lower() in {"1", "true", "on", "yes"}
+    marketing_consent = (request.POST.get("marketing_consent") or "").strip().lower() in {"1", "true", "on", "yes"}
+    legal_versions = _legal_versions()
 
     if len(full_name) < 2:
         return render(request, "marketing/register_result.html", {"ok": False, "error": "Укажите имя (минимум 2 символа)."}, status=400)
@@ -2057,6 +3137,13 @@ def register_trial(request):
         return render(request, "marketing/register_result.html", {"ok": False, "error": "Пароли не совпадают."}, status=400)
     if User.objects.filter(email__iexact=email).exists():
         return render(request, "marketing/register_result.html", {"ok": False, "error": "Пользователь с таким e-mail уже зарегистрирован."}, status=400)
+    if not pdn_consent:
+        return render(
+            request,
+            "marketing/register_result.html",
+            {"ok": False, "error": "Необходимо согласие на обработку персональных данных."},
+            status=400,
+        )
 
     token = get_random_string(48)
     now_dt = timezone.now()
@@ -2070,8 +3157,30 @@ def register_trial(request):
                     "confirm_token": token,
                     "expires_at": now_dt + timedelta(hours=24),
                     "confirmed_at": None,
+                    "pdn_consent_at": now_dt,
+                    "pdn_consent_version": str(legal_versions.get("consent") or ""),
+                    "marketing_consent_at": now_dt if marketing_consent else None,
                 },
             )
+            record_consent(
+                request=request,
+                email=email,
+                kind="pdn",
+                action=ConsentLog.ACTION_GRANT,
+                document_version=str(legal_versions.get("consent") or ""),
+                source="register_form",
+                document_text_hash=_render_document_hash("legal/consent.html", request=request),
+            )
+            if marketing_consent:
+                record_consent(
+                    request=request,
+                    email=email,
+                    kind="marketing",
+                    action=ConsentLog.ACTION_GRANT,
+                    document_version=str(legal_versions.get("consent") or ""),
+                    source="register_form",
+                    document_text_hash=hashlib.sha256(MARKETING_CONSENT_TEXT.encode("utf-8")).hexdigest(),
+                )
             confirm_url = request.build_absolute_uri(reverse("signup_confirm", kwargs={"token": lead.confirm_token}))
             mail_subject = "Подтвердите регистрацию в Vendra"
             mail_body = (
@@ -2144,6 +3253,7 @@ def signup_confirm(request, token: str):
             get_or_create_subscription(user)
             lead.confirmed_at = timezone.now()
             lead.save(update_fields=["confirmed_at", "updated_at"])
+            ConsentLog.objects.filter(email__iexact=lead.email, user__isnull=True).update(user=user)
     except Exception as exc:
         _log_app_error(
             source="signup.confirm",
@@ -2200,6 +3310,46 @@ def _serialize_running_sync_task(task: SyncTask | None) -> dict | None:
     }
 
 
+def _build_sync_tasks_for_user(user, *, limit: int = 12) -> list[dict]:
+    tasks = list(
+        SyncTask.objects
+        .filter(user=user)
+        .order_by("-created_at")[: max(1, int(limit))]
+    )
+    now = timezone.now()
+    rows: list[dict] = []
+    for task in tasks:
+        result = task.result if isinstance(task.result, dict) else {}
+        status = str(task.status or "")
+        if status == SyncTask.STATUS_RUNNING:
+            status_label = "В работе"
+            status_tone = "running"
+        elif status == SyncTask.STATUS_SUCCESS:
+            status_label = "Завершена"
+            status_tone = "success"
+        else:
+            status_label = "Ошибка"
+            status_tone = "error"
+        rows.append(
+            {
+                "task_id": task.task_id,
+                "kind": str(result.get("kind") or "general"),
+                "status": status,
+                "status_label": status_label,
+                "status_tone": status_tone,
+                "progress": int(task.progress or 0),
+                "step": task.step or "—",
+                "message": task.message or "",
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "finished_at": task.finished_at,
+                "idle_seconds": round((now - task.updated_at).total_seconds(), 1) if task.updated_at else None,
+                "can_stop": status == SyncTask.STATUS_RUNNING,
+            }
+        )
+    return rows
+
+
 def dashboard_home(request):
     if not request.user.is_authenticated:
         return render(request, "marketing/promo_landing.html", _build_pricing_context())
@@ -2211,6 +3361,11 @@ def dashboard_home(request):
     running_sync_task = _get_running_sync_task_for_user(request.user)
     has_dashboard_data = last_sync_at is not None
 
+    try:
+        reminders_restore_dismissed_url = reverse("dashboard_reminders_restore_dismissed_api")
+    except NoReverseMatch:
+        reminders_restore_dismissed_url = "/api/dashboard/reminders/dismissed/restore/"
+
     return render(
         request,
         "dashboard_main.html",
@@ -2220,6 +3375,7 @@ def dashboard_home(request):
             "last_sync_at": last_sync_at,
             "has_dashboard_data": has_dashboard_data,
             "running_sync_task": _serialize_running_sync_task(running_sync_task),
+            "reminders_restore_dismissed_url": reminders_restore_dismissed_url,
         },
     )
 
@@ -2231,10 +3387,12 @@ home = dashboard_home
 @require_GET
 def dashboard_summary_api(request):
     seller = _get_or_create_seller_for_user(request.user)
+    period_weeks = _parse_dashboard_summary_weeks(request)
     try:
         payload = _build_home_summary_payload(
             seller=seller,
             last_sync_at=_get_last_sync_at_for_user(request.user, seller),
+            period_weeks=period_weeks,
         )
         return JsonResponse({"ok": True, "summary": payload}, status=200)
     except Exception as exc:
@@ -2266,6 +3424,83 @@ def dashboard_reminders_api(request):
             traceback_text=traceback.format_exc(),
         )
         return JsonResponse({"ok": False, "error": "Не удалось загрузить блок напоминаний."}, status=500)
+
+
+@login_required
+@require_GET
+def dashboard_reminders_settings_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    prefs = _get_home_reminders_prefs(seller)
+    limits = {
+        "sold_out_period_days": {"min": 7, "max": 90},
+        "glue_drr_period_days": {"min": 7, "max": 90},
+        "glue_drr_threshold_pct": {"min": 1.0, "max": 100.0},
+    }
+    dismissed_counts = _dismissed_home_reminder_counts_by_group(seller)
+    return JsonResponse(
+        {"ok": True, "prefs": prefs, "limits": limits, "dismissed_counts": dismissed_counts},
+        status=200,
+    )
+
+
+@login_required
+@require_POST
+def dashboard_reminders_settings_save_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    try:
+        body = json.loads((request.body or b"").decode() or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Некорректный JSON."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"ok": False, "error": "Ожидался объект настроек."}, status=400)
+    prefs = _normalize_home_reminders_prefs(body)
+    try:
+        _save_home_reminders_prefs_only(seller, prefs)
+        reminder_snapshot = _build_home_reminder_groups(seller)
+        _save_home_reminders_snapshot(seller, reminder_snapshot, generated_at=timezone.now())
+    except Exception as exc:
+        _log_app_error(
+            source="dashboard.reminders_settings_save_api",
+            message=f"Не удалось сохранить настройки напоминаний: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"ok": False, "error": "Не удалось сохранить настройки."}, status=500)
+    return JsonResponse({"ok": True, "prefs": prefs}, status=200)
+
+
+@login_required
+@require_POST
+def dashboard_reminders_restore_dismissed_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    try:
+        body = json.loads((request.body or b"").decode() or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Некорректный JSON."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"ok": False, "error": "Ожидался объект."}, status=400)
+    group_id = str(body.get("group_id") or "").strip()
+    if group_id not in {"sold_out", "glue_drr"}:
+        return JsonResponse({"ok": False, "error": "Неизвестный тип напоминаний."}, status=400)
+    try:
+        restored = _restore_dismissed_home_reminders_for_group(seller, group_id)
+        dismissed_counts = _dismissed_home_reminder_counts_by_group(seller)
+        return JsonResponse(
+            {"ok": True, "restored": restored, "dismissed_counts": dismissed_counts},
+            status=200,
+        )
+    except Exception as exc:
+        _log_app_error(
+            source="dashboard.reminders_restore_dismissed_api",
+            message=f"Не удалось восстановить закрытые напоминания: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"ok": False, "error": "Не удалось восстановить напоминания."}, status=500)
 
 
 @login_required
@@ -2372,143 +3607,23 @@ def dashboard_trend_api(request):
     seller = _get_or_create_seller_for_user(request.user)
     period = (request.GET.get("period") or "14d").strip().lower()
     metric = (request.GET.get("metric") or "orders").strip().lower()
-    if period not in {"today", "7d", "14d", "28d"}:
+    if period not in {"today", "24h", "7d", "14d", "28d"}:
         period = "14d"
     if metric not in {"orders", "buyouts"}:
         metric = "orders"
 
     now_local = timezone.localtime()
-    today = now_local.date()
-    tz = timezone.get_current_timezone()
-
-    if period == "today":
-        current_start_dt = timezone.make_aware(datetime.combine(today, dt_time.min), timezone=tz)
-        current_end_dt = current_start_dt + timedelta(days=1)
-        previous_start_dt = current_start_dt - timedelta(days=1)
-        previous_end_dt = current_start_dt
-        labels = [f"{hour:02d}:00" for hour in range(24)]
-
-        if metric == "buyouts":
-            current_qs = (
-                Order.objects
-                .filter(seller=seller, is_buyout=True, buyout_date__gte=current_start_dt, buyout_date__lt=current_end_dt)
-                .annotate(bucket=TruncHour("buyout_date", tzinfo=tz))
-                .values("bucket")
-            )
-            previous_qs = (
-                Order.objects
-                .filter(seller=seller, is_buyout=True, buyout_date__gte=previous_start_dt, buyout_date__lt=previous_end_dt)
-                .annotate(bucket=TruncHour("buyout_date", tzinfo=tz))
-                .values("bucket")
-            )
-        else:
-            current_qs = (
-                Order.objects
-                .filter(seller=seller, order_date__gte=current_start_dt, order_date__lt=current_end_dt)
-                .annotate(bucket=TruncHour("order_date", tzinfo=tz))
-                .values("bucket")
-            )
-            previous_qs = (
-                Order.objects
-                .filter(seller=seller, order_date__gte=previous_start_dt, order_date__lt=previous_end_dt)
-                .annotate(bucket=TruncHour("order_date", tzinfo=tz))
-                .values("bucket")
-            )
-
-        current_rows = current_qs.annotate(cnt=Count("id"))
-        previous_rows = previous_qs.annotate(cnt=Count("id"))
-
-        current_map = {int(timezone.localtime(r["bucket"]).hour): int(r.get("cnt") or 0) for r in current_rows if r.get("bucket")}
-        previous_map = {int(timezone.localtime(r["bucket"]).hour): int(r.get("cnt") or 0) for r in previous_rows if r.get("bucket")}
-
-        current_values = [int(current_map.get(hour, 0)) for hour in range(24)]
-        previous_values = [int(previous_map.get(hour, 0)) for hour in range(24)]
-    else:
-        window_days = {"7d": 7, "14d": 14, "28d": 28}[period]
-        current_start_date = today - timedelta(days=window_days - 1)
-        current_end_date = today
-        previous_end_date = current_start_date - timedelta(days=1)
-        previous_start_date = previous_end_date - timedelta(days=window_days - 1)
-
-        labels = []
-        day = current_start_date
-        while day <= current_end_date:
-            labels.append(day.strftime("%d.%m"))
-            day += timedelta(days=1)
-
-        if metric == "buyouts":
-            current_qs = (
-                Order.objects
-                .filter(
-                    seller=seller,
-                    is_buyout=True,
-                    buyout_date__date__gte=current_start_date,
-                    buyout_date__date__lte=current_end_date,
-                )
-                .annotate(bucket=TruncDate("buyout_date"))
-                .values("bucket")
-            )
-            previous_qs = (
-                Order.objects
-                .filter(
-                    seller=seller,
-                    is_buyout=True,
-                    buyout_date__date__gte=previous_start_date,
-                    buyout_date__date__lte=previous_end_date,
-                )
-                .annotate(bucket=TruncDate("buyout_date"))
-                .values("bucket")
-            )
-        else:
-            current_qs = (
-                Order.objects
-                .filter(
-                    seller=seller,
-                    order_date__date__gte=current_start_date,
-                    order_date__date__lte=current_end_date,
-                )
-                .annotate(bucket=TruncDate("order_date"))
-                .values("bucket")
-            )
-            previous_qs = (
-                Order.objects
-                .filter(
-                    seller=seller,
-                    order_date__date__gte=previous_start_date,
-                    order_date__date__lte=previous_end_date,
-                )
-                .annotate(bucket=TruncDate("order_date"))
-                .values("bucket")
-            )
-
-        current_rows = current_qs.annotate(cnt=Count("id"))
-        previous_rows = previous_qs.annotate(cnt=Count("id"))
-
-        current_map = {r["bucket"]: int(r.get("cnt") or 0) for r in current_rows if r.get("bucket")}
-        previous_map = {r["bucket"]: int(r.get("cnt") or 0) for r in previous_rows if r.get("bucket")}
-
-        current_values = []
-        previous_values = []
-        for i in range(window_days):
-            current_day = current_start_date + timedelta(days=i)
-            previous_day = previous_start_date + timedelta(days=i)
-            current_values.append(int(current_map.get(current_day, 0)))
-            previous_values.append(int(previous_map.get(previous_day, 0)))
-
-    current_total = int(sum(current_values))
-    previous_total = int(sum(previous_values))
-    delta_abs = int(current_total - previous_total)
-    delta_percent = round((delta_abs / previous_total) * 100.0, 2) if previous_total > 0 else None
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller) or now_local
+    payload = _build_dashboard_trend_payload(
+        seller,
+        metric=metric,
+        period=period,
+        end_dt=last_sync_at,
+    )
 
     return JsonResponse(
         {
-            "labels": labels,
-            "current_values": current_values,
-            "previous_values": previous_values,
-            "current_total": current_total,
-            "previous_total": previous_total,
-            "delta_abs": delta_abs,
-            "delta_percent": delta_percent,
+            **payload,
             "updated_at": now_local.isoformat(),
         },
         status=200,
@@ -2547,6 +3662,7 @@ def wb_promotion_campaigns(request):
     _maybe_start_scheduled_sync_for_user(request.user, seller)
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     running_sync_task = _get_running_sync_task_for_user(request.user)
+    full_ads_sync_estimate = _estimate_full_ads_sync_for_seller(seller)
 
     query = (request.GET.get("q") or "").strip()
     raw_page = (request.GET.get("page") or "1").strip()
@@ -2554,6 +3670,8 @@ def wb_promotion_campaigns(request):
     raw_date_from = (request.GET.get("date_from") or "").strip()
     raw_date_to = (request.GET.get("date_to") or "").strip()
     sort = (request.GET.get("sort") or "create_desc").strip()
+    show_completed = (request.GET.get("show_completed") or "").strip() in {"1", "true", "on", "yes"}
+    raw_chart_period_weeks = (request.GET.get("chart_period_weeks") or "2").strip()
 
     try:
         page_number = max(1, int(raw_page))
@@ -2565,6 +3683,12 @@ def wb_promotion_campaigns(request):
         page_size = 10
     if page_size not in {10, 20, 30, 50}:
         page_size = 10
+    try:
+        chart_period_weeks = int(raw_chart_period_weeks)
+    except (TypeError, ValueError):
+        chart_period_weeks = 2
+    if chart_period_weeks not in {1, 2, 4}:
+        chart_period_weeks = 2
 
     today = timezone.localdate()
     default_date_to = today
@@ -2587,6 +3711,8 @@ def wb_promotion_campaigns(request):
         if query.isdigit():
             query_filter = query_filter | Q(advert_id=int(query))
         campaigns_qs = campaigns_qs.filter(query_filter)
+    if not show_completed:
+        campaigns_qs = campaigns_qs.exclude(status=7)
 
     if sort == "create_asc":
         campaigns_qs = campaigns_qs.order_by(F("create_time").asc(nulls_last=True), "advert_id")
@@ -2596,37 +3722,86 @@ def wb_promotion_campaigns(request):
         sort = "create_desc"
         campaigns_qs = campaigns_qs.order_by(F("create_time").desc(nulls_last=True), "-advert_id")
 
+    filtered_advert_ids = [
+        int(advert_id)
+        for advert_id in campaigns_qs.values_list("advert_id", flat=True)
+        if advert_id is not None
+    ]
+    chart_date_to = today
+    chart_date_from = today - timedelta(days=(chart_period_weeks * 7) - 1)
+    chart_points = _build_campaign_spend_points(
+        seller=seller,
+        advert_ids=filtered_advert_ids,
+        date_from=chart_date_from,
+        date_to=chart_date_to,
+    )
+    all_orders_by_day = {
+        row["day"]: int(row.get("total") or 0)
+        for row in (
+            Order.objects
+            .filter(
+                seller=seller,
+                order_date__date__gte=chart_date_from,
+                order_date__date__lte=chart_date_to,
+            )
+            .annotate(day=TruncDate("order_date"))
+            .values("day")
+            .annotate(total=Count("id"))
+        )
+        if row.get("day") is not None
+    }
+    for point in chart_points:
+        point_date = point.get("date")
+        try:
+            point_day = date.fromisoformat(point_date) if point_date else None
+        except ValueError:
+            point_day = None
+        point["all_orders"] = int(all_orders_by_day.get(point_day, 0)) if point_day else 0
+    chart_total_spend = round(sum(float(point.get("value") or 0.0) for point in chart_points), 2)
+
     paginator = Paginator(campaigns_qs, page_size)
     page_obj = paginator.get_page(page_number)
     page_campaigns = list(page_obj.object_list)
     advert_ids = [int(c.advert_id) for c in page_campaigns if c.advert_id is not None]
+    campaign_nm_ids_map: dict[int, list[int]] = {}
+    relevant_nm_ids: list[int] = []
+    seen_nm_ids: set[int] = set()
+    for campaign in page_campaigns:
+        advert_id_int = int(campaign.advert_id or 0)
+        nm_ids_in_campaign = _extract_campaign_nm_ids_from_payload(campaign.raw_payload)
+        normalized_nm_ids: list[int] = []
+        seen_local: set[int] = set()
+        for nm_id in nm_ids_in_campaign:
+            try:
+                nm_id_int = int(nm_id)
+            except (TypeError, ValueError):
+                continue
+            if nm_id_int <= 0 or nm_id_int in seen_local:
+                continue
+            seen_local.add(nm_id_int)
+            normalized_nm_ids.append(nm_id_int)
+            if nm_id_int not in seen_nm_ids:
+                seen_nm_ids.add(nm_id_int)
+                relevant_nm_ids.append(nm_id_int)
+        campaign_nm_ids_map[advert_id_int] = normalized_nm_ids
 
-    stats_rows = list(
-        WbAdvertStatDaily.objects
-        .filter(
-            seller=seller,
-            advert_id__in=advert_ids,
-            stat_date__gte=date_from_value,
-            stat_date__lte=date_to_value,
+    products_by_nm: dict[int, Product] = {}
+    if relevant_nm_ids:
+        product_rows = list(
+            Product.objects.filter(seller=seller, nm_id__in=relevant_nm_ids)
+            .order_by("nm_id", "-id")
         )
-        .only("advert_id", "stat_date", "day_sum", "views", "clicks", "orders", "add_to_cart", "raw_payload")
+        for product in product_rows:
+            nm_id_int = int(product.nm_id or 0)
+            if nm_id_int > 0 and nm_id_int not in products_by_nm:
+                products_by_nm[nm_id_int] = product
+
+    day_rollup = _build_campaign_day_rollup(
+        seller=seller,
+        advert_ids=advert_ids,
+        date_from=date_from_value,
+        date_to=date_to_value,
     )
-    day_rollup: dict[tuple[int, date], dict] = {}
-    for stat_row in stats_rows:
-        advert_id = int(stat_row.advert_id or 0)
-        stat_day = stat_row.stat_date
-        if advert_id <= 0 or not stat_day:
-            continue
-        key = (advert_id, stat_day)
-        metrics = _extract_advert_day_metrics(stat_row)
-        item = day_rollup.setdefault(
-            key,
-            {"day_sum": 0.0, "views": 0, "clicks": 0, "orders": 0},
-        )
-        item["day_sum"] = max(float(item["day_sum"]), float(metrics["day_sum"]))
-        item["views"] = max(int(item["views"]), int(metrics["views"]))
-        item["clicks"] = max(int(item["clicks"]), int(metrics["clicks"]))
-        item["orders"] = max(int(item["orders"]), int(metrics["orders"]))
 
     totals_by_advert: dict[int, dict] = defaultdict(lambda: {"spend": 0.0, "views": 0, "clicks": 0, "orders": 0})
     for (advert_id, _day), values in day_rollup.items():
@@ -2639,6 +3814,8 @@ def wb_promotion_campaigns(request):
     rows = []
     for campaign in page_campaigns:
         advert_id_int = int(campaign.advert_id or 0)
+        nm_ids_in_campaign = campaign_nm_ids_map.get(advert_id_int, [])
+        first_product = next((products_by_nm.get(nm_id) for nm_id in nm_ids_in_campaign if products_by_nm.get(nm_id)), None)
         totals = totals_by_advert.get(advert_id_int, {})
         spend = float(totals.get("spend") or 0.0)
         views = int(totals.get("views") or 0)
@@ -2656,6 +3833,10 @@ def wb_promotion_campaigns(request):
                 "status_color": status_color,
                 "create_time": campaign.create_time,
                 "daily_budget": float(campaign.daily_budget or 0.0),
+                "product_photo_url": (first_product.photo_url or "").strip() if first_product else "",
+                "product_title": (first_product.title or "").strip() if first_product else "",
+                "product_vendor_code": (first_product.vendor_code or "").strip() if first_product else "",
+                "participants_count": len(nm_ids_in_campaign),
                 "spend": round(spend, 2),
                 "views": views,
                 "clicks": clicks,
@@ -2680,6 +3861,69 @@ def wb_promotion_campaigns(request):
             "page_obj": page_obj,
             "page_size": page_size,
             "total_count": paginator.count,
+            "show_completed": show_completed,
+            "chart_period_weeks": chart_period_weeks,
+            "chart_points": chart_points,
+            "chart_total_spend": chart_total_spend,
+            "chart_date_from": chart_date_from.isoformat(),
+            "chart_date_to": chart_date_to.isoformat(),
+            "full_ads_sync_estimate": full_ads_sync_estimate,
+        },
+    )
+
+
+@login_required
+def wb_promotion_campaign_detail(request, advert_id: int):
+    seller = _get_or_create_seller_for_user(request.user)
+    _maybe_start_scheduled_sync_for_user(request.user, seller)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    running_sync_task = _get_running_sync_task_for_user(request.user)
+
+    raw_period_days = (request.GET.get("period_days") or "30").strip()
+    raw_date_from = (request.GET.get("date_from") or "").strip()
+    raw_date_to = (request.GET.get("date_to") or "").strip()
+    try:
+        period_days = int(raw_period_days)
+    except (TypeError, ValueError):
+        period_days = 30
+    if period_days not in {7, 14, 30, 60, 90}:
+        period_days = 30
+
+    today = timezone.localdate()
+    default_date_to = today
+    default_date_from = today - timedelta(days=period_days - 1)
+    try:
+        date_from_value = date.fromisoformat(raw_date_from) if raw_date_from else default_date_from
+    except ValueError:
+        date_from_value = default_date_from
+    try:
+        date_to_value = date.fromisoformat(raw_date_to) if raw_date_to else default_date_to
+    except ValueError:
+        date_to_value = default_date_to
+    if date_from_value > date_to_value:
+        date_from_value = default_date_from
+        date_to_value = default_date_to
+
+    campaign = get_object_or_404(WbAdvertCampaign, seller=seller, advert_id=advert_id)
+    detail = _build_campaign_detail_payload(
+        seller=seller,
+        campaign=campaign,
+        date_from=date_from_value,
+        date_to=date_to_value,
+    )
+
+    return render(
+        request,
+        "promotion/wb_campaign_detail.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+            "running_sync_task": _serialize_running_sync_task(running_sync_task),
+            "campaign": campaign,
+            "detail": detail,
+            "period_days": period_days,
+            "date_from": date_from_value.isoformat(),
+            "date_to": date_to_value.isoformat(),
         },
     )
 
@@ -3151,6 +4395,67 @@ def sync_orders_start_api(request):
 
 
 @login_required
+@require_POST
+def sync_ads_full_start_api(request):
+    try:
+        seller = _get_or_create_seller_for_user(request.user)
+        if not seller.has_api_token:
+            return JsonResponse(
+                {"error": "Сначала добавьте API-ключ в настройках аккаунта."},
+                status=400,
+            )
+
+        running_task = _get_running_sync_task_for_user(request.user)
+        if running_task:
+            return JsonResponse(
+                {
+                    "error": "Синхронизация уже выполняется. Дождитесь завершения текущей задачи.",
+                    "task_id": running_task.task_id,
+                    "status": running_task.status,
+                    "progress": running_task.progress,
+                    "step": running_task.step,
+                    "message": running_task.message,
+                    "result": running_task.result or {},
+                },
+                status=409,
+            )
+
+        task_id = uuid.uuid4().hex
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "running",
+                "progress": 0,
+                "step": "Подготовка",
+                "message": "Полный синк рекламной статы запущен...",
+                "finished_at": None,
+                "result": {"kind": "ads_full"},
+                "user_id": request.user.id,
+                "seller_id": seller.id,
+            },
+        )
+
+        worker = threading.Thread(
+            target=_run_full_ads_sync_task,
+            args=(task_id, seller.id, request.user.id),
+            daemon=True,
+        )
+        worker.start()
+        return JsonResponse({"task_id": task_id, "status": "running"}, status=202)
+    except Exception as exc:
+        _log_app_error(
+            source="sync.ads_full.start_api",
+            message=f"Не удалось запустить полный синк рекламной статы: {exc}",
+            user=request.user,
+            seller=_get_seller_for_user(request.user),
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": "Не удалось запустить полный синк рекламной статы. Попробуйте позже."}, status=500)
+
+
+@login_required
 @require_GET
 def sync_orders_status_api(request):
     try:
@@ -3207,6 +4512,7 @@ def sync_orders_current_api(request):
                 "progress": running_task.progress,
                 "step": running_task.step,
                 "message": running_task.message,
+                "result": running_task.result or {},
             },
             status=200,
         )
@@ -3273,6 +4579,8 @@ def account_settings(request):
     auto_sync_cfg = _get_auto_sync_config(seller)
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     running_sync_task = _get_running_sync_task_for_user(request.user)
+    sync_tasks = _build_sync_tasks_for_user(request.user)
+    marketing_consent_enabled = _latest_marketing_consent_state(user=request.user, email=request.user.email)
 
     if request.method == "POST":
         action = (request.POST.get("action") or "").strip()
@@ -3296,7 +4604,25 @@ def account_settings(request):
                 if enabled
                 else "Авто-синхронизация отключена.",
             )
-            return redirect(reverse("account_settings"))
+            return redirect(f"{reverse('account_settings')}#section-sync")
+
+        if action == "stop_sync_task":
+            task_id = (request.POST.get("task_id") or "").strip()
+            task = SyncTask.objects.filter(user=request.user, task_id=task_id).first()
+            if not task:
+                messages.error(request, "Задача синхронизации не найдена.")
+                return redirect(f"{reverse('account_settings')}#section-sync-tasks")
+            if task.status != SyncTask.STATUS_RUNNING:
+                messages.info(request, "Эта задача уже не выполняется.")
+                return redirect(f"{reverse('account_settings')}#section-sync-tasks")
+            task.status = SyncTask.STATUS_ERROR
+            task.progress = max(task.progress or 0, 100)
+            task.step = task.step or "Остановлена"
+            task.message = "Задача синхронизации остановлена вручную из настроек аккаунта."
+            task.finished_at = timezone.now()
+            task.save(update_fields=["status", "progress", "step", "message", "finished_at", "updated_at"])
+            messages.success(request, f"Задача {task.task_id} остановлена.")
+            return redirect(f"{reverse('account_settings')}#section-sync-tasks")
 
         if action == "purge_seller_data":
             confirmed = (request.POST.get("confirm_purge_seller_data") or "").strip() == "1"
@@ -3313,11 +4639,22 @@ def account_settings(request):
             if not confirmed:
                 messages.error(request, "Удаление аккаунта отменено: не подтверждено.")
                 return redirect(reverse("account_settings"))
-
-            user = request.user
-            logout(request)
-            user.delete()
-            return redirect(reverse("home"))
+            TesterFeedback.objects.create(
+                user=request.user,
+                seller=seller,
+                page_url=reverse("account_settings"),
+                category=TesterFeedback.CATEGORY_ACCOUNT_DELETE_REQUEST,
+                priority=TesterFeedback.PRIORITY_HIGH,
+                message="Пользователь запросил удаление аккаунта через настройки.",
+                include_context=True,
+                context_json={
+                    "requested_at": timezone.now().isoformat(),
+                    "source": "account_settings",
+                    "email": request.user.email,
+                },
+            )
+            messages.success(request, "Запрос на удаление аккаунта отправлен в поддержку. Мы свяжемся с вами по e-mail.")
+            return redirect(reverse("account_settings"))
 
         token_input = (request.POST.get("api_token") or "").strip()
         if token_input:
@@ -3345,7 +4682,36 @@ def account_settings(request):
             "auto_sync_last_run_date": str(auto_sync_cfg.get("last_run_date") or ""),
             "last_sync_at": last_sync_at,
             "running_sync_task": _serialize_running_sync_task(running_sync_task),
+            "sync_tasks": sync_tasks,
+            "marketing_consent_enabled": marketing_consent_enabled,
         },
+    )
+
+
+@login_required
+@require_POST
+def account_marketing_consent_api(request):
+    enabled = (request.POST.get("enabled") or "").strip().lower() in {"1", "true", "on", "yes"}
+    document_version = str(_legal_versions().get("consent") or "")
+    record_consent(
+        request=request,
+        email=request.user.email,
+        user=request.user,
+        kind="marketing",
+        action=ConsentLog.ACTION_GRANT if enabled else ConsentLog.ACTION_REVOKE,
+        document_version=document_version,
+        source="account_settings",
+        document_text_hash=hashlib.sha256(MARKETING_CONSENT_TEXT.encode("utf-8")).hexdigest(),
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "enabled": enabled,
+            "message": "Согласие на рассылки обновлено."
+            if enabled
+            else "Согласие на рассылки отозвано.",
+        },
+        status=200,
     )
 
 
@@ -4038,6 +5404,8 @@ def product_cards_report(request):
     seller = _get_or_create_seller_for_user(request.user)
     last_sync_at = _get_last_sync_at_for_user(request.user, seller)
     query = (request.GET.get("q") or "").strip()
+    only_in_stock_raw = (request.GET.get("only_in_stock") or "").strip().lower()
+    filter_only_in_stock = only_in_stock_raw in ("1", "true", "on", "yes")
 
     products_qs = Product.objects.filter(seller=seller)
     if query:
@@ -4090,10 +5458,41 @@ def product_cards_report(request):
             continue
         fbs_stock_map[nm_id] = int(fbs_stock_map.get(nm_id, 0) + int(row.get("total_qty") or 0))
 
+    nm_ids_with_stock: set[int] = set()
+    for nm_id in set(fbo_stock_map.keys()) | set(fbs_stock_map.keys()):
+        total_qty = int(fbo_stock_map.get(nm_id, 0) or 0) + int(fbs_stock_map.get(nm_id, 0) or 0)
+        if total_qty > 0:
+            nm_ids_with_stock.add(int(nm_id))
+
+    if filter_only_in_stock:
+        products_qs = products_qs.filter(nm_id__in=nm_ids_with_stock)
+
     paginator = Paginator(products_qs, 50)
     page_obj = paginator.get_page(request.GET.get("page") or 1)
+    products_page = list(page_obj.object_list)
+    active_ad_nm_ids = _nm_ids_with_active_wb_adverts(seller)
+
+    chart_end = timezone.localdate()
+    sales_14d_start = chart_end - timedelta(days=13)
+    page_nm_ids = [int(p.nm_id) for p in products_page if p.nm_id is not None]
+    orders_14d_map: dict[int, int] = {}
+    if page_nm_ids:
+        for row in (
+            Order.objects.filter(
+                seller=seller,
+                nm_id__in=page_nm_ids,
+                order_date__date__gte=sales_14d_start,
+                order_date__date__lte=chart_end,
+            )
+            .values("nm_id")
+            .annotate(c=Count("id"))
+        ):
+            orders_14d_map[int(row["nm_id"])] = int(row["c"] or 0)
+
     page_rows = []
-    for product in page_obj.object_list:
+    for product in products_page:
+        nm_int = int(product.nm_id) if product.nm_id is not None else 0
+        total_14d = orders_14d_map.get(nm_int, 0)
         page_rows.append(
             {
                 "id": product.id,
@@ -4103,11 +5502,12 @@ def product_cards_report(request):
                 "title": product.title or "",
                 "brand": product.brand or "",
                 "photo_url": product.photo_url or "",
-                "weight_kg": product.weight_kg,
                 "volume_liters": product.volume_liters,
                 "wb_updated_at": product.wb_updated_at,
                 "fbo_stock_qty": fbo_stock_map.get(product.nm_id, 0),
                 "fbs_stock_qty": fbs_stock_map.get(product.nm_id, 0),
+                "has_active_ad": nm_int > 0 and nm_int in active_ad_nm_ids,
+                "avg_orders_per_day_14d": round(total_14d / 14.0, 2),
             }
         )
     page_obj.object_list = page_rows
@@ -4119,6 +5519,7 @@ def product_cards_report(request):
             "seller": seller,
             "last_sync_at": last_sync_at,
             "query": query,
+            "filter_only_in_stock": filter_only_in_stock,
             "page_obj": page_obj,
             "total_cards_count": paginator.count,
         },

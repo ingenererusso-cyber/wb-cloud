@@ -325,6 +325,12 @@
         const previousColor = options?.previousColor || "#94a3b8";
         const currentLabel = options?.currentLabel || "Текущий период";
         const previousLabel = options?.previousLabel || "Предыдущий период";
+        const tooltipValueFormatter = typeof options?.tooltipValueFormatter === "function"
+            ? options.tooltipValueFormatter
+            : (value) => String(value);
+        const axisValueFormatter = typeof options?.axisValueFormatter === "function"
+            ? options.axisValueFormatter
+            : (value) => String(value);
 
         chart.setOption(
             {
@@ -354,7 +360,7 @@
                         const idx = items[0]?.dataIndex ?? 0;
                         const lines = [`<strong>${labels[idx]}</strong>`];
                         items.forEach((item) => {
-                            lines.push(`${item.seriesName}: ${item.data}`);
+                            lines.push(`${item.seriesName}: ${tooltipValueFormatter(item.data)}`);
                         });
                         return lines.join("<br>");
                     },
@@ -372,7 +378,13 @@
                     splitNumber: 4,
                     axisLine: { show: false },
                     axisTick: { show: false },
-                    axisLabel: { color: "#64748b", fontSize: 11 },
+                    axisLabel: {
+                        color: "#64748b",
+                        fontSize: 11,
+                        formatter(value) {
+                            return axisValueFormatter(value);
+                        },
+                    },
                     splitLine: { lineStyle: { color: "rgba(19, 32, 51, 0.08)" } },
                 },
                 series: [

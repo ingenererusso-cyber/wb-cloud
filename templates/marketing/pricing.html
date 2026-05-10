@@ -45,6 +45,8 @@
         {% endfor %}
     </div>
 </div>
+{% include "partials/site_footer.html" %}
+{% include "partials/cookie_banner.html" %}
 {% if request.user.is_authenticated %}
 <script>
     (function () {

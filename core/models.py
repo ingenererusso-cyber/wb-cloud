@@ -118,6 +118,28 @@ class Order(models.Model):
             models.Index(fields=["region_name"]),
         ]
 
+
+class WbSaleFact(models.Model):
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
+    sale_id = models.CharField(max_length=255)
+    srid = models.CharField(max_length=255, blank=True, default="")
+    nm_id = models.BigIntegerField(null=True, blank=True)
+    is_return = models.BooleanField(default=False)
+    is_buyout = models.BooleanField(default=False)
+    sale_date = models.DateTimeField()
+    last_change_date = models.DateTimeField(null=True, blank=True)
+    finished_price = models.FloatField(null=True, blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "sale_id")]
+        indexes = [
+            models.Index(fields=["seller", "sale_date"]),
+            models.Index(fields=["seller", "srid"]),
+            models.Index(fields=["seller", "is_buyout"]),
+        ]
+
 class WarehouseStockDetailed(models.Model):
     seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE)
     nm_id = models.BigIntegerField()
@@ -509,11 +531,13 @@ class TesterFeedback(models.Model):
     CATEGORY_CALC = "calc"
     CATEGORY_SYNC = "sync"
     CATEGORY_IDEA = "idea"
+    CATEGORY_ACCOUNT_DELETE_REQUEST = "account_delete_request"
     CATEGORY_CHOICES = [
         (CATEGORY_BUG, "Баг интерфейса"),
         (CATEGORY_CALC, "Неточность расчета"),
         (CATEGORY_SYNC, "Проблема синхронизации"),
         (CATEGORY_IDEA, "Идея/улучшение"),
+        (CATEGORY_ACCOUNT_DELETE_REQUEST, "Запрос на удаление аккаунта"),
     ]
 
     PRIORITY_LOW = "low"
@@ -539,7 +563,7 @@ class TesterFeedback(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     seller = models.ForeignKey(SellerAccount, on_delete=models.SET_NULL, null=True, blank=True)
     page_url = models.CharField(max_length=500, blank=True, default="")
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_BUG)
+    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES, default=CATEGORY_BUG)
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default=PRIORITY_MEDIUM)
     message = models.TextField()
     include_context = models.BooleanField(default=True)
@@ -626,6 +650,9 @@ class SignupLead(models.Model):
     confirm_token = models.CharField(max_length=128, unique=True)
     expires_at = models.DateTimeField()
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    pdn_consent_at = models.DateTimeField(null=True, blank=True)
+    pdn_consent_version = models.CharField(max_length=32, blank=True, default="")
+    marketing_consent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -633,6 +660,33 @@ class SignupLead(models.Model):
         indexes = [
             models.Index(fields=["email", "confirmed_at"]),
             models.Index(fields=["confirm_token"]),
+        ]
+
+
+class ConsentLog(models.Model):
+    ACTION_GRANT = "grant"
+    ACTION_REVOKE = "revoke"
+    ACTION_CHOICES = [
+        (ACTION_GRANT, "Grant"),
+        (ACTION_REVOKE, "Revoke"),
+    ]
+
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    email = models.EmailField(db_index=True)
+    kind = models.CharField(max_length=32)
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES, default=ACTION_GRANT)
+    document_version = models.CharField(max_length=32)
+    document_text_hash = models.CharField(max_length=64, blank=True, default="")
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default="")
+    source = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["email", "kind", "created_at"]),
+            models.Index(fields=["user", "kind", "created_at"]),
+            models.Index(fields=["kind", "action", "created_at"]),
         ]
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import traceback
 import uuid
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -69,6 +70,26 @@ class ApiAuthRedirectMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
+    def _build_safe_next_path(self, request) -> str:
+        referer = (request.META.get("HTTP_REFERER") or "").strip()
+        if referer:
+            try:
+                parsed = urlparse(referer)
+                if not parsed.netloc or parsed.netloc == request.get_host():
+                    path = parsed.path or "/"
+                    query = f"?{parsed.query}" if parsed.query else ""
+                    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+                    candidate = f"{path}{query}{fragment}"
+                    if not path.startswith("/api/"):
+                        return candidate
+            except Exception:
+                logger.exception("Failed to parse HTTP_REFERER for API auth redirect: %s", referer)
+
+        current_full_path = request.get_full_path() or "/"
+        if current_full_path.startswith("/api/"):
+            return "/"
+        return current_full_path
+
     def __call__(self, request):
         response = self.get_response(request)
 
@@ -93,7 +114,7 @@ class ApiAuthRedirectMiddleware:
                 "error": "auth_required",
                 "code": "auth_required",
                 "login_url": login_path,
-                "redirect_url": f"{login_path}?next={request.get_full_path()}",
+                "redirect_url": f"{login_path}?next={self._build_safe_next_path(request)}",
             },
             status=401,
         )

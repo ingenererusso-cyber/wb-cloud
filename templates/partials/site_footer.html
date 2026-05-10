@@ -1,0 +1,94 @@
+<style>
+    .site-footer {
+        width: min(var(--page-shell-max-width, 1200px), calc(100% - 32px));
+        margin: 18px auto 24px;
+        border: 1px solid rgba(19, 32, 51, 0.12);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.84);
+        padding: 16px 18px;
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.55;
+    }
+
+    .site-footer-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+    }
+
+    .site-footer-title {
+        margin: 0 0 6px;
+        color: #132033;
+        font-size: 14px;
+        font-weight: 800;
+    }
+
+    .site-footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        margin-top: 8px;
+    }
+
+    .site-footer a {
+        color: #14532d;
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    .site-footer a:hover,
+    .site-footer a:focus-visible {
+        text-decoration: underline;
+    }
+
+    .site-footer-note {
+        margin-top: 10px;
+        color: #64748b;
+        font-size: 12px;
+    }
+
+    @media (max-width: 720px) {
+        .site-footer {
+            width: calc(100% - 24px);
+            margin: 14px auto 18px;
+            padding: 14px;
+        }
+
+        .site-footer-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% now "Y" as current_year %}
+<footer class="site-footer">
+    <div class="site-footer-grid">
+        <div>
+            <p class="site-footer-title">Vendra</p>
+            <div>
+                {{ legal_operator_status }}{% if legal_operator_name %} {{ legal_operator_name }}{% endif %}
+                {% if legal_operator_inn %} · ИНН {{ legal_operator_inn }}{% endif %}
+                {% if legal_operator_ogrn %} · ОГРН/ОГРНИП {{ legal_operator_ogrn }}{% endif %}
+            </div>
+            {% if legal_operator_address %}
+                <div>{{ legal_operator_address }}</div>
+            {% endif %}
+            {% if legal_operator_email %}
+                <div>E-mail для запросов субъектов ПДн: <a href="mailto:{{ legal_operator_email }}">{{ legal_operator_email }}</a></div>
+            {% endif %}
+            {% if legal_operator_phone %}
+                <div>Телефон: <a href="tel:{{ legal_operator_phone }}">{{ legal_operator_phone }}</a></div>
+            {% endif %}
+            <div class="site-footer-note">© {{ current_year }} Vendra. Рабочий SaaS-инструмент для продавцов Wildberries.</div>
+        </div>
+        <div>
+            <p class="site-footer-title">Документы</p>
+            <div class="site-footer-links">
+                <a href="{% url 'legal_privacy' %}">Политика ПДн</a>
+                <a href="{% url 'legal_consent' %}">Согласие на ПДн</a>
+                <a href="{% url 'legal_terms' %}">Оферта и соглашение</a>
+            </div>
+        </div>
+    </div>
+</footer>

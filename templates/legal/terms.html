@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Пользовательское соглашение и оферта — Vendra</title>
+    <style>
+        :root { --ink:#132033; --muted:#5a6778; --line:rgba(19,32,51,.14); --surface:rgba(255,255,255,.92); --accent:#14532d; --page-shell-max-width:980px; }
+        *{box-sizing:border-box}
+        body{margin:0;color:var(--ink);font-family:"Trebuchet MS","Avenir Next","Segoe UI",sans-serif;background:radial-gradient(circle at 12% 18%, rgba(85,215,166,.42), transparent 30%),radial-gradient(circle at 82% 8%, rgba(136,195,255,.34), transparent 28%),linear-gradient(135deg,#eff7ff 0%,#f7fdf5 55%,#eef6ff 100%);padding:18px}
+        .page{width:min(var(--page-shell-max-width),100%);margin:0 auto;border:1px solid var(--line);border-radius:24px;background:var(--surface);box-shadow:0 18px 42px rgba(19,32,51,.14);padding:24px}
+        h1{margin:0;font-size:clamp(28px,4vw,42px)} h2{margin:28px 0 10px;font-size:20px} p,li{color:#334155;line-height:1.6}
+        .meta{margin-top:10px;color:var(--muted);font-size:14px} .hero-links{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap}
+        .hero-links a{display:inline-flex;text-decoration:none;color:#fff;background:linear-gradient(135deg,var(--accent) 0%,#065f46 100%);border-radius:12px;padding:10px 14px;font-weight:700}
+        .operator-card{margin-top:18px;border:1px solid rgba(19,32,51,.1);border-radius:18px;background:rgba(255,255,255,.76);padding:16px}
+    </style>
+</head>
+<body>
+    <main class="page">
+        <h1>Пользовательское соглашение и публичная оферта</h1>
+        <p class="meta">Редакция от {{ legal_doc_versions.terms }}</p>
+        <div class="hero-links">
+            <a href="{% url 'pricing_page' %}">Тарифы</a>
+            <a href="{% url 'legal_privacy' %}">Политика ПДн</a>
+        </div>
+
+        <section class="operator-card">
+            <strong>Исполнитель:</strong> {{ legal_operator_status }} {{ legal_operator_name }}<br>
+            {% if legal_operator_inn %}<strong>ИНН:</strong> {{ legal_operator_inn }}<br>{% endif %}
+            {% if legal_operator_ogrn %}<strong>ОГРН/ОГРНИП:</strong> {{ legal_operator_ogrn }}<br>{% endif %}
+            {% if legal_operator_address %}<strong>Адрес:</strong> {{ legal_operator_address }}<br>{% endif %}
+            {% if legal_operator_email %}<strong>E-mail:</strong> {{ legal_operator_email }}<br>{% endif %}
+            {% if legal_operator_phone %}<strong>Телефон:</strong> {{ legal_operator_phone }}<br>{% endif %}
+            {% if legal_operator_bank_account %}<strong>Расчетный счет:</strong> {{ legal_operator_bank_account }}<br>{% endif %}
+            {% if legal_operator_bank_bik %}<strong>БИК:</strong> {{ legal_operator_bank_bik }}<br>{% endif %}
+            {% if legal_operator_bank_name %}<strong>Банк:</strong> {{ legal_operator_bank_name }}<br>{% endif %}
+            {% if legal_operator_bank_corr %}<strong>Корреспондентский счет:</strong> {{ legal_operator_bank_corr }}{% endif %}
+        </section>
+
+        <h2>1. Предмет</h2>
+        <p>Настоящий документ является публичной офертой на предоставление доступа к сервису Vendra и регулирует использование сайта, личного кабинета и связанных функций аналитики для продавцов Wildberries.</p>
+
+        <h2>2. Регистрация и доступ</h2>
+        <p>Для доступа к сервису пользователь проходит регистрацию, подтверждает e-mail и получает личный кабинет. Пользователь обязан указывать достоверные данные и обеспечивать конфиденциальность данных доступа.</p>
+
+        <h2>3. Функциональность сервиса</h2>
+        <p>Сервис предоставляет инструменты аналитики, отчеты, рекомендации, карточки показателей, интерфейсы синхронизации и иные цифровые функции, доступные в выбранном тарифе. Фактический набор возможностей может меняться по мере развития продукта.</p>
+
+        <h2>4. Тарифы и оплата</h2>
+        <p>Стоимость тарифов публикуется на <a href="{% url 'pricing_page' %}">странице тарифов</a>. Оплата осуществляется через Т-Кассу или иной подключенный платежный инструмент. Акцептом оферты считается оплата выбранного тарифа либо иное явное использование сервиса после ознакомления с условиями.</p>
+
+        <h2>5. Бесплатный доступ</h2>
+        <p>Оператор вправе предоставлять тестовый или пробный доступ на ограниченный срок. Такой доступ не гарантирует дальнейшее сохранение условий и может быть прекращен по окончании периода либо при нарушении условий использования.</p>
+
+        <h2>6. Возвраты</h2>
+        <p>Вопросы возврата оплаты рассматриваются индивидуально по письменному обращению пользователя с учетом фактически предоставленного доступа, характера цифровой услуги и требований законодательства РФ.</p>
+
+        <h2>7. Ограничение ответственности</h2>
+        <p>Сервис предоставляет аналитические и расчетные данные на основе загруженной информации и выбранных методик. Пользователь принимает решения самостоятельно. Оператор не отвечает за коммерческие решения пользователя, принятые на основании данных сервиса, если иное прямо не предусмотрено законом.</p>
+
+        <h2>8. Поддержка и уведомления</h2>
+        <p>Пользователь может обращаться в поддержку через встроенный чат и форму обратной связи. Оператор вправе направлять сервисные уведомления, связанные с работой кабинета, подпиской, безопасностью и юридически значимыми действиями.</p>
+
+        <h2>9. Персональные данные</h2>
+        <p>Обработка персональных данных осуществляется в соответствии с Политикой обработки персональных данных и отдельным Согласием на обработку персональных данных.</p>
+
+        <h2>10. Заключительные положения</h2>
+        <p>Оператор вправе обновлять настоящее соглашение. Новая редакция применяется с момента публикации на сайте, если иной срок не указан отдельно.</p>
+    </main>
+    {% include "partials/site_footer.html" %}
+    {% include "partials/cookie_banner.html" %}
+</body>
+</html>

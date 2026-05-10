@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Согласие на обработку персональных данных — Vendra</title>
+    <style>
+        :root { --ink:#132033; --muted:#5a6778; --line:rgba(19,32,51,.14); --surface:rgba(255,255,255,.92); --accent:#14532d; --page-shell-max-width:980px; }
+        *{box-sizing:border-box}
+        body{margin:0;color:var(--ink);font-family:"Trebuchet MS","Avenir Next","Segoe UI",sans-serif;background:radial-gradient(circle at 12% 18%, rgba(85,215,166,.42), transparent 30%),radial-gradient(circle at 82% 8%, rgba(136,195,255,.34), transparent 28%),linear-gradient(135deg,#eff7ff 0%,#f7fdf5 55%,#eef6ff 100%);padding:18px}
+        .page{width:min(var(--page-shell-max-width),100%);margin:0 auto;border:1px solid var(--line);border-radius:24px;background:var(--surface);box-shadow:0 18px 42px rgba(19,32,51,.14);padding:24px}
+        h1{margin:0;font-size:clamp(28px,4vw,42px)} h2{margin:28px 0 10px;font-size:20px} p,li{color:#334155;line-height:1.6}
+        .meta{margin-top:10px;color:var(--muted);font-size:14px} .hero-links{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap}
+        .hero-links a{display:inline-flex;text-decoration:none;color:#fff;background:linear-gradient(135deg,var(--accent) 0%,#065f46 100%);border-radius:12px;padding:10px 14px;font-weight:700}
+    </style>
+</head>
+<body>
+    <main class="page">
+        <h1>Согласие на обработку персональных данных</h1>
+        <p class="meta">Редакция от {{ legal_doc_versions.consent }}</p>
+        <div class="hero-links">
+            <a href="{% url 'legal_privacy' %}">Политика ПДн</a>
+            <a href="{% url 'legal_terms' %}">Оферта и соглашение</a>
+        </div>
+
+        <h2>1. Оператор</h2>
+        <p>{{ legal_operator_status }} {{ legal_operator_name }}{% if legal_operator_inn %}, ИНН {{ legal_operator_inn }}{% endif %}{% if legal_operator_ogrn %}, ОГРН/ОГРНИП {{ legal_operator_ogrn }}{% endif %}.</p>
+
+        <h2>2. На что дается согласие</h2>
+        <p>Субъект персональных данных подтверждает согласие на обработку своих персональных данных для регистрации в сервисе Vendra, подтверждения e-mail, предоставления доступа к личному кабинету, оказания услуг сервиса, обработки обращений в поддержку и обеспечения безопасности сервиса.</p>
+
+        <h2>3. Какие данные обрабатываются</h2>
+        <ul>
+            <li>ФИО или имя, указанные при регистрации.</li>
+            <li>E-mail.</li>
+            <li>Пароль в виде хэша.</li>
+            <li>IP-адрес, user-agent, технические cookies и иные минимально необходимые технические данные.</li>
+            <li>История действий в сервисе, обращения в поддержку, сервисные сообщения и данные согласий.</li>
+        </ul>
+
+        <h2>4. Срок действия согласия</h2>
+        <p>Согласие действует в течение 5 лет с момента последней значимой операции пользователя в сервисе либо до момента его отзыва, если иной срок хранения не требуется по закону или для защиты прав оператора.</p>
+
+        <h2>5. Отзыв согласия</h2>
+        <p>Согласие может быть отозвано путем направления запроса оператору на e-mail {% if legal_operator_email %}{{ legal_operator_email }}{% else %}оператора{% endif %}. Отзыв согласия не влияет на законность обработки, осуществленной до момента такого отзыва.</p>
+
+        <h2>6. Дополнительно</h2>
+        <p>Отдельное согласие на получение информационных и рекламных сообщений оформляется самостоятельно и не является обязательным условием регистрации.</p>
+    </main>
+    {% include "partials/site_footer.html" %}
+    {% include "partials/cookie_banner.html" %}
+</body>
+</html>
