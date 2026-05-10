@@ -155,8 +155,29 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, "1" if default else "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
 LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+LOG_TO_FILE = _env_bool("LOG_TO_FILE", True)
+LOG_HANDLERS = {
+    "console": {
+        "class": "logging.StreamHandler",
+        "formatter": "verbose",
+    },
+}
+DEFAULT_APP_LOG_HANDLERS = ["console"]
+if LOG_TO_FILE:
+    LOG_DIR.mkdir(exist_ok=True)
+    LOG_HANDLERS["app_file"] = {
+        "class": "logging.handlers.RotatingFileHandler",
+        "filename": str(LOG_DIR / "app.log"),
+        "maxBytes": 10 * 1024 * 1024,
+        "backupCount": 5,
+        "formatter": "verbose",
+    }
+    DEFAULT_APP_LOG_HANDLERS.append("app_file")
 
 LOGGING = {
     "version": 1,
@@ -166,35 +187,20 @@ LOGGING = {
             "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
         },
     },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "verbose",
-        },
-        "app_file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": str(LOG_DIR / "app.log"),
-            "maxBytes": 10 * 1024 * 1024,
-            "backupCount": 5,
-            "formatter": "verbose",
-        },
-    },
+    "handlers": LOG_HANDLERS,
     "loggers": {
         "mp_saas": {
-            "handlers": ["console", "app_file"],
+            "handlers": DEFAULT_APP_LOG_HANDLERS,
             "level": os.getenv("LOG_LEVEL", "INFO"),
             "propagate": False,
         },
         "django.request": {
-            "handlers": ["console", "app_file"],
+            "handlers": DEFAULT_APP_LOG_HANDLERS,
             "level": "ERROR",
             "propagate": False,
         },
     },
 }
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    return os.getenv(name, "1" if default else "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()

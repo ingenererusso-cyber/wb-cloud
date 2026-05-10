@@ -12,6 +12,7 @@ ExecStart=/var/www/mp_saas/venv/bin/python3 manage.py run_sync_scheduler --poll-
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+Environment=LOG_TO_FILE=0
 
 [Install]
 WantedBy=multi-user.target

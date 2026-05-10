@@ -30,6 +30,7 @@ The provided units are configured with:
 
 - `PartOf=mp_saas.service`
 - `WantedBy=mp_saas.service`
+- `LOG_TO_FILE=0` so worker and scheduler log to `journald` instead of `logs/app.log`
 
 So they can be started and stopped together with the main app service.
 
