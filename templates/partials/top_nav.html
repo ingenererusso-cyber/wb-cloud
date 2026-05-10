@@ -378,7 +378,7 @@
                 const status = (data.status || "").toLowerCase();
                 const progress = Number(data.progress || 0);
                 const phaseMessage = data.message || "Синхронизация...";
-                if (status === "running" || status === "pending") {
+                if (status === "queued" || status === "running" || status === "pending") {
                     setButtonState(true);
                     setButtonProgress(progress);
                     setStatus(`${phaseMessage} (${Math.max(0, Math.min(100, progress))}%)`, "info");
@@ -395,6 +395,13 @@
                 if (status === "error") {
                     setButtonState(false);
                     setStatus(data.message || "Ошибка синхронизации", "error");
+                    clearPoll();
+                    currentTaskId = null;
+                    return;
+                }
+                if (status === "canceled") {
+                    setButtonState(false);
+                    setStatus(data.message || "Синхронизация остановлена", "error");
                     clearPoll();
                     currentTaskId = null;
                     return;
@@ -435,7 +442,7 @@
                 }
                 currentTaskId = data.task_id;
                 setButtonProgress(Number(data.progress || 0));
-                setStatus(data.message || "Синхронизация запущена", "info");
+                setStatus(data.message || "Задача поставлена в очередь", "info");
                 schedulePoll(currentTaskId, 1000);
             } catch (err) {
                 setButtonState(false);

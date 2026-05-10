@@ -1490,8 +1490,21 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(progress_calls[0], (1, 6, date(2026, 2, 10), date(2026, 2, 23)))
         self.assertEqual(progress_calls[-1], (6, 6, date(2026, 4, 21), date(2026, 5, 1)))
 
-    @patch("core.views.threading.Thread")
-    def test_full_ads_sync_start_api_creates_background_task(self, thread_cls):
+    def test_sync_orders_start_api_queues_general_sync_task(self):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        response = self.client.post(reverse("sync_orders_start_api"))
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["status"], SyncTask.STATUS_QUEUED)
+        task = SyncTask.objects.get(task_id=payload["task_id"])
+        self.assertEqual(task.status, SyncTask.STATUS_QUEUED)
+        self.assertEqual(task.kind, SyncTask.KIND_GENERAL)
+        self.assertIn("очеред", task.message.lower())
+
+    def test_full_ads_sync_start_api_queues_task(self):
         self.seller.set_api_token("test-token")
         self.seller.save(update_fields=["api_token"])
 
@@ -1499,12 +1512,11 @@ class WbPromotionCampaignsTests(TestCase):
 
         self.assertEqual(response.status_code, 202)
         payload = response.json()
-        self.assertEqual(payload["status"], "running")
+        self.assertEqual(payload["status"], SyncTask.STATUS_QUEUED)
         task = SyncTask.objects.get(task_id=payload["task_id"])
-        self.assertEqual(task.status, SyncTask.STATUS_RUNNING)
+        self.assertEqual(task.status, SyncTask.STATUS_QUEUED)
+        self.assertEqual(task.kind, SyncTask.KIND_ADS_FULL)
         self.assertEqual(task.result.get("kind"), "ads_full")
-        thread_cls.assert_called_once()
-        thread_cls.return_value.start.assert_called_once()
 
     def test_full_ads_sync_stale_timeout_is_longer_than_default(self):
         task = SyncTask.objects.create(
@@ -1512,16 +1524,17 @@ class WbPromotionCampaignsTests(TestCase):
             user=self.user,
             seller=self.seller,
             status=SyncTask.STATUS_RUNNING,
+            kind=SyncTask.KIND_ADS_FULL,
             progress=64,
             step="Полный синк рекламной статы",
             message="Период 10/14",
             result={"kind": "ads_full"},
         )
-        stale_time = timezone.now() - timedelta(minutes=46)
+        stale_time = timezone.now() - timedelta(minutes=181)
         SyncTask.objects.filter(id=task.id).update(updated_at=stale_time)
 
         self.client.get(reverse("sync_orders_current_api"))
 
         task.refresh_from_db()
         self.assertEqual(task.status, SyncTask.STATUS_ERROR)
-        self.assertIn("45 минут", task.message)
+        self.assertIn("180 минут", task.message)

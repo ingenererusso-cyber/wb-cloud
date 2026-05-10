@@ -744,10 +744,10 @@
                 }
                 const status = String(data.status || "").toLowerCase();
                 const progress = Number(data.progress || 0);
-                if (status === "running") {
+                if (status === "queued" || status === "running") {
                     currentTaskId = taskId;
                     setButtonState(true, progress);
-                    setNote(data.message || "Идет полный синк рекламной статы...", "info");
+                    setNote(data.message || "Полный синк рекламной статы ожидает запуска...", "info");
                     schedulePoll(taskId);
                     return;
                 }
@@ -756,6 +756,8 @@
                 clearPoll();
                 if (status === "success") {
                     setNote(data.message || "Полный синк РК завершен.", "success");
+                } else if (status === "canceled") {
+                    setNote(data.message || "Полный синк РК остановлен.", "error");
                 } else {
                     setNote(data.message || "Не удалось завершить полный синк РК.", "error");
                 }
@@ -810,7 +812,7 @@
                 if (res.status === 409 && data.task_id && isAdsFullTask(data)) {
                     currentTaskId = data.task_id;
                     setButtonState(true, Number(data.progress || 0));
-                    setNote(data.message || "Полный синк РК уже выполняется...", "info");
+                    setNote(data.message || "Полный синк РК уже выполняется или стоит в очереди...", "info");
                     schedulePoll(currentTaskId, 800);
                     return;
                 }

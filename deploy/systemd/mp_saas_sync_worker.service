@@ -1,0 +1,16 @@
+[Unit]
+Description=Vendra sync worker
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/mp_saas/wb-cloud
+ExecStart=/var/www/mp_saas/venv/bin/python3 manage.py run_sync_worker --poll-seconds 2
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

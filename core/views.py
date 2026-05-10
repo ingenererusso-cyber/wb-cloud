@@ -26,7 +26,7 @@ from django.db.models import Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
-from django.db import OperationalError, ProgrammingError, close_old_connections, transaction
+from django.db import IntegrityError, OperationalError, ProgrammingError, close_old_connections, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -113,8 +113,8 @@ from core.services.localization import (
 )
 from core.services.consent import record_consent
 
-SYNC_TASK_STALE_MINUTES = 8
-ADS_FULL_SYNC_STALE_MINUTES = 45
+SYNC_TASK_STALE_MINUTES = 90
+ADS_FULL_SYNC_STALE_MINUTES = 180
 ADS_FULL_SYNC_PERIOD_DAYS = 14
 REALIZATION_SYNC_PAGE_LIMIT = 30000
 HOME_REMINDERS_META_KEY = "home_reminders"
@@ -1924,11 +1924,14 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
     user_id = payload.pop("user_id", None)
     seller_id = payload.pop("seller_id", None)
     defaults = {
-        "status": payload.get("status") or SyncTask.STATUS_RUNNING,
+        "kind": payload.get("kind") or SyncTask.KIND_GENERAL,
+        "status": payload.get("status") or SyncTask.STATUS_QUEUED,
         "progress": int(payload.get("progress") or 0),
         "step": payload.get("step") or "",
         "message": payload.get("message") or "",
+        "payload": payload.get("payload") or {},
         "result": payload.get("result") or {},
+        "started_at": payload.get("started_at"),
         "finished_at": payload.get("finished_at"),
     }
     if user_id is not None:
@@ -1948,6 +1951,110 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
             time.sleep(min(2.0, 0.12 * attempt))
     if last_exc:
         raise last_exc
+
+
+class SyncTaskCanceled(Exception):
+    pass
+
+
+def _active_sync_statuses() -> tuple[str, str]:
+    return (SyncTask.STATUS_QUEUED, SyncTask.STATUS_RUNNING)
+
+
+def _get_active_sync_task_for_seller(seller: SellerAccount | None) -> SyncTask | None:
+    if not seller:
+        return None
+    return _get_active_sync_task_for_seller_id(int(seller.id))
+
+
+def _get_active_sync_task_for_seller_id(seller_id: int | None) -> SyncTask | None:
+    if not seller_id:
+        return None
+    return (
+        SyncTask.objects
+        .filter(seller_id=seller_id, status__in=_active_sync_statuses())
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _enqueue_sync_task(
+    *,
+    user_id: int,
+    seller_id: int,
+    kind: str,
+    step: str,
+    message: str,
+    payload: dict | None = None,
+    result: dict | None = None,
+) -> SyncTask:
+    task_id = uuid.uuid4().hex
+    try:
+        return SyncTask.objects.create(
+            task_id=task_id,
+            user_id=user_id,
+            seller_id=seller_id,
+            kind=kind,
+            status=SyncTask.STATUS_QUEUED,
+            progress=0,
+            step=step,
+            message=message,
+            payload=payload or {},
+            result=result or {},
+        )
+    except IntegrityError:
+        existing = _get_active_sync_task_for_seller_id(seller_id)
+        if existing:
+            return existing
+        raise
+
+
+def _request_sync_task_cancel(task: SyncTask) -> None:
+    task.status = SyncTask.STATUS_CANCELED
+    task.step = task.step or "Остановлена"
+    task.message = "Задача синхронизации остановлена вручную."
+    task.finished_at = timezone.now()
+    task.save(update_fields=["status", "step", "message", "finished_at", "updated_at"])
+
+
+def _raise_if_sync_task_canceled(task_id: str) -> None:
+    status = (
+        SyncTask.objects
+        .filter(task_id=task_id)
+        .values_list("status", flat=True)
+        .first()
+    )
+    if status == SyncTask.STATUS_CANCELED:
+        raise SyncTaskCanceled("Задача была остановлена пользователем.")
+
+
+def _claim_next_queued_sync_task() -> SyncTask | None:
+    with transaction.atomic():
+        task = (
+            SyncTask.objects
+            .select_for_update(skip_locked=True)
+            .filter(status=SyncTask.STATUS_QUEUED)
+            .order_by("created_at")
+            .first()
+        )
+        if not task:
+            return None
+        task.status = SyncTask.STATUS_RUNNING
+        task.started_at = timezone.now()
+        if not (task.step or "").strip():
+            task.step = "Инициализация"
+        if not (task.message or "").strip():
+            task.message = "Задача взята воркером в работу."
+        task.save(update_fields=["status", "started_at", "step", "message", "updated_at"])
+        return task
+
+
+def _execute_sync_task(task: SyncTask) -> None:
+    task_kind = str(task.kind or SyncTask.KIND_GENERAL)
+    if task_kind == SyncTask.KIND_ADS_FULL:
+        _run_full_ads_sync_task(task.task_id, int(task.seller_id or 0), int(task.user_id or 0))
+        return
+    _run_sync_orders_task(task.task_id, int(task.seller_id or 0), int(task.user_id or 0))
 
 
 def _parse_hhmm(raw_value: str | None):
@@ -2497,32 +2604,17 @@ def _maybe_start_scheduled_sync_for_user(user, seller: SellerAccount | None) -> 
         return
     if str(cfg.get("last_run_date") or "") == today.isoformat():
         return
-    running_task = _get_running_sync_task_for_user(user)
-    if running_task:
+    active_task = _get_running_sync_task_for_user(user)
+    if active_task:
         return
-
-    task_id = uuid.uuid4().hex
-    _set_sync_task(
-        task_id,
-        {
-            "task_id": task_id,
-            "status": "running",
-            "progress": 0,
-            "step": "Инициализация",
-            "message": "Авто-синхронизация запущена по расписанию...",
-            "finished_at": None,
-            "result": {},
-            "user_id": user.id,
-            "seller_id": seller.id,
-        },
+    _enqueue_sync_task(
+        user_id=user.id,
+        seller_id=seller.id,
+        kind=SyncTask.KIND_GENERAL,
+        step="В очереди",
+        message="Авто-синхронизация поставлена в очередь.",
+        result={},
     )
-
-    worker = threading.Thread(
-        target=_run_sync_orders_task,
-        args=(task_id, seller.id, user.id),
-        daemon=True,
-    )
-    worker.start()
     _save_auto_sync_config(
         seller,
         enabled=True,
@@ -2575,17 +2667,16 @@ def _get_sync_task_stale_minutes(task: SyncTask) -> int:
     return SYNC_TASK_STALE_MINUTES
 
 
-def _expire_stale_running_sync_tasks_for_user(user) -> int:
+def _expire_stale_running_sync_tasks(*, user=None) -> int:
     """
     Помечает "зависшие" running-задачи как error.
     Задача считается зависшей, если давно не обновлялась.
     """
     updated = 0
-    running_tasks = (
-        SyncTask.objects
-        .filter(user=user, status=SyncTask.STATUS_RUNNING)
-        .iterator()
-    )
+    qs = SyncTask.objects.filter(status=SyncTask.STATUS_RUNNING)
+    if user is not None:
+        qs = qs.filter(user=user)
+    running_tasks = qs.iterator()
     now = timezone.now()
     for task in running_tasks:
         stale_minutes = _get_sync_task_stale_minutes(task)
@@ -2604,11 +2695,15 @@ def _expire_stale_running_sync_tasks_for_user(user) -> int:
     return updated
 
 
+def _expire_stale_running_sync_tasks_for_user(user) -> int:
+    return _expire_stale_running_sync_tasks(user=user)
+
+
 def _get_running_sync_task_for_user(user) -> SyncTask | None:
     _expire_stale_running_sync_tasks_for_user(user)
     return (
         SyncTask.objects
-        .filter(user=user, status=SyncTask.STATUS_RUNNING)
+        .filter(user=user, status__in=_active_sync_statuses())
         .order_by("-created_at")
         .first()
     )
@@ -2763,12 +2858,14 @@ def _run_with_db_lock_retry(fn, *, attempts: int = 18, on_retry=None):
 def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
     close_old_connections()
     try:
+        _raise_if_sync_task_canceled(task_id)
         seller = SellerAccount.objects.filter(id=seller_id, user_id=user_id).first()
         if not seller:
             _set_sync_task(
                 task_id,
                 {
                     "task_id": task_id,
+                    "kind": SyncTask.KIND_GENERAL,
                     "status": "error",
                     "progress": 0,
                     "message": "SellerAccount не найден для текущего пользователя.",
@@ -2810,10 +2907,12 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
 
         total_steps = len(steps) + 1  # + отчеты реализации
         for idx, (label, key, fn, kwargs) in enumerate(steps, start=1):
+            _raise_if_sync_task_canceled(task_id)
             _set_sync_task(
                 task_id,
                 {
                     "task_id": task_id,
+                    "kind": SyncTask.KIND_GENERAL,
                     "status": "running",
                     "progress": int(((idx - 1) / total_steps) * 100),
                     "step": label,
@@ -2836,10 +2935,12 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         realization_warning = None
         idx = total_steps
         realization_progress = int(((idx - 1) / total_steps) * 100)
+        _raise_if_sync_task_canceled(task_id)
         _set_sync_task(
             task_id,
             {
                 "task_id": task_id,
+                "kind": SyncTask.KIND_GENERAL,
                 "status": "running",
                 "progress": realization_progress,
                 "step": "Отчёты реализации",
@@ -2857,6 +2958,22 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     period="weekly",
                     limit=REALIZATION_SYNC_PAGE_LIMIT,
                     respect_rate_limit=False,
+                    on_heartbeat=lambda heartbeat_message: (
+                        _raise_if_sync_task_canceled(task_id),
+                        _set_sync_task(
+                            task_id,
+                            {
+                                "task_id": task_id,
+                                "kind": SyncTask.KIND_GENERAL,
+                                "status": SyncTask.STATUS_RUNNING,
+                                "progress": realization_progress,
+                                "step": "Отчёты реализации",
+                                "message": heartbeat_message,
+                                "finished_at": None,
+                                "result": result,
+                            },
+                        ),
+                    )[-1],
                 ),
             )
             result["realization_rows"] = int(realization_result.get("upserted_rows") or 0)
@@ -2888,6 +3005,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             task_id,
             {
                 "task_id": task_id,
+                "kind": SyncTask.KIND_GENERAL,
                 "status": "success",
                 "progress": 100,
                 "step": "Готово",
@@ -2901,6 +3019,20 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             args=(seller.id,),
             daemon=True,
         ).start()
+    except SyncTaskCanceled as exc:
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "kind": SyncTask.KIND_GENERAL,
+                "status": SyncTask.STATUS_CANCELED,
+                "progress": 100,
+                "step": "Остановлена",
+                "message": str(exc),
+                "finished_at": timezone.now(),
+                "result": {},
+            },
+        )
     except Exception as exc:
         log_user = None
         log_seller = None
@@ -2921,6 +3053,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             task_id,
             {
                 "task_id": task_id,
+                "kind": SyncTask.KIND_GENERAL,
                 "status": "error",
                 "progress": 100,
                 "step": "Ошибка",
@@ -2936,12 +3069,14 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
 def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
     close_old_connections()
     try:
+        _raise_if_sync_task_canceled(task_id)
         seller = SellerAccount.objects.filter(id=seller_id, user_id=user_id).first()
         if not seller:
             _set_sync_task(
                 task_id,
                 {
                     "task_id": task_id,
+                    "kind": SyncTask.KIND_ADS_FULL,
                     "status": "error",
                     "progress": 0,
                     "step": "Ошибка",
@@ -2957,6 +3092,7 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
             task_id,
             {
                 "task_id": task_id,
+                "kind": SyncTask.KIND_ADS_FULL,
                 "status": "running",
                 "progress": 0,
                 "step": "Подготовка",
@@ -2967,11 +3103,13 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
         )
 
         def on_progress(period_index: int, periods_total: int, period_start: date, period_end: date) -> None:
+            _raise_if_sync_task_canceled(task_id)
             progress = int(((period_index - 1) / max(periods_total, 1)) * 100)
             _set_sync_task(
                 task_id,
                 {
                     "task_id": task_id,
+                    "kind": SyncTask.KIND_ADS_FULL,
                     "status": "running",
                     "progress": progress,
                     "step": "Полный синк рекламной статы",
@@ -3008,12 +3146,27 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
             task_id,
             {
                 "task_id": task_id,
+                "kind": SyncTask.KIND_ADS_FULL,
                 "status": "success",
                 "progress": 100,
                 "step": "Готово",
                 "message": message,
                 "finished_at": timezone.now(),
                 "result": result,
+            },
+        )
+    except SyncTaskCanceled as exc:
+        _set_sync_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "kind": SyncTask.KIND_ADS_FULL,
+                "status": SyncTask.STATUS_CANCELED,
+                "progress": 100,
+                "step": "Остановлена",
+                "message": str(exc),
+                "finished_at": timezone.now(),
+                "result": {"kind": "ads_full"},
             },
         )
     except Exception as exc:
@@ -3036,6 +3189,7 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
             task_id,
             {
                 "task_id": task_id,
+                "kind": SyncTask.KIND_ADS_FULL,
                 "status": "error",
                 "progress": 100,
                 "step": "Ошибка",
@@ -3321,12 +3475,18 @@ def _build_sync_tasks_for_user(user, *, limit: int = 12) -> list[dict]:
     for task in tasks:
         result = task.result if isinstance(task.result, dict) else {}
         status = str(task.status or "")
-        if status == SyncTask.STATUS_RUNNING:
+        if status == SyncTask.STATUS_QUEUED:
+            status_label = "В очереди"
+            status_tone = "running"
+        elif status == SyncTask.STATUS_RUNNING:
             status_label = "В работе"
             status_tone = "running"
         elif status == SyncTask.STATUS_SUCCESS:
             status_label = "Завершена"
             status_tone = "success"
+        elif status == SyncTask.STATUS_CANCELED:
+            status_label = "Остановлена"
+            status_tone = "error"
         else:
             status_label = "Ошибка"
             status_tone = "error"
@@ -3344,7 +3504,7 @@ def _build_sync_tasks_for_user(user, *, limit: int = 12) -> list[dict]:
                 "updated_at": task.updated_at,
                 "finished_at": task.finished_at,
                 "idle_seconds": round((now - task.updated_at).total_seconds(), 1) if task.updated_at else None,
-                "can_stop": status == SyncTask.STATUS_RUNNING,
+                "can_stop": status in {SyncTask.STATUS_QUEUED, SyncTask.STATUS_RUNNING},
             }
         )
     return rows
@@ -4345,43 +4505,38 @@ def sync_orders_start_api(request):
                 status=400,
             )
 
-        running_task = _get_running_sync_task_for_user(request.user)
-        if running_task:
+        active_task = _get_running_sync_task_for_user(request.user)
+        if active_task:
             return JsonResponse(
                 {
-                    "error": "Синхронизация уже выполняется. Дождитесь завершения текущей задачи.",
-                    "task_id": running_task.task_id,
-                    "status": running_task.status,
-                    "progress": running_task.progress,
-                    "step": running_task.step,
-                    "message": running_task.message,
+                    "error": "Синхронизация уже выполняется или ожидает запуска в очереди. Дождитесь завершения текущей задачи.",
+                    "task_id": active_task.task_id,
+                    "status": active_task.status,
+                    "progress": active_task.progress,
+                    "step": active_task.step,
+                    "message": active_task.message,
                 },
                 status=409,
             )
 
-        task_id = uuid.uuid4().hex
-        _set_sync_task(
-            task_id,
+        task = _enqueue_sync_task(
+            user_id=request.user.id,
+            seller_id=seller.id,
+            kind=SyncTask.KIND_GENERAL,
+            step="В очереди",
+            message="Задача синхронизации поставлена в очередь.",
+            result={},
+        )
+        return JsonResponse(
             {
-                "task_id": task_id,
-                "status": "running",
-                "progress": 0,
-                "step": "Инициализация",
-                "message": "Задача синхронизации запущена...",
-                "finished_at": None,
-                "result": {},
-                "user_id": request.user.id,
-                "seller_id": seller.id,
+                "task_id": task.task_id,
+                "status": task.status,
+                "progress": task.progress,
+                "step": task.step,
+                "message": task.message,
             },
+            status=202,
         )
-
-        worker = threading.Thread(
-            target=_run_sync_orders_task,
-            args=(task_id, seller.id, request.user.id),
-            daemon=True,
-        )
-        worker.start()
-        return JsonResponse({"task_id": task_id, "status": "running"}, status=202)
     except Exception as exc:
         _log_app_error(
             source="sync.start_api",
@@ -4405,44 +4560,40 @@ def sync_ads_full_start_api(request):
                 status=400,
             )
 
-        running_task = _get_running_sync_task_for_user(request.user)
-        if running_task:
+        active_task = _get_running_sync_task_for_user(request.user)
+        if active_task:
             return JsonResponse(
                 {
-                    "error": "Синхронизация уже выполняется. Дождитесь завершения текущей задачи.",
-                    "task_id": running_task.task_id,
-                    "status": running_task.status,
-                    "progress": running_task.progress,
-                    "step": running_task.step,
-                    "message": running_task.message,
-                    "result": running_task.result or {},
+                    "error": "Синхронизация уже выполняется или ожидает запуска в очереди. Дождитесь завершения текущей задачи.",
+                    "task_id": active_task.task_id,
+                    "status": active_task.status,
+                    "progress": active_task.progress,
+                    "step": active_task.step,
+                    "message": active_task.message,
+                    "result": active_task.result or {},
                 },
                 status=409,
             )
 
-        task_id = uuid.uuid4().hex
-        _set_sync_task(
-            task_id,
+        task = _enqueue_sync_task(
+            user_id=request.user.id,
+            seller_id=seller.id,
+            kind=SyncTask.KIND_ADS_FULL,
+            step="В очереди",
+            message="Полный синк рекламной статы поставлен в очередь.",
+            result={"kind": "ads_full"},
+        )
+        return JsonResponse(
             {
-                "task_id": task_id,
-                "status": "running",
-                "progress": 0,
-                "step": "Подготовка",
-                "message": "Полный синк рекламной статы запущен...",
-                "finished_at": None,
-                "result": {"kind": "ads_full"},
-                "user_id": request.user.id,
-                "seller_id": seller.id,
+                "task_id": task.task_id,
+                "status": task.status,
+                "progress": task.progress,
+                "step": task.step,
+                "message": task.message,
+                "result": task.result or {},
             },
+            status=202,
         )
-
-        worker = threading.Thread(
-            target=_run_full_ads_sync_task,
-            args=(task_id, seller.id, request.user.id),
-            daemon=True,
-        )
-        worker.start()
-        return JsonResponse({"task_id": task_id, "status": "running"}, status=202)
     except Exception as exc:
         _log_app_error(
             source="sync.ads_full.start_api",
@@ -4612,15 +4763,10 @@ def account_settings(request):
             if not task:
                 messages.error(request, "Задача синхронизации не найдена.")
                 return redirect(f"{reverse('account_settings')}#section-sync-tasks")
-            if task.status != SyncTask.STATUS_RUNNING:
+            if task.status not in {SyncTask.STATUS_QUEUED, SyncTask.STATUS_RUNNING}:
                 messages.info(request, "Эта задача уже не выполняется.")
                 return redirect(f"{reverse('account_settings')}#section-sync-tasks")
-            task.status = SyncTask.STATUS_ERROR
-            task.progress = max(task.progress or 0, 100)
-            task.step = task.step or "Остановлена"
-            task.message = "Задача синхронизации остановлена вручную из настроек аккаунта."
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "step", "message", "finished_at", "updated_at"])
+            _request_sync_task_cancel(task)
             messages.success(request, f"Задача {task.task_id} остановлена.")
             return redirect(f"{reverse('account_settings')}#section-sync-tasks")
 
