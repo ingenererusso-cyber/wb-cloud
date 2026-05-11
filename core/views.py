@@ -3218,6 +3218,8 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
             chunk_index = max(1, int(payload.get("chunk_index") or 1))
             chunks_total = max(1, int(payload.get("chunks_total") or 1))
             mode = str(payload.get("mode") or "")
+            if mode == "rate_limit_wait":
+                return
             chunk_position = chunk_index if mode == "chunk_done" else chunk_index - 1
             chunk_fraction = max(0.0, min(1.0, chunk_position / chunks_total))
             progress = int(((period_index - 1 + chunk_fraction) / periods_total) * 100)
@@ -3227,13 +3229,7 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
             if isinstance(period_start, date) and isinstance(period_end, date):
                 period_label = f": {period_start.strftime('%d.%m.%Y')} - {period_end.strftime('%d.%m.%Y')}"
             chunk_size = int(payload.get("chunk_size") or payload.get("campaigns_count") or 0)
-            if mode == "rate_limit_wait":
-                wait_seconds = max(1, int(math.ceil(float(payload.get("wait_seconds") or 0))))
-                message = (
-                    f"Период {period_index}/{periods_total}{period_label}. "
-                    f"Ждем лимит WB {wait_seconds} сек перед пачкой {chunk_index}/{chunks_total}: РК {chunk_size}."
-                )
-            elif mode == "chunk_done":
+            if mode == "chunk_done":
                 rows_upserted = int(payload.get("rows_upserted") or 0)
                 message = (
                     f"Период {period_index}/{periods_total}{period_label}. "

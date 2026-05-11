@@ -1450,6 +1450,8 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(aggregate_row.orders, 9)
         self.assertEqual(aggregate_row.add_to_cart, 14)
         self.assertEqual(aggregate_row.day_sum, 710.0)
+        self.assertNotIn("days", aggregate_row.raw_payload["campaign"])
+        self.assertNotIn("apps", aggregate_row.raw_payload["day"])
 
         nm_rows = list(
             WbAdvertStatDaily.objects.filter(
@@ -1461,6 +1463,9 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(len(nm_rows), 2)
         self.assertEqual([row.nm_id for row in nm_rows], [10001, 10002])
         self.assertEqual([row.spend for row in nm_rows], [410.0, 300.0])
+        self.assertNotIn("days", nm_rows[0].raw_payload["campaign"])
+        self.assertNotIn("apps", nm_rows[0].raw_payload["day"])
+        self.assertEqual(nm_rows[0].raw_payload["nm"]["nmId"], 10001)
 
     @patch("core.services_advertising.WBPromotionClient")
     def test_sync_skips_failed_chunk_without_single_campaign_fallback(self, client_cls):

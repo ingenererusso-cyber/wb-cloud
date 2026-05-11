@@ -12,6 +12,9 @@ from wb_api.client import WBPromotionClient
 
 
 FULLSTATS_MIN_REQUEST_INTERVAL_SEC = 20.5
+AD_STATS_BULK_CREATE_BATCH_SIZE = 200
+AD_STATS_BULK_UPDATE_BATCH_SIZE = 100
+AD_STATS_EXISTING_LOOKUP_BATCH_SIZE = 200
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -95,6 +98,80 @@ def _extract_advert_id(row: Dict) -> int | None:
             if value > 0:
                 return value
     return None
+
+
+def _compact_payload(row: Dict | None, allowed_keys: Iterable[str]) -> Dict:
+    if not isinstance(row, dict):
+        return {}
+    payload: Dict = {}
+    for key in allowed_keys:
+        value = row.get(key)
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _compact_fullstats_payload(
+    *,
+    campaign_row: Dict,
+    day_row: Dict,
+    app_row: Dict | None = None,
+    nm_row: Dict | None = None,
+) -> Dict:
+    """
+    Store only fields used by dashboards/details.
+
+    WB fullstats responses can contain nested arrays with all days/apps/nm rows.
+    Saving that full object for every daily/nm stat duplicates JSON massively and
+    can make PostgreSQL bulk updates allocate gigabytes of memory.
+    """
+    payload = {
+        "campaign": _compact_payload(
+            campaign_row,
+            (
+                "advertId",
+                "advertID",
+                "id",
+                "campaignId",
+                "name",
+                "advertName",
+                "type",
+                "status",
+            ),
+        ),
+        "day": _compact_payload(
+            day_row,
+            (
+                "date",
+                "views",
+                "clicks",
+                "orders",
+                "atbs",
+                "sum",
+            ),
+        ),
+    }
+    if app_row is not None:
+        payload["app"] = _compact_payload(app_row, ("appType", "appName", "name"))
+    if nm_row is not None:
+        payload["nm"] = _compact_payload(
+            nm_row,
+            (
+                "nmId",
+                "nmID",
+                "id",
+                "name",
+                "views",
+                "clicks",
+                "orders",
+                "atbs",
+                "sum",
+                "sum_price",
+                "sumPrice",
+                "ordersSumRub",
+            ),
+        )
+    return payload
 
 
 def _extract_nm_id(row: Dict) -> int:
@@ -366,14 +443,14 @@ def sync_ad_campaigns_and_stats(
         max_stat_date = max(stat_dates_for_map)
         target_keys = set(stat_rows_map.keys())
         existing_stat_map: Dict[tuple[int, date, int], WbAdvertStatDaily] = {}
-        for advert_chunk in _chunks(advert_ids_for_map, 500):
+        for advert_chunk in _chunks(advert_ids_for_map, AD_STATS_EXISTING_LOOKUP_BATCH_SIZE):
             for item in WbAdvertStatDaily.objects.filter(
                 seller=seller,
                 advert_id__in=advert_chunk,
                 stat_date__gte=min_stat_date,
                 stat_date__lte=max_stat_date,
-            ):
-                item_key = (int(item.advert_id), item.stat_date, int(item.nm_id))
+            ).only("id", "advert_id", "stat_date", "nm_id"):
+                item_key = (int(item.advert_id), item.stat_date, _to_int(item.nm_id, default=0))
                 if item_key in target_keys:
                     existing_stat_map[item_key] = item
         update_fields = ["spend", "day_sum", "views", "clicks", "orders", "add_to_cart", "raw_payload", "updated_at"]
@@ -396,9 +473,9 @@ def sync_ad_campaigns_and_stats(
                 setattr(existing, field_name, defaults[field_name])
             to_update_stats.append(existing)
         if to_create_stats:
-            WbAdvertStatDaily.objects.bulk_create(to_create_stats, batch_size=2000)
+            WbAdvertStatDaily.objects.bulk_create(to_create_stats, batch_size=AD_STATS_BULK_CREATE_BATCH_SIZE)
         if to_update_stats:
-            WbAdvertStatDaily.objects.bulk_update(to_update_stats, update_fields, batch_size=2000)
+            WbAdvertStatDaily.objects.bulk_update(to_update_stats, update_fields, batch_size=AD_STATS_BULK_UPDATE_BATCH_SIZE)
         return len(stat_rows_map)
 
     total_chunks = len(grouped_id_chunks)
@@ -507,10 +584,7 @@ def sync_ad_campaigns_and_stats(
                     "clicks": day_clicks,
                     "orders": day_orders,
                     "add_to_cart": day_atc,
-                    "raw_payload": {
-                        "campaign": campaign_row,
-                        "day": day_row,
-                    },
+                    "raw_payload": _compact_fullstats_payload(campaign_row=campaign_row, day_row=day_row),
                     "updated_at": stats_now,
                 }
 
@@ -539,12 +613,12 @@ def sync_ad_campaigns_and_stats(
                                 "clicks": None,
                                 "orders": None,
                                 "add_to_cart": None,
-                                "raw_payload": {
-                                    "campaign": campaign_row,
-                                    "day": day_row,
-                                    "app": app_row,
-                                    "nm": nm_row,
-                                },
+                                "raw_payload": _compact_fullstats_payload(
+                                    campaign_row=campaign_row,
+                                    day_row=day_row,
+                                    app_row=app_row,
+                                    nm_row=nm_row,
+                                ),
                                 "updated_at": stats_now,
                             }
         rows_upserted = _bulk_upsert_stats(stat_rows_map)
