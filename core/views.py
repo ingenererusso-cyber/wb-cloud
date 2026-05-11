@@ -1116,6 +1116,90 @@ def _build_campaign_spend_points(
     return points
 
 
+def _normalize_wb_campaign_chart_period_weeks(raw_value) -> int:
+    try:
+        chart_period_weeks = int(raw_value)
+    except (TypeError, ValueError):
+        chart_period_weeks = 2
+    if chart_period_weeks not in {1, 2, 4}:
+        chart_period_weeks = 2
+    return chart_period_weeks
+
+
+def _get_wb_promotion_campaigns_queryset(
+    *,
+    seller: SellerAccount,
+    query: str,
+    show_completed: bool,
+    sort: str,
+):
+    campaigns_qs = WbAdvertCampaign.objects.filter(seller=seller)
+    if query:
+        query_filter = Q(campaign_name__icontains=query)
+        if query.isdigit():
+            query_filter = query_filter | Q(advert_id=int(query))
+        campaigns_qs = campaigns_qs.filter(query_filter)
+    if not show_completed:
+        campaigns_qs = campaigns_qs.exclude(status=7)
+
+    if sort == "create_asc":
+        campaigns_qs = campaigns_qs.order_by(F("create_time").asc(nulls_last=True), "advert_id")
+    elif sort == "updated_desc":
+        campaigns_qs = campaigns_qs.order_by(F("updated_at").desc(nulls_last=True), "-advert_id")
+    else:
+        sort = "create_desc"
+        campaigns_qs = campaigns_qs.order_by(F("create_time").desc(nulls_last=True), "-advert_id")
+    return campaigns_qs, sort
+
+
+def _build_wb_promotion_campaign_spend_chart_payload(
+    *,
+    seller: SellerAccount,
+    advert_ids: list[int],
+    chart_period_weeks: int,
+) -> dict:
+    today = timezone.localdate()
+    chart_date_to = today
+    chart_date_from = today - timedelta(days=(chart_period_weeks * 7) - 1)
+    chart_points = _build_campaign_spend_points(
+        seller=seller,
+        advert_ids=advert_ids,
+        date_from=chart_date_from,
+        date_to=chart_date_to,
+    )
+    all_orders_by_day = {
+        row["day"]: int(row.get("total") or 0)
+        for row in (
+            Order.objects
+            .filter(
+                seller=seller,
+                order_date__date__gte=chart_date_from,
+                order_date__date__lte=chart_date_to,
+            )
+            .annotate(day=TruncDate("order_date"))
+            .values("day")
+            .annotate(total=Count("id"))
+        )
+        if row.get("day") is not None
+    }
+    for point in chart_points:
+        point_date = point.get("date")
+        try:
+            point_day = date.fromisoformat(point_date) if point_date else None
+        except ValueError:
+            point_day = None
+        point["all_orders"] = int(all_orders_by_day.get(point_day, 0)) if point_day else 0
+
+    total_spend = round(sum(float(point.get("value") or 0.0) for point in chart_points), 2)
+    return {
+        "points": chart_points,
+        "total_spend": total_spend,
+        "chart_date_from": chart_date_from.isoformat(),
+        "chart_date_to": chart_date_to.isoformat(),
+        "range_label": f"{chart_date_from.strftime('%d.%m.%Y')} - {chart_date_to.strftime('%d.%m.%Y')}",
+    }
+
+
 def _allocate_campaign_spend_for_nm(
     *,
     target_nm_id: int,
@@ -1931,9 +2015,11 @@ def _set_sync_task(task_id: str, payload: dict) -> None:
         "message": payload.get("message") or "",
         "payload": payload.get("payload") or {},
         "result": payload.get("result") or {},
-        "started_at": payload.get("started_at"),
-        "finished_at": payload.get("finished_at"),
     }
+    if "started_at" in payload:
+        defaults["started_at"] = payload.get("started_at")
+    if "finished_at" in payload:
+        defaults["finished_at"] = payload.get("finished_at")
     if user_id is not None:
         defaults["user_id"] = user_id
     if seller_id is not None:
@@ -3097,6 +3183,7 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
                 "progress": 0,
                 "step": "Подготовка",
                 "message": "Собираем активные и приостановленные РК для полного синка...",
+                "started_at": timezone.now(),
                 "finished_at": None,
                 "result": result,
             },
@@ -3122,11 +3209,61 @@ def _run_full_ads_sync_task(task_id: str, seller_id: int, user_id: int) -> None:
                 },
             )
 
+        def on_chunk_progress(payload: dict) -> None:
+            _raise_if_sync_task_canceled(task_id)
+            if not isinstance(payload, dict):
+                return
+            period_index = max(1, int(payload.get("period_index") or 1))
+            periods_total = max(1, int(payload.get("periods_total") or 1))
+            chunk_index = max(1, int(payload.get("chunk_index") or 1))
+            chunks_total = max(1, int(payload.get("chunks_total") or 1))
+            mode = str(payload.get("mode") or "")
+            chunk_position = chunk_index if mode == "chunk_done" else chunk_index - 1
+            chunk_fraction = max(0.0, min(1.0, chunk_position / chunks_total))
+            progress = int(((period_index - 1 + chunk_fraction) / periods_total) * 100)
+            period_start = payload.get("period_start")
+            period_end = payload.get("period_end")
+            period_label = ""
+            if isinstance(period_start, date) and isinstance(period_end, date):
+                period_label = f": {period_start.strftime('%d.%m.%Y')} - {period_end.strftime('%d.%m.%Y')}"
+            chunk_size = int(payload.get("chunk_size") or payload.get("campaigns_count") or 0)
+            if mode == "rate_limit_wait":
+                wait_seconds = max(1, int(math.ceil(float(payload.get("wait_seconds") or 0))))
+                message = (
+                    f"Период {period_index}/{periods_total}{period_label}. "
+                    f"Ждем лимит WB {wait_seconds} сек перед пачкой {chunk_index}/{chunks_total}: РК {chunk_size}."
+                )
+            elif mode == "chunk_done":
+                rows_upserted = int(payload.get("rows_upserted") or 0)
+                message = (
+                    f"Период {period_index}/{periods_total}{period_label}. "
+                    f"Пачка {chunk_index}/{chunks_total} сохранена: РК {chunk_size}, строк {rows_upserted}."
+                )
+            else:
+                message = (
+                    f"Период {period_index}/{periods_total}{period_label}. "
+                    f"Загружаем пачку {chunk_index}/{chunks_total}: РК {chunk_size}."
+                )
+            _set_sync_task(
+                task_id,
+                {
+                    "task_id": task_id,
+                    "kind": SyncTask.KIND_ADS_FULL,
+                    "status": "running",
+                    "progress": progress,
+                    "step": "Полный синк рекламной статы",
+                    "message": message,
+                    "finished_at": None,
+                    "result": result,
+                },
+            )
+
         sync_result = _run_with_db_lock_retry(
             lambda: sync_active_paused_ad_campaigns_full_history(
                 seller=seller,
                 period_days=ADS_FULL_SYNC_PERIOD_DAYS,
                 on_progress=on_progress,
+                on_chunk_progress=on_chunk_progress,
             )
         )
         if isinstance(sync_result, dict):
@@ -3843,12 +3980,7 @@ def wb_promotion_campaigns(request):
         page_size = 10
     if page_size not in {10, 20, 30, 50}:
         page_size = 10
-    try:
-        chart_period_weeks = int(raw_chart_period_weeks)
-    except (TypeError, ValueError):
-        chart_period_weeks = 2
-    if chart_period_weeks not in {1, 2, 4}:
-        chart_period_weeks = 2
+    chart_period_weeks = _normalize_wb_campaign_chart_period_weeks(raw_chart_period_weeks)
 
     today = timezone.localdate()
     default_date_to = today
@@ -3865,59 +3997,12 @@ def wb_promotion_campaigns(request):
         date_from_value = default_date_from
         date_to_value = default_date_to
 
-    campaigns_qs = WbAdvertCampaign.objects.filter(seller=seller)
-    if query:
-        query_filter = Q(campaign_name__icontains=query)
-        if query.isdigit():
-            query_filter = query_filter | Q(advert_id=int(query))
-        campaigns_qs = campaigns_qs.filter(query_filter)
-    if not show_completed:
-        campaigns_qs = campaigns_qs.exclude(status=7)
-
-    if sort == "create_asc":
-        campaigns_qs = campaigns_qs.order_by(F("create_time").asc(nulls_last=True), "advert_id")
-    elif sort == "updated_desc":
-        campaigns_qs = campaigns_qs.order_by(F("updated_at").desc(nulls_last=True), "-advert_id")
-    else:
-        sort = "create_desc"
-        campaigns_qs = campaigns_qs.order_by(F("create_time").desc(nulls_last=True), "-advert_id")
-
-    filtered_advert_ids = [
-        int(advert_id)
-        for advert_id in campaigns_qs.values_list("advert_id", flat=True)
-        if advert_id is not None
-    ]
-    chart_date_to = today
-    chart_date_from = today - timedelta(days=(chart_period_weeks * 7) - 1)
-    chart_points = _build_campaign_spend_points(
+    campaigns_qs, sort = _get_wb_promotion_campaigns_queryset(
         seller=seller,
-        advert_ids=filtered_advert_ids,
-        date_from=chart_date_from,
-        date_to=chart_date_to,
+        query=query,
+        show_completed=show_completed,
+        sort=sort,
     )
-    all_orders_by_day = {
-        row["day"]: int(row.get("total") or 0)
-        for row in (
-            Order.objects
-            .filter(
-                seller=seller,
-                order_date__date__gte=chart_date_from,
-                order_date__date__lte=chart_date_to,
-            )
-            .annotate(day=TruncDate("order_date"))
-            .values("day")
-            .annotate(total=Count("id"))
-        )
-        if row.get("day") is not None
-    }
-    for point in chart_points:
-        point_date = point.get("date")
-        try:
-            point_day = date.fromisoformat(point_date) if point_date else None
-        except ValueError:
-            point_day = None
-        point["all_orders"] = int(all_orders_by_day.get(point_day, 0)) if point_day else 0
-    chart_total_spend = round(sum(float(point.get("value") or 0.0) for point in chart_points), 2)
 
     paginator = Paginator(campaigns_qs, page_size)
     page_obj = paginator.get_page(page_number)
@@ -4023,13 +4108,39 @@ def wb_promotion_campaigns(request):
             "total_count": paginator.count,
             "show_completed": show_completed,
             "chart_period_weeks": chart_period_weeks,
-            "chart_points": chart_points,
-            "chart_total_spend": chart_total_spend,
-            "chart_date_from": chart_date_from.isoformat(),
-            "chart_date_to": chart_date_to.isoformat(),
             "full_ads_sync_estimate": full_ads_sync_estimate,
         },
     )
+
+
+@login_required
+@require_GET
+def wb_promotion_campaigns_chart_api(request):
+    seller = _get_or_create_seller_for_user(request.user)
+
+    query = (request.GET.get("q") or "").strip()
+    sort = (request.GET.get("sort") or "create_desc").strip()
+    show_completed = (request.GET.get("show_completed") or "").strip() in {"1", "true", "on", "yes"}
+    chart_period_weeks = _normalize_wb_campaign_chart_period_weeks(request.GET.get("chart_period_weeks") or "2")
+
+    campaigns_qs, _normalized_sort = _get_wb_promotion_campaigns_queryset(
+        seller=seller,
+        query=query,
+        show_completed=show_completed,
+        sort=sort,
+    )
+    advert_ids = [
+        int(advert_id)
+        for advert_id in campaigns_qs.values_list("advert_id", flat=True)
+        if advert_id is not None
+    ]
+    payload = _build_wb_promotion_campaign_spend_chart_payload(
+        seller=seller,
+        advert_ids=advert_ids,
+        chart_period_weeks=chart_period_weeks,
+    )
+    payload["ok"] = True
+    return JsonResponse(payload)
 
 
 @login_required

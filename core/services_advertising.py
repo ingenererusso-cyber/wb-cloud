@@ -11,6 +11,9 @@ from core.models import SellerAccount, WbAdvertCampaign, WbAdvertStatDaily
 from wb_api.client import WBPromotionClient
 
 
+FULLSTATS_MIN_REQUEST_INTERVAL_SEC = 20.5
+
+
 def _to_float(value, default: float = 0.0) -> float:
     if value is None:
         return float(default)
@@ -179,6 +182,7 @@ def sync_ad_campaigns_and_stats(
     date_to: date,
     campaign_statuses: List[int] | None = None,
     on_progress=None,
+    fullstats_rate_state: Dict[str, float] | None = None,
 ) -> Dict[str, int]:
     """
     Синк рекламных кампаний и их статистики:
@@ -316,28 +320,42 @@ def sync_ad_campaigns_and_stats(
             "stats_rows_upserted": 0,
         }
 
-    partial_errors: List[str] = []
-    skipped_chunks: List[Dict[str, object]] = []
-    # Для ускорения синка используем максимально крупные чанки (до 50 ID),
-    # без дополнительного дробления по разбросу дат запуска.
-    # Это существенно снижает количество вызовов /adv/v3/fullstats и паузы по rate-limit.
-    grouped_id_chunks = list(_chunks(unique_advert_ids, 50))
-    # Ограничение WB для advert fullstats фактически ~1 запрос / 20 секунд на кабинет.
-    min_fullstats_interval_sec = 20.5
-    last_fullstats_request_ts: float | None = None
     today = timezone.localdate()
     effective_date_to = min(date_to, today)
     # WB /adv/v3/fullstats: максимум 31 день истории на запрос.
     max_lookback_from = effective_date_to - timedelta(days=31)
     effective_date_from = max(date_from, max_lookback_from)
 
-    def _respect_fullstats_rate_limit() -> None:
-        nonlocal last_fullstats_request_ts
+    eligible_advert_ids = []
+    for advert_id in unique_advert_ids:
+        start_date = advert_start_dates.get(int(advert_id))
+        if start_date is not None and start_date > effective_date_to:
+            continue
+        eligible_advert_ids.append(int(advert_id))
+    if not eligible_advert_ids:
+        return {
+            "campaigns_synced": campaigns_synced,
+            "stats_rows_upserted": 0,
+        }
+
+    partial_errors: List[str] = []
+    skipped_chunks: List[Dict[str, object]] = []
+    # Для ускорения синка используем максимально крупные чанки (до 50 ID),
+    # без дополнительного дробления по разбросу дат запуска.
+    # Это существенно снижает количество вызовов /adv/v3/fullstats и паузы по rate-limit.
+    grouped_id_chunks = list(_chunks(eligible_advert_ids, 50))
+    # Ограничение WB для advert fullstats фактически ~1 запрос / 20 секунд на кабинет.
+    rate_state = fullstats_rate_state if isinstance(fullstats_rate_state, dict) else {}
+
+    def _fullstats_wait_seconds() -> float:
+        last_fullstats_request_ts = rate_state.get("last_fullstats_request_ts")
         if last_fullstats_request_ts is not None:
-            elapsed = time.monotonic() - last_fullstats_request_ts
-            sleep_for = min_fullstats_interval_sec - elapsed
-            if sleep_for > 0:
-                time.sleep(sleep_for)
+            elapsed = time.monotonic() - float(last_fullstats_request_ts)
+            return max(0.0, FULLSTATS_MIN_REQUEST_INTERVAL_SEC - elapsed)
+        return 0.0
+
+    def _mark_fullstats_request() -> None:
+        rate_state["last_fullstats_request_ts"] = time.monotonic()
 
     def _bulk_upsert_stats(stat_rows_map: Dict[tuple[int, date, int], Dict]) -> int:
         if not stat_rows_map:
@@ -409,15 +427,30 @@ def sync_ad_campaigns_and_stats(
             )
 
         try:
-            _respect_fullstats_rate_limit()
+            wait_seconds = _fullstats_wait_seconds()
+            if wait_seconds > 0 and callable(on_progress):
+                on_progress(
+                    {
+                        "mode": "rate_limit_wait",
+                        "chunk_index": chunk_index,
+                        "chunks_total": total_chunks,
+                        "chunk_size": len(ids_chunk),
+                        "date_from": common_begin,
+                        "date_to": common_end,
+                        "advert_ids": list(ids_chunk),
+                        "wait_seconds": wait_seconds,
+                    }
+                )
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
             stats_rows = client.get_fullstats(
                 ids_chunk,
                 date_from=common_begin.isoformat(),
                 date_to=common_end.isoformat(),
             )
-            last_fullstats_request_ts = time.monotonic()
+            _mark_fullstats_request()
         except Exception as exc:
-            last_fullstats_request_ts = time.monotonic()
+            _mark_fullstats_request()
             chunk_error = str(exc).strip() or exc.__class__.__name__
             chunk_summary = (
                 f"Чанк {chunk_index}/{total_chunks} "
@@ -514,7 +547,22 @@ def sync_ad_campaigns_and_stats(
                                 },
                                 "updated_at": stats_now,
                             }
-        stats_rows_upserted += _bulk_upsert_stats(stat_rows_map)
+        rows_upserted = _bulk_upsert_stats(stat_rows_map)
+        stats_rows_upserted += rows_upserted
+        if callable(on_progress):
+            on_progress(
+                {
+                    "mode": "chunk_done",
+                    "chunk_index": chunk_index,
+                    "chunks_total": total_chunks,
+                    "chunk_size": len(ids_chunk),
+                    "date_from": common_begin,
+                    "date_to": common_end,
+                    "advert_ids": list(ids_chunk),
+                    "rows_upserted": rows_upserted,
+                    "stats_rows_upserted": stats_rows_upserted,
+                }
+            )
 
     result = {
         "campaigns_synced": campaigns_synced,
@@ -535,6 +583,7 @@ def sync_active_paused_ad_campaigns_full_history(
     *,
     period_days: int = 30,
     on_progress=None,
+    on_chunk_progress=None,
 ) -> Dict[str, int]:
     client = WBPromotionClient(seller.api_token_plain)
     campaigns_rows = client.list_adverts(statuses=[9, 11])
@@ -570,15 +619,33 @@ def sync_active_paused_ad_campaigns_full_history(
     total_campaigns_synced = 0
     total_stats_rows_upserted = 0
     collected_errors: List[str] = []
+    fullstats_rate_state: Dict[str, float] = {}
 
     for idx, (period_start, period_end) in enumerate(periods, start=1):
         if callable(on_progress):
             on_progress(idx, len(periods), period_start, period_end)
+
+        def handle_chunk_progress(payload: dict) -> None:
+            if not callable(on_chunk_progress) or not isinstance(payload, dict):
+                return
+            enriched_payload = dict(payload)
+            enriched_payload.update(
+                {
+                    "period_index": idx,
+                    "periods_total": len(periods),
+                    "period_start": period_start,
+                    "period_end": period_end,
+                }
+            )
+            on_chunk_progress(enriched_payload)
+
         result = sync_ad_campaigns_and_stats(
             seller=seller,
             date_from=period_start,
             date_to=period_end,
             campaign_statuses=[9, 11],
+            on_progress=handle_chunk_progress,
+            fullstats_rate_state=fullstats_rate_state,
         )
         total_campaigns_synced = max(total_campaigns_synced, int(result.get("campaigns_synced") or 0))
         total_stats_rows_upserted += int(result.get("stats_rows_upserted") or 0)

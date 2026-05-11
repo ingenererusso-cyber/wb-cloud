@@ -71,6 +71,7 @@ from core.views import (
     sync_orders_status_api,
     supply_recommendations_report,
     wb_promotion_campaigns,
+    wb_promotion_campaigns_chart_api,
     wb_promotion_campaign_detail,
 )
 
@@ -141,6 +142,7 @@ urlpatterns = [
     path('analytics/paid-storage/', analytics_paid_storage, name='analytics_paid_storage'),
     path('analytics/money-in-goods/', analytics_money_in_goods, name='analytics_money_in_goods'),
     path('promotion/wb/', wb_promotion_campaigns, name='wb_promotion_campaigns'),
+    path('api/promotion/wb/chart/', wb_promotion_campaigns_chart_api, name='wb_promotion_campaigns_chart_api'),
     path('promotion/wb/<int:advert_id>/', wb_promotion_campaign_detail, name='wb_promotion_campaign_detail'),
     path('replenishment_report/', replenishment_report, name='replenishment_report'),
 ]

@@ -292,6 +292,87 @@
             background: rgba(255, 255, 255, 0.94);
             padding: 8px;
         }
+        .chart-shell {
+            position: relative;
+        }
+        .chart-shell.is-loading .chart-host {
+            visibility: hidden;
+        }
+        .chart-skeleton {
+            position: absolute;
+            inset: 0;
+            border: 1px solid rgba(19, 32, 51, 0.1);
+            border-radius: 16px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(241, 245, 249, 0.96) 100%);
+            overflow: hidden;
+            padding: 20px 18px 18px;
+        }
+        .chart-skeleton::after,
+        .chart-kpi.is-loading::before {
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.72) 48%, rgba(255, 255, 255, 0) 100%);
+            background-size: 220px 100%;
+            animation: chart-skeleton-shimmer 1.3s linear infinite;
+        }
+        .chart-skeleton::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            transform: translateX(-100%);
+        }
+        .chart-skeleton-grid {
+            height: 100%;
+            display: flex;
+            align-items: end;
+            gap: 10px;
+        }
+        .chart-skeleton-bar {
+            flex: 1 1 0;
+            min-width: 0;
+            border-radius: 999px 999px 12px 12px;
+            background: linear-gradient(180deg, rgba(109, 40, 217, 0.12) 0%, rgba(109, 40, 217, 0.05) 100%);
+        }
+        .chart-skeleton-axis {
+            position: absolute;
+            left: 18px;
+            right: 18px;
+            bottom: 16px;
+            height: 1px;
+            background: rgba(19, 32, 51, 0.1);
+        }
+        .chart-kpi.is-loading {
+            position: relative;
+            min-height: 34px;
+            color: transparent;
+        }
+        .chart-kpi.is-loading::before {
+            content: "";
+            display: block;
+            width: min(180px, 65%);
+            height: 28px;
+            border-radius: 999px;
+            background-color: rgba(109, 40, 217, 0.12);
+        }
+        .chart-status {
+            min-height: 18px;
+            margin: 10px 2px 0;
+            color: #64748b;
+            font-size: 12px;
+        }
+        .chart-status.is-error {
+            color: #991b1b;
+        }
+        .chart-status.is-ready {
+            color: #166534;
+        }
+        .empty {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #64748b;
+            font-size: 13px;
+        }
         .table-wrap { margin-top: 14px; border: 1px solid rgba(19, 32, 51, 0.12); border-radius: 14px; overflow: auto; background: #fff; }
         table { width: 100%; border-collapse: collapse; min-width: 1160px; }
         th, td { border-bottom: 1px solid rgba(19, 32, 51, 0.08); padding: 10px 8px; text-align: left; font-size: 13px; }
@@ -431,6 +512,15 @@
         .page-current { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
         .muted { color: #64748b; font-size: 12px; }
 
+        @keyframes chart-skeleton-shimmer {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
         @media (max-width: 1120px) {
             .toolbar {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -523,7 +613,7 @@
             <div>
                 <h2 class="chart-title">Общие затраты на РК</h2>
                 <p class="chart-subtitle">Сиреневая линия показывает расходы по отфильтрованным РК. Дополнительно можно наложить заказы из РК и все заказы магазина за день.</p>
-                <p class="chart-kpi">{{ chart_total_spend|floatformat:2 }} ₽</p>
+                <p id="campaign-spend-chart-kpi" class="chart-kpi is-loading">Загрузка графика...</p>
             </div>
             <div class="chart-controls">
                 <label class="chart-toggle chart-toggle-secondary">
@@ -541,7 +631,22 @@
                 </div>
             </div>
         </div>
-        <div id="campaign-spend-chart" class="chart-host"></div>
+        <div id="campaign-spend-chart-shell" class="chart-shell is-loading" data-chart-url="{% url 'wb_promotion_campaigns_chart_api' %}">
+            <div class="chart-skeleton" aria-hidden="true">
+                <div class="chart-skeleton-grid">
+                    <span class="chart-skeleton-bar" style="height: 36%;"></span>
+                    <span class="chart-skeleton-bar" style="height: 58%;"></span>
+                    <span class="chart-skeleton-bar" style="height: 44%;"></span>
+                    <span class="chart-skeleton-bar" style="height: 72%;"></span>
+                    <span class="chart-skeleton-bar" style="height: 54%;"></span>
+                    <span class="chart-skeleton-bar" style="height: 66%;"></span>
+                    <span class="chart-skeleton-bar" style="height: 48%;"></span>
+                </div>
+                <div class="chart-skeleton-axis"></div>
+            </div>
+            <div id="campaign-spend-chart" class="chart-host"></div>
+        </div>
+        <p id="campaign-spend-chart-status" class="chart-status">Подгружаем график отдельно, чтобы страница открывалась без ожидания.</p>
     </section>
 
     <div class="table-wrap">
@@ -650,9 +755,6 @@
         </div>
     </div>
 </main>
-{{ chart_points|json_script:"campaign-spend-chart-data" }}
-<script src="{% static 'vendor/echarts/echarts.min.js' %}"></script>
-<script src="{% static 'js/vendra-charts.js' %}"></script>
 <script>
     (function bindAdsFullSync() {
         const syncBtn = document.getElementById("ads-full-sync-btn");
@@ -845,164 +947,310 @@
     })();
 
     (function renderCampaignSpendChart() {
+        const shell = document.getElementById("campaign-spend-chart-shell");
         const host = document.getElementById("campaign-spend-chart");
         const adOrdersToggle = document.getElementById("show-ad-orders-on-chart");
         const allOrdersToggle = document.getElementById("show-all-orders-on-chart");
-        const raw = document.getElementById("campaign-spend-chart-data")?.textContent || "[]";
-        if (!host || !window.echarts) {
+        const kpi = document.getElementById("campaign-spend-chart-kpi");
+        const status = document.getElementById("campaign-spend-chart-status");
+        if (!shell || !host) {
             return;
         }
-        try {
-            const points = JSON.parse(raw);
+
+        let chart = null;
+        let points = [];
+        let echartsLoader = null;
+
+        function setLoading(isLoading) {
+            shell.classList.toggle("is-loading", Boolean(isLoading));
+            if (kpi) {
+                kpi.classList.toggle("is-loading", Boolean(isLoading));
+            }
+        }
+
+        function setStatus(text, mode) {
+            if (!status) {
+                return;
+            }
+            status.textContent = text || "";
+            status.classList.remove("is-error", "is-ready");
+            if (mode === "error") {
+                status.classList.add("is-error");
+            } else if (mode === "ready") {
+                status.classList.add("is-ready");
+            }
+        }
+
+        function setKpi(value) {
+            if (!kpi) {
+                return;
+            }
+            kpi.classList.remove("is-loading");
+            kpi.textContent = value;
+        }
+
+        function buildChartUrl() {
+            const url = new URL(shell.dataset.chartUrl, window.location.origin);
+            const searchParams = new URLSearchParams(window.location.search);
+            searchParams.forEach((value, key) => {
+                url.searchParams.append(key, value);
+            });
+            return url.toString();
+        }
+
+        function scheduleAfterPaint(callback) {
+            if (typeof window.requestAnimationFrame === "function") {
+                window.requestAnimationFrame(() => {
+                    window.setTimeout(callback, 0);
+                });
+                return;
+            }
+            window.setTimeout(callback, 0);
+        }
+
+        function scheduleChartWork(callback) {
+            if (typeof window.requestIdleCallback === "function") {
+                window.requestIdleCallback(callback, { timeout: 1200 });
+                return;
+            }
+            window.setTimeout(callback, 32);
+        }
+
+        function ensureEcharts() {
+            if (window.echarts) {
+                return Promise.resolve(window.echarts);
+            }
+            if (echartsLoader) {
+                return echartsLoader;
+            }
+            echartsLoader = new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = "{% static 'vendor/echarts/echarts.min.js' %}";
+                script.async = true;
+                script.onload = () => {
+                    if (window.echarts) {
+                        resolve(window.echarts);
+                        return;
+                    }
+                    reject(new Error("Библиотека графиков не инициализировалась."));
+                };
+                script.onerror = () => reject(new Error("Не удалось загрузить библиотеку графиков."));
+                document.head.appendChild(script);
+            });
+            return echartsLoader;
+        }
+
+        function renderChart() {
             if (!Array.isArray(points) || !points.length) {
                 host.innerHTML = '<div class="empty">Нет данных по расходам за выбранный период.</div>';
                 return;
             }
-            const chart = window.echarts.init(host, null, { renderer: "canvas" });
+
+            if (!chart) {
+                host.innerHTML = "";
+                chart = window.echarts.init(host, null, { renderer: "canvas" });
+                if (window.ResizeObserver) {
+                    const observer = new ResizeObserver(() => chart?.resize());
+                    observer.observe(host);
+                } else {
+                    window.addEventListener("resize", () => chart?.resize());
+                }
+            }
+
             const labels = points.map((point) => point.label);
             const spendValues = points.map((point) => Number(point.value || 0));
             const adOrderValues = points.map((point) => Number(point.orders || 0));
             const allOrderValues = points.map((point) => Number(point.all_orders || 0));
 
-            const render = () => {
-                const showAdOrders = Boolean(adOrdersToggle?.checked);
-                const showAllOrders = Boolean(allOrdersToggle?.checked);
-                const showAnyOrders = showAdOrders || showAllOrders;
-                chart.setOption({
-                    animationDuration: 500,
-                    animationDurationUpdate: 350,
-                    grid: { left: 18, right: showAnyOrders ? 58 : 18, top: 26, bottom: 26, containLabel: true },
-                    tooltip: {
-                        trigger: "axis",
-                        backgroundColor: "rgba(19, 32, 51, 0.96)",
-                        borderWidth: 0,
-                        textStyle: { color: "#f8fafc", fontSize: 12 },
-                        padding: [10, 12],
-                        axisPointer: {
-                            type: "line",
-                            lineStyle: { color: "rgba(109, 40, 217, 0.22)", width: 1.5 },
-                        },
-                        formatter(params) {
-                            const items = Array.isArray(params) ? params : [params];
-                            const point = points[items[0].dataIndex] || {};
-                            const rows = [`<strong>${point.label || ""}</strong>`];
-                            items.forEach((item) => {
-                                if (item.seriesName === "Заказы из РК") {
-                                    rows.push(`Заказы из РК: ${Math.round(Number(item.data || 0))}`);
-                                } else if (item.seriesName === "Все заказы") {
-                                    rows.push(`Все заказы: ${Math.round(Number(item.data || 0))}`);
-                                } else {
-                                    rows.push(`Расходы на РК: ${Number(item.data || 0).toFixed(2)} ₽`);
-                                }
-                            });
-                            return rows.join("<br>");
-                        },
-                    },
-                    xAxis: {
-                        type: "category",
-                        boundaryGap: false,
-                        data: labels,
-                        axisLine: { lineStyle: { color: "rgba(19, 32, 51, 0.16)" } },
-                        axisTick: { show: false },
-                        axisLabel: { color: "#64748b", fontSize: 11, margin: 10 },
-                    },
-                    yAxis: [
-                        {
-                            type: "value",
-                            splitNumber: 4,
-                            axisLine: { show: false },
-                            axisTick: { show: false },
-                            axisLabel: {
-                                color: "#64748b",
-                                fontSize: 11,
-                                formatter(value) {
-                                    return `${Math.round(Number(value || 0))} ₽`;
-                                },
-                            },
-                            splitLine: { lineStyle: { color: "rgba(19, 32, 51, 0.08)" } },
-                        },
-                        {
-                            type: "value",
-                            splitNumber: 4,
-                            axisLine: { show: false },
-                            axisTick: { show: false },
-                            axisLabel: {
-                                color: "#0f766e",
-                                fontSize: 11,
-                                formatter(value) {
-                                    return `${Math.round(Number(value || 0))}`;
-                                },
-                            },
-                            splitLine: { show: false },
-                            show: showAnyOrders,
-                        },
-                    ],
-                    series: [
-                        {
-                            name: "Расходы на РК",
-                            type: "line",
-                            smooth: 0.35,
-                            symbol: "circle",
-                            symbolSize: 7,
-                            data: spendValues,
-                            lineStyle: { width: 3, color: "#6d28d9" },
-                            itemStyle: {
-                                color: "#ffffff",
-                                borderColor: "#6d28d9",
-                                borderWidth: 3,
-                            },
-                            areaStyle: {
-                                color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                                    { offset: 0, color: "rgba(109, 40, 217, 0.12)" },
-                                    { offset: 1, color: "rgba(255,255,255,0)" },
-                                ]),
-                            },
-                        },
-                        {
-                            name: "Заказы из РК",
-                            type: "line",
-                            smooth: 0.28,
-                            symbol: "circle",
-                            symbolSize: 6,
-                            yAxisIndex: 1,
-                            data: showAdOrders ? adOrderValues : adOrderValues.map(() => null),
-                            lineStyle: { width: 2.5, color: "#475569", type: "dashed" },
-                            itemStyle: {
-                                color: "#ffffff",
-                                borderColor: "#475569",
-                                borderWidth: 2.5,
-                            },
-                        },
-                        {
-                            name: "Все заказы",
-                            type: "line",
-                            smooth: 0.2,
-                            symbol: "circle",
-                            symbolSize: 6,
-                            yAxisIndex: 1,
-                            data: showAllOrders ? allOrderValues : allOrderValues.map(() => null),
-                            lineStyle: { width: 2.5, color: "#0f766e" },
-                            itemStyle: {
-                                color: "#ffffff",
-                                borderColor: "#0f766e",
-                                borderWidth: 2.5,
-                            },
-                        },
-                    ],
-                }, true);
-                chart.resize();
-            };
+            const showAdOrders = Boolean(adOrdersToggle?.checked);
+            const showAllOrders = Boolean(allOrdersToggle?.checked);
+            const showAnyOrders = showAdOrders || showAllOrders;
 
-            render();
-            if (adOrdersToggle) adOrdersToggle.addEventListener("change", render);
-            if (allOrdersToggle) allOrdersToggle.addEventListener("change", render);
-            if (window.ResizeObserver) {
-                const observer = new ResizeObserver(() => chart.resize());
-                observer.observe(host);
-            }
-        } catch (_err) {
-            host.innerHTML = '<div class="empty">Не удалось построить график.</div>';
+            chart.setOption({
+                animationDuration: 500,
+                animationDurationUpdate: 350,
+                grid: { left: 18, right: showAnyOrders ? 58 : 18, top: 26, bottom: 26, containLabel: true },
+                tooltip: {
+                    trigger: "axis",
+                    backgroundColor: "rgba(19, 32, 51, 0.96)",
+                    borderWidth: 0,
+                    textStyle: { color: "#f8fafc", fontSize: 12 },
+                    padding: [10, 12],
+                    axisPointer: {
+                        type: "line",
+                        lineStyle: { color: "rgba(109, 40, 217, 0.22)", width: 1.5 },
+                    },
+                    formatter(params) {
+                        const items = Array.isArray(params) ? params : [params];
+                        const point = points[items[0].dataIndex] || {};
+                        const rows = [`<strong>${point.label || ""}</strong>`];
+                        items.forEach((item) => {
+                            if (item.seriesName === "Заказы из РК") {
+                                rows.push(`Заказы из РК: ${Math.round(Number(item.data || 0))}`);
+                            } else if (item.seriesName === "Все заказы") {
+                                rows.push(`Все заказы: ${Math.round(Number(item.data || 0))}`);
+                            } else {
+                                rows.push(`Расходы на РК: ${Number(item.data || 0).toFixed(2)} ₽`);
+                            }
+                        });
+                        return rows.join("<br>");
+                    },
+                },
+                xAxis: {
+                    type: "category",
+                    boundaryGap: false,
+                    data: labels,
+                    axisLine: { lineStyle: { color: "rgba(19, 32, 51, 0.16)" } },
+                    axisTick: { show: false },
+                    axisLabel: { color: "#64748b", fontSize: 11, margin: 10 },
+                },
+                yAxis: [
+                    {
+                        type: "value",
+                        splitNumber: 4,
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        axisLabel: {
+                            color: "#64748b",
+                            fontSize: 11,
+                            formatter(value) {
+                                return `${Math.round(Number(value || 0))} ₽`;
+                            },
+                        },
+                        splitLine: { lineStyle: { color: "rgba(19, 32, 51, 0.08)" } },
+                    },
+                    {
+                        type: "value",
+                        splitNumber: 4,
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        axisLabel: {
+                            color: "#0f766e",
+                            fontSize: 11,
+                            formatter(value) {
+                                return `${Math.round(Number(value || 0))}`;
+                            },
+                        },
+                        splitLine: { show: false },
+                        show: showAnyOrders,
+                    },
+                ],
+                series: [
+                    {
+                        name: "Расходы на РК",
+                        type: "line",
+                        smooth: 0.35,
+                        symbol: "circle",
+                        symbolSize: 7,
+                        data: spendValues,
+                        lineStyle: { width: 3, color: "#6d28d9" },
+                        itemStyle: {
+                            color: "#ffffff",
+                            borderColor: "#6d28d9",
+                            borderWidth: 3,
+                        },
+                        areaStyle: {
+                            color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: "rgba(109, 40, 217, 0.12)" },
+                                { offset: 1, color: "rgba(255,255,255,0)" },
+                            ]),
+                        },
+                    },
+                    {
+                        name: "Заказы из РК",
+                        type: "line",
+                        smooth: 0.28,
+                        symbol: "circle",
+                        symbolSize: 6,
+                        yAxisIndex: 1,
+                        data: showAdOrders ? adOrderValues : adOrderValues.map(() => null),
+                        lineStyle: { width: 2.5, color: "#475569", type: "dashed" },
+                        itemStyle: {
+                            color: "#ffffff",
+                            borderColor: "#475569",
+                            borderWidth: 2.5,
+                        },
+                    },
+                    {
+                        name: "Все заказы",
+                        type: "line",
+                        smooth: 0.2,
+                        symbol: "circle",
+                        symbolSize: 6,
+                        yAxisIndex: 1,
+                        data: showAllOrders ? allOrderValues : allOrderValues.map(() => null),
+                        lineStyle: { width: 2.5, color: "#0f766e" },
+                        itemStyle: {
+                            color: "#ffffff",
+                            borderColor: "#0f766e",
+                            borderWidth: 2.5,
+                        },
+                    },
+                ],
+            }, true);
+            chart.resize();
         }
+
+        function rerenderIfReady() {
+            if (!chart || !points.length || !window.echarts) {
+                return;
+            }
+            scheduleChartWork(() => {
+                renderChart();
+            });
+        }
+
+        async function loadChart() {
+            setLoading(true);
+            setStatus("Подгружаем график отдельно, чтобы страница открывалась без ожидания.");
+            try {
+                const res = await fetch(buildChartUrl(), {
+                    method: "GET",
+                    headers: { "Accept": "application/json" },
+                });
+                const data = await res.json();
+                if (!res.ok || !data?.ok) {
+                    throw new Error(data?.error || "Не удалось загрузить данные графика.");
+                }
+
+                points = Array.isArray(data.points) ? data.points : [];
+                setKpi(`${Number(data.total_spend || 0).toFixed(2)} ₽`);
+
+                if (!points.length) {
+                    setLoading(false);
+                    host.innerHTML = '<div class="empty">Нет данных по расходам за выбранный период.</div>';
+                    setStatus("Для текущего набора кампаний и периода пока нет точек графика.", "ready");
+                    return;
+                }
+
+                await ensureEcharts();
+                scheduleChartWork(() => {
+                    try {
+                        renderChart();
+                        setLoading(false);
+                        setStatus(
+                            data.range_label
+                                ? `График готов. Период: ${data.range_label}.`
+                                : "График готов.",
+                            "ready",
+                        );
+                    } catch (_error) {
+                        setLoading(false);
+                        host.innerHTML = '<div class="empty">Не удалось построить график.</div>';
+                        setStatus("Не удалось построить график после загрузки данных.", "error");
+                    }
+                });
+            } catch (error) {
+                setLoading(false);
+                setKpi("—");
+                host.innerHTML = '<div class="empty">Не удалось загрузить график.</div>';
+                setStatus(error instanceof Error ? error.message : "Не удалось загрузить график.", "error");
+            }
+        }
+
+        if (adOrdersToggle) adOrdersToggle.addEventListener("change", rerenderIfReady);
+        if (allOrdersToggle) allOrdersToggle.addEventListener("change", rerenderIfReady);
+        scheduleAfterPaint(loadChart);
     })();
 </script>
 </body>

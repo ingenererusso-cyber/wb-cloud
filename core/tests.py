@@ -38,7 +38,7 @@ from core.services_advertising import (
     sync_active_paused_ad_campaigns_full_history,
 )
 from core.services.localization import get_local_orders_percent_last_full_week
-from core.views import _build_home_summary_payload
+from core.views import _build_home_summary_payload, _set_sync_task
 
 
 class DashboardSupplyRecommendationsApiTests(TestCase):
@@ -1219,6 +1219,22 @@ class WbPromotionCampaignsTests(TestCase):
         self.seller = SellerAccount.objects.create(user=self.user, name="Promo Seller")
         self.client.login(username="promo-user", password="pass12345")
 
+    def _create_campaign_order(self, *, srid: str, order_dt: datetime):
+        return Order.objects.create(
+            seller=self.seller,
+            srid=srid,
+            nm_id=123456,
+            supplier_article="SKU-123456",
+            tech_size="0",
+            warehouse_name="Коледино",
+            warehouse_type="Склад WB",
+            oblast_okrug_name="Центральный",
+            region_name="Москва",
+            order_date=order_dt,
+            last_change_date=order_dt,
+            is_local=False,
+        )
+
     def test_campaigns_page_recovers_daily_metrics_from_raw_payload(self):
         campaign = WbAdvertCampaign.objects.create(
             seller=self.seller,
@@ -1264,6 +1280,56 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(rows[0]["orders"], 5)
         self.assertEqual(rows[0]["ctr"], 3.0)
         self.assertEqual(rows[0]["cpo"], 64.0)
+
+    def test_campaigns_page_uses_lazy_chart_loading_shell(self):
+        response = self.client.get(reverse("wb_promotion_campaigns"))
+
+        self.assertEqual(response.status_code, 200)
+        page = response.content.decode("utf-8")
+        self.assertIn('id="campaign-spend-chart-shell"', page)
+        self.assertNotIn("campaign-spend-chart-data", page)
+
+    def test_campaigns_chart_api_returns_points_and_totals(self):
+        campaign = WbAdvertCampaign.objects.create(
+            seller=self.seller,
+            advert_id=501,
+            campaign_name="Тестовая кампания",
+            advert_type=8,
+            status=9,
+        )
+        WbAdvertStatDaily.objects.create(
+            seller=self.seller,
+            advert_id=campaign.advert_id,
+            stat_date=date(2026, 4, 20),
+            nm_id=123456,
+            spend=320.0,
+            day_sum=320.0,
+            views=1400,
+            clicks=42,
+            orders=5,
+            add_to_cart=11,
+        )
+        self._create_campaign_order(
+            srid="promo-chart-order-1",
+            order_dt=timezone.make_aware(datetime(2026, 4, 20, 11, 30, 0)),
+        )
+
+        with patch("core.views.timezone.localdate", return_value=date(2026, 4, 20)):
+            response = self.client.get(
+                reverse("wb_promotion_campaigns_chart_api"),
+                {"chart_period_weeks": "1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["total_spend"], 320.0)
+        self.assertEqual(payload["range_label"], "14.04.2026 - 20.04.2026")
+        self.assertEqual(len(payload["points"]), 7)
+        target_point = next(point for point in payload["points"] if point["date"] == "2026-04-20")
+        self.assertEqual(target_point["value"], 320.0)
+        self.assertEqual(target_point["orders"], 5)
+        self.assertEqual(target_point["all_orders"], 1)
 
     def test_campaign_detail_page_builds_daily_and_product_metrics(self):
         campaign = WbAdvertCampaign.objects.create(
@@ -1435,6 +1501,89 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(result["skipped_chunks"][0]["advert_ids"], [7101, 7102])
         self.assertEqual(client.get_fullstats.call_count, 1)
 
+    @patch("core.services_advertising.WBPromotionClient")
+    def test_ad_stats_sync_excludes_campaigns_started_after_period(self, client_cls):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        client = client_cls.return_value
+        client.list_adverts.return_value = [
+            {
+                "advertId": 7101,
+                "name": "Old campaign",
+                "type": 8,
+                "status": 9,
+                "createTime": "2026-04-20T10:00:00+03:00",
+            },
+            *[
+                {
+                    "advertId": 7102 + idx,
+                    "name": f"Future campaign {idx}",
+                    "type": 8,
+                    "status": 9,
+                    "createTime": "2026-05-10T10:00:00+03:00",
+                }
+                for idx in range(51)
+            ],
+        ]
+        client.get_fullstats.return_value = []
+        progress_calls = []
+
+        sync_ad_campaigns_and_stats(
+            self.seller,
+            date_from=date(2026, 4, 20),
+            date_to=date(2026, 4, 20),
+            on_progress=progress_calls.append,
+        )
+
+        client.get_fullstats.assert_called_once()
+        self.assertEqual(client.get_fullstats.call_args.args[0], [7101])
+        self.assertEqual(progress_calls[0]["chunks_total"], 1)
+        self.assertEqual(progress_calls[0]["chunk_size"], 1)
+
+    @patch("core.services_advertising.time.sleep")
+    @patch("core.services_advertising.time.monotonic")
+    @patch("core.services_advertising.WBPromotionClient")
+    def test_ad_stats_sync_respects_shared_fullstats_rate_state(self, client_cls, monotonic_mock, sleep_mock):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        client = client_cls.return_value
+        client.list_adverts.return_value = [
+            {
+                "advertId": 7101,
+                "name": "Campaign A",
+                "type": 8,
+                "status": 9,
+                "createTime": "2026-04-20T10:00:00+03:00",
+            },
+        ]
+        client.get_fullstats.return_value = []
+        monotonic_mock.side_effect = [100.0, 105.0, 106.0]
+        rate_state = {}
+        progress_calls = []
+
+        sync_ad_campaigns_and_stats(
+            self.seller,
+            date_from=date(2026, 4, 20),
+            date_to=date(2026, 4, 20),
+            on_progress=progress_calls.append,
+            fullstats_rate_state=rate_state,
+        )
+        sync_ad_campaigns_and_stats(
+            self.seller,
+            date_from=date(2026, 4, 21),
+            date_to=date(2026, 4, 21),
+            on_progress=progress_calls.append,
+            fullstats_rate_state=rate_state,
+        )
+
+        self.assertEqual(client.get_fullstats.call_count, 2)
+        sleep_mock.assert_called_once_with(15.5)
+        wait_calls = [item for item in progress_calls if item.get("mode") == "rate_limit_wait"]
+        self.assertEqual(len(wait_calls), 1)
+        self.assertEqual(wait_calls[0]["wait_seconds"], 15.5)
+
     @patch("core.services_advertising.sync_ad_campaigns_and_stats")
     @patch("core.services_advertising.timezone.localdate")
     @patch("core.services_advertising.WBPromotionClient")
@@ -1476,10 +1625,12 @@ class WbPromotionCampaignsTests(TestCase):
 
         self.assertEqual(sync_mock.call_count, 6)
         first_call = sync_mock.call_args_list[0].kwargs
+        second_call = sync_mock.call_args_list[1].kwargs
         last_call = sync_mock.call_args_list[-1].kwargs
         self.assertEqual(first_call["campaign_statuses"], [9, 11])
         self.assertEqual(first_call["date_from"], date(2026, 2, 10))
         self.assertEqual(first_call["date_to"], date(2026, 2, 23))
+        self.assertIs(first_call["fullstats_rate_state"], second_call["fullstats_rate_state"])
         self.assertEqual(last_call["date_from"], date(2026, 4, 21))
         self.assertEqual(last_call["date_to"], date(2026, 5, 1))
         self.assertEqual(result["campaigns_synced"], 2)
@@ -1489,6 +1640,61 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(result["date_to"], "2026-05-01")
         self.assertEqual(progress_calls[0], (1, 6, date(2026, 2, 10), date(2026, 2, 23)))
         self.assertEqual(progress_calls[-1], (6, 6, date(2026, 4, 21), date(2026, 5, 1)))
+
+    @patch("core.services_advertising.sync_ad_campaigns_and_stats")
+    @patch("core.services_advertising.timezone.localdate")
+    @patch("core.services_advertising.WBPromotionClient")
+    def test_full_ads_history_sync_forwards_chunk_progress(self, client_cls, localdate_mock, sync_mock):
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+        localdate_mock.return_value = date(2026, 5, 1)
+        client = client_cls.return_value
+        client.list_adverts.return_value = [
+            {
+                "advertId": 9001,
+                "name": "Active campaign",
+                "status": 9,
+                "createTime": "2026-05-01T10:00:00+03:00",
+            },
+        ]
+
+        def sync_side_effect(*_args, **kwargs):
+            kwargs["on_progress"](
+                {
+                    "mode": "chunk",
+                    "chunk_index": 1,
+                    "chunks_total": 2,
+                    "chunk_size": 50,
+                }
+            )
+            kwargs["on_progress"](
+                {
+                    "mode": "chunk_done",
+                    "chunk_index": 1,
+                    "chunks_total": 2,
+                    "chunk_size": 50,
+                    "rows_upserted": 120,
+                }
+            )
+            return {"campaigns_synced": 1, "stats_rows_upserted": 120}
+
+        sync_mock.side_effect = sync_side_effect
+        chunk_calls = []
+
+        sync_active_paused_ad_campaigns_full_history(
+            self.seller,
+            period_days=14,
+            on_chunk_progress=chunk_calls.append,
+        )
+
+        self.assertEqual(len(chunk_calls), 2)
+        self.assertEqual(chunk_calls[0]["mode"], "chunk")
+        self.assertEqual(chunk_calls[0]["period_index"], 1)
+        self.assertEqual(chunk_calls[0]["periods_total"], 1)
+        self.assertEqual(chunk_calls[0]["period_start"], date(2026, 5, 1))
+        self.assertEqual(chunk_calls[1]["mode"], "chunk_done")
+        self.assertEqual(chunk_calls[1]["rows_upserted"], 120)
 
     def test_sync_orders_start_api_queues_general_sync_task(self):
         self.seller.set_api_token("test-token")
@@ -1517,6 +1723,38 @@ class WbPromotionCampaignsTests(TestCase):
         self.assertEqual(task.status, SyncTask.STATUS_QUEUED)
         self.assertEqual(task.kind, SyncTask.KIND_ADS_FULL)
         self.assertEqual(task.result.get("kind"), "ads_full")
+
+    def test_set_sync_task_preserves_started_at_when_not_supplied(self):
+        started_at = timezone.now()
+        task = SyncTask.objects.create(
+            task_id="preserve-started-at",
+            user=self.user,
+            seller=self.seller,
+            status=SyncTask.STATUS_RUNNING,
+            kind=SyncTask.KIND_ADS_FULL,
+            progress=0,
+            step="Старт",
+            message="Начали",
+            started_at=started_at,
+            result={"kind": "ads_full"},
+        )
+
+        _set_sync_task(
+            task.task_id,
+            {
+                "task_id": task.task_id,
+                "kind": SyncTask.KIND_ADS_FULL,
+                "status": SyncTask.STATUS_RUNNING,
+                "progress": 25,
+                "step": "Полный синк рекламной статы",
+                "message": "Пачка 1/4",
+                "result": {"kind": "ads_full"},
+            },
+        )
+
+        task.refresh_from_db()
+        self.assertEqual(task.progress, 25)
+        self.assertEqual(task.started_at, started_at)
 
     def test_full_ads_sync_stale_timeout_is_longer_than_default(self):
         task = SyncTask.objects.create(
