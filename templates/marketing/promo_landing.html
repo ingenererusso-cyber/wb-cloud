@@ -16,8 +16,7 @@
 <header class="vl-header">
     <div class="vl-header__inner">
         <a class="vl-logo" href="{% url 'home' %}">
-            <span class="vl-logo__mark">V</span>
-            Vendra
+            <img class="vl-logo__mark" src="{% static 'img/vendra-logo.png' %}" alt="Vendra">
         </a>
         <nav class="vl-nav" aria-label="Основное меню">
             <a href="#possibilities">Возможности</a>
@@ -41,76 +40,32 @@
             <p class="vl-lead vl-hero__lead">Сводим продажи, рекламу (ДРР), остатки и логистику в одну цепочку: видно, какой артикул, склад или кампания съедает маржу, пока в Excel ещё «всё в норме».</p>
             <ul class="vl-hero__proof" aria-label="Ключевые факты">
                 <li><strong>3 дня</strong> бесплатного полного доступа</li>
-                <li><strong>API</strong> кабинета WB, не пароль</li>
+                <li>Работает на API WB</li>
                 <li><strong>Добавили</strong> ДРР склеек</li>
             </ul>
             <div class="vl-hero__ctas">
                 <a class="vl-btn vl-btn--primary vl-btn--cta vl-btn--lg" href="#register">Попробовать 3 дня бесплатно</a>
                 <a class="vl-btn vl-btn--secondary vl-btn--lg" href="#showcase">Как выглядит кабинет</a>
             </div>
-            <p class="vl-micro">Первый срез: после синка данных, обычно <strong>часы</strong>, не недели. Долгой ручной настройки нет — нужен токен и учётка Vendra.</p>
+            <p class="vl-micro">Первые графики сразу после синка данных, обычно <strong>минут 10</strong>. Долгой ручной настройки нет — нужен только API токен.</p>
         </div>
-        <div class="vl-mock-hero vl-fade vl-fade--2" aria-hidden="true">
-            <div class="vl-mock-hero__bar">
-                <span>Кабинет · сегодня</span>
-                <div class="vl-mock-hero__dots"><span></span><span></span><span></span></div>
-            </div>
-            <div class="vl-mock-hero__body">
-                <div class="vl-kpi-row">
-                    <div class="vl-kpi">
-                        <div class="vl-kpi__label">Выручка</div>
-                        <div class="vl-kpi__value">2,4M ₽</div>
-                        <div class="vl-kpi__delta vl-kpi__delta--up">+12% за 7д</div>
-                    </div>
-                    <div class="vl-kpi">
-                        <div class="vl-kpi__label">Прибыль</div>
-                        <div class="vl-kpi__value">418K ₽</div>
-                        <div class="vl-kpi__delta vl-kpi__delta--down">−3% к плану</div>
-                    </div>
-                    <div class="vl-kpi">
-                        <div class="vl-kpi__label">ДРР</div>
-                        <div class="vl-kpi__value">14,2%</div>
-                        <div class="vl-kpi__delta vl-kpi__delta--up">норма</div>
-                    </div>
-                    <div class="vl-kpi">
-                        <div class="vl-kpi__label">Логистика</div>
-                        <div class="vl-kpi__value">+18%</div>
-                        <div class="vl-kpi__delta vl-kpi__delta--down">к прош. мес</div>
-                    </div>
-                </div>
-                <div class="vl-spark__label"><span>Выручка по дням</span></div>
-                <div class="vl-spark">
-                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-                </div>
-                <div class="vl-table-scroll">
-                <table class="vl-table-mini">
-                    <thead>
-                        <tr>
-                            <th>Товары под контролем</th>
-                            <th>Маржа</th>
-                            <th>ДРР</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>Арт. 8821</td><td><span class="vl-pill">+22%</span></td><td>9%</td></tr>
-                        <tr><td>Арт. 4410</td><td>12%</td><td><span class="vl-trend vl-trend--bad">18%</span></td></tr>
-                        <tr><td>Арт. 3012</td><td>7%</td><td>11%</td></tr>
-                    </tbody>
-                </table>
-                </div>
-                <div class="vl-alert">
-                    <span class="vl-alert__icon">!</span>
-                    <span>Логистика по группе выросла на <strong>18%</strong> — проверьте остатки в Центральном и Сибири.</span>
-                </div>
-            </div>
+        <div class="vl-mock-hero vl-fade vl-fade--2" aria-hidden="true" style="max-width: 560px; padding: 10px; margin: 0 auto;">
+            <button
+                type="button"
+                class="vl-image-lightbox-trigger"
+                data-lightbox-open="hero-dashboard-shot"
+                aria-label="Открыть скрин кабинета крупно"
+                style="display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in;"
+            >
+                <img class="vl-mock-hero__image" src="{% static 'landing/главная.png' %}?v=20260512-3" alt="" style="display:block; width:100%; height:auto; max-height:420px; object-fit:contain;">
+            </button>
         </div>
     </section>
 
     {# --- Pain --- #}
     <section class="vl-section" id="for-who" aria-labelledby="pain-title">
-        <span class="vl-section__kicker">Проблема</span>
         <h2 id="pain-title" class="vl-h2 vl-h2--lg">Что обычно идёт не так у селлеров</h2>
-        <p class="vl-text-muted vl-section-intro">Оборот растёт, а на счёт приходит не больше: реклама, логистика и комиссии съедают маржу, а своды разъезжаются по 5–7 вкладкам Excel.</p>
+        <p class="vl-text-muted vl-section-intro">Оборот растёт, а на счёт приходит всё меньше: реклама, логистика и комиссии съедают маржу, а юнитка и ДРР разъезжается по 5–7 вкладкам Excel.</p>
         <div class="vl-pain-grid">
             <article class="vl-card">
                 <div class="vl-card__icon vl-card__icon--danger" aria-hidden="true">
@@ -414,10 +369,55 @@
         </div>
     </section>
 </main>
+<div class="vl-image-lightbox" id="hero-dashboard-shot" aria-hidden="true">
+    <div class="vl-image-lightbox__backdrop" data-lightbox-close></div>
+    <div class="vl-image-lightbox__dialog" role="dialog" aria-modal="true" aria-label="Увеличенный скрин кабинета">
+        <button type="button" class="vl-image-lightbox__close" data-lightbox-close aria-label="Закрыть">×</button>
+        <img class="vl-image-lightbox__image" src="{% static 'landing/главная.png' %}?v=20260512-3" alt="">
+    </div>
+</div>
 {% include "partials/site_footer.html" %}
 {% include "partials/cookie_banner.html" %}
 <div class="vl-sticky-cta" role="complementary" aria-label="Пробный период">
     <a href="#register">Попробовать 3 дня бесплатно</a>
 </div>
+<script>
+    (function vendraLandingLightboxSetup() {
+        const openButtons = document.querySelectorAll("[data-lightbox-open]");
+        if (!openButtons.length) return;
+
+        function closeLightbox(lightbox) {
+            if (!lightbox) return;
+            lightbox.classList.remove("is-open");
+            lightbox.setAttribute("aria-hidden", "true");
+            document.body.style.overflow = "";
+        }
+
+        function openLightbox(lightbox) {
+            if (!lightbox) return;
+            lightbox.classList.add("is-open");
+            lightbox.setAttribute("aria-hidden", "false");
+            document.body.style.overflow = "hidden";
+        }
+
+        openButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                const targetId = button.getAttribute("data-lightbox-open") || "";
+                openLightbox(document.getElementById(targetId));
+            });
+        });
+
+        document.querySelectorAll("[data-lightbox-close]").forEach((node) => {
+            node.addEventListener("click", () => {
+                closeLightbox(node.closest(".vl-image-lightbox"));
+            });
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            closeLightbox(document.querySelector(".vl-image-lightbox.is-open"));
+        });
+    })();
+</script>
 </body>
 </html>

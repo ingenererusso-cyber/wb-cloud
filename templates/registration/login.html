@@ -137,7 +137,7 @@
             <a href="{% url 'legal_consent' %}">Согласием на обработку ПДн</a> и <a href="{% url 'legal_terms' %}">офертой</a>.
         </p>
     </main>
-    {% include "partials/site_footer.html" %}
+    {% include "partials/site_footer.html" with hide_legal_operator_email=True %}
     {% include "partials/cookie_banner.html" %}
 </body>
 </html>

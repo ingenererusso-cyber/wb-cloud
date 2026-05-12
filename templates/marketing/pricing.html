@@ -5,15 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vendra — тарифы</title>
     <style>
-        :root{--ink:#132033;--muted:#5a6778;--line:rgba(19,32,51,.14);--surface:rgba(255,255,255,.9);--accent:#14532d}
+        :root{--ink:#132033;--muted:#5a6778;--line:rgba(19,32,51,.14);--surface:rgba(255,255,255,.9);--accent:#14532d;--page-shell-max-width:1200px}
         *{box-sizing:border-box} body{margin:0;font-family:"Trebuchet MS","Segoe UI",sans-serif;color:var(--ink);background:linear-gradient(135deg,#eff7ff 0%,#f7fdf5 55%,#eef6ff 100%)}
-        .wrap{width:min(1080px,calc(100% - 32px));margin:18px auto}
+        .wrap{width:min(var(--page-shell-max-width),calc(100% - 32px));margin:18px auto}
         .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
-        .btn{display:inline-flex;text-decoration:none;border-radius:10px;padding:10px 14px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+        .btn{display:inline-flex;text-decoration:none;border-radius:10px;padding:10px 14px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;font-size:14px}
+        .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
         .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
         .card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px}
         .price{font-size:34px;font-weight:800;margin:8px 0 2px}.muted{color:var(--muted);font-size:13px}
         .ok{margin-top:10px;border:1px solid #bfdbfe;background:#dbeafe;color:#1e3a8a;padding:8px 10px;border-radius:10px;font-size:13px}
+        .promo-box{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+        .promo-box h2{margin:0 0 8px;font-size:16px}
+        .promo-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+        .promo-row input{flex:1;min-width:160px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:14px}
+        .err{color:#b91c1c;font-size:13px;margin-top:6px}
+        .ok-msg{color:#14532d;font-size:13px;margin-top:6px}
         @media (max-width:960px){.grid{grid-template-columns:1fr}}
     </style>
 </head>
@@ -21,23 +28,49 @@
 <div class="wrap">
     <div class="top">
         <h1 style="margin:0;">Тарифы</h1>
-        <a class="btn" href="{% url 'home' %}">Назад</a>
+        <a class="btn" href="{% url 'home' %}" onclick="if (window.history.length > 1) { event.preventDefault(); window.history.back(); }">Назад</a>
     </div>
-    {% if payment_stub %}
-    <div class="ok">Платежный сценарий пока в тестовом режиме. Реальная интеграция Т-Кассы будет добавлена позже.</div>
-    {% endif %}
     {% if subscription %}
-    <div class="ok">Ваш статус: {{ subscription.status_label }} · План: {{ subscription.plan_label }}{% if subscription.access_expires_at %} · Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}</div>
+    <div class="ok" id="sub-banner">Ваш статус: {{ subscription.status_label }} · План: {{ subscription.plan_label }}{% if subscription.access_expires_at %} · Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}</div>
+    {% endif %}
+    {% if payment_result %}
+    <div class="ok">
+        Последний платеж: {{ payment_result.get_status_display }}{% if payment_result.amount_rub %} · {{ payment_result.amount_rub }} ₽{% endif %}
+        {% if payment_result.status == "confirmed" %}
+        · Доступ обновлен
+        {% elif payment_result.status == "pending" or payment_result.status == "authorized" %}
+        · Платеж обрабатывается банком
+        {% elif payment_result.error_message %}
+        · {{ payment_result.error_message }}
+        {% endif %}
+    </div>
+    {% elif latest_payment and latest_payment.status == "pending" %}
+    <div class="ok">Есть незавершенный платеж на {{ latest_payment.amount_rub }} ₽. После подтверждения банком доступ продлится автоматически.</div>
+    {% endif %}
+    {% if request.user.is_authenticated %}
+    <div class="promo-box">
+        <h2>Промокод</h2>
+        <div class="promo-row">
+            <div style="flex:1;min-width:160px;">
+                <label class="muted" for="promo-input" style="display:block;margin-bottom:4px;">Код</label>
+                <input type="text" id="promo-input" placeholder="Введите код" autocomplete="off" maxlength="40">
+            </div>
+            <button type="button" class="btn btn-primary" id="promo-preview-btn">Применить</button>
+            <button type="button" class="btn" id="promo-free-apply-btn" style="display:none;">Активировать дни</button>
+        </div>
+        <div class="err" id="promo-err" style="display:none;"></div>
+        <div class="ok-msg" id="promo-ok" style="display:none;"></div>
+    </div>
     {% endif %}
     <div class="grid" style="margin-top:12px;">
         {% for plan in plans %}
-        <article class="card">
+        <article class="card" data-plan="{{ plan.code }}" data-base-total="{{ plan.price_total }}" data-base-monthly="{{ plan.price_monthly }}">
             <h2 style="margin:0;">{{ plan.label }}</h2>
-            <p class="price">{{ plan.price_total }} ₽</p>
-            <p class="muted">{{ plan.price_monthly }} ₽ / мес.</p>
-            <p class="muted">Оплата позже (после бесплатного полного доступа), сейчас тестовый запуск.</p>
+            <p class="price"><span class="js-price-total">{{ plan.price_total }}</span> ₽</p>
+            <p class="muted"><span class="js-price-monthly">{{ plan.price_monthly }}</span> ₽ / мес.</p>
+            <p class="muted">Оплата через платежную страницу T-Bank. После подтверждения банком доступ продлится автоматически.</p>
             {% if request.user.is_authenticated %}
-            <button class="btn" type="button" data-plan="{{ plan.code }}" style="margin-top:10px;">Выбрать тариф</button>
+            <button class="btn btn-primary js-plan-btn" type="button" data-plan="{{ plan.code }}" style="margin-top:10px;">Оплатить</button>
             {% else %}
             <a class="btn" href="{% url 'home' %}#signup" style="margin-top:10px;">Зарегистрироваться и получить бесплатный полный доступ</a>
             {% endif %}
@@ -51,18 +84,125 @@
 <script>
     (function () {
         function getCookie(name){const value=`; ${document.cookie}`;const parts=value.split(`; ${name}=`);if(parts.length===2){return parts.pop().split(";").shift()}return"";}
-        document.querySelectorAll("button[data-plan]").forEach((btn) => {
+        const previewUrl = "{% url 'billing_promo_preview_api' %}";
+        const applyFreeUrl = "{% url 'billing_promo_apply_free_days_api' %}";
+        const initPayUrl = "{% url 'billing_init_payment_api' %}";
+        const inputEl = document.getElementById("promo-input");
+        const errEl = document.getElementById("promo-err");
+        const okEl = document.getElementById("promo-ok");
+        const freeApplyBtn = document.getElementById("promo-free-apply-btn");
+        let lastPreview = null;
+
+        function showErr(t) {
+            errEl.style.display = t ? "block" : "none";
+            errEl.textContent = t || "";
+        }
+        function showOk(t) {
+            okEl.style.display = t ? "block" : "none";
+            okEl.textContent = t || "";
+        }
+
+        function resetPricesToBase() {
+            document.querySelectorAll("article.card[data-plan]").forEach((card) => {
+                const total = card.getAttribute("data-base-total");
+                const monthly = card.getAttribute("data-base-monthly");
+                const pt = card.querySelector(".js-price-total");
+                const pm = card.querySelector(".js-price-monthly");
+                if (pt) pt.textContent = total;
+                if (pm) pm.textContent = monthly;
+            });
+        }
+
+        function applyDiscountPrices(prices) {
+            document.querySelectorAll("article.card[data-plan]").forEach((card) => {
+                const code = card.getAttribute("data-plan");
+                const row = prices && prices[code];
+                const pt = card.querySelector(".js-price-total");
+                const pm = card.querySelector(".js-price-monthly");
+                if (!row || !pt || !pm) return;
+                pt.textContent = row.price_total;
+                pm.textContent = row.price_monthly;
+            });
+        }
+
+        document.getElementById("promo-preview-btn").addEventListener("click", async () => {
+            showErr("");
+            showOk("");
+            freeApplyBtn.style.display = "none";
+            lastPreview = null;
+            const code = (inputEl.value || "").trim();
+            if (!code) {
+                resetPricesToBase();
+                showErr("Введите промокод.");
+                return;
+            }
+            const fd = new FormData();
+            fd.set("promo_code", code);
+            const res = await fetch(previewUrl, {
+                method: "POST",
+                headers: { "X-CSRFToken": getCookie("csrftoken"), Accept: "application/json" },
+                body: fd,
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                resetPricesToBase();
+                showErr(data.error || "Не удалось проверить промокод.");
+                return;
+            }
+            lastPreview = data;
+            if (data.kind === "price_discount") {
+                applyDiscountPrices(data.prices);
+                showOk("Скидка применена к отображаемым ценам. После обновления страницы цены снова станут обычными.");
+                freeApplyBtn.style.display = "none";
+            } else if (data.kind === "free_days") {
+                resetPricesToBase();
+                showOk(data.message || ("Можно активировать " + data.free_days + " дн."));
+                freeApplyBtn.style.display = "inline-flex";
+            }
+        });
+
+        freeApplyBtn.addEventListener("click", async () => {
+            showErr("");
+            const code = (inputEl.value || "").trim();
+            if (!code) return;
+            const fd = new FormData();
+            fd.set("promo_code", code);
+            const res = await fetch(applyFreeUrl, {
+                method: "POST",
+                headers: { "X-CSRFToken": getCookie("csrftoken"), Accept: "application/json" },
+                body: fd,
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                showErr(data.error || "Ошибка активации.");
+                return;
+            }
+            showOk("Промокод применён. Добавлено дней: " + (data.free_days || "") + ". Обновляем страницу…");
+            window.location.reload();
+        });
+
+        document.querySelectorAll("button.js-plan-btn").forEach((btn) => {
             btn.addEventListener("click", async () => {
+                btn.disabled = true;
                 const fd = new FormData();
                 fd.set("plan_code", btn.dataset.plan || "");
-                const res = await fetch("{% url 'billing_init_payment_api' %}", {
-                    method: "POST",
-                    headers: {"X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json"},
-                    body: fd,
-                });
-                const data = await res.json();
-                if (!res.ok) { alert(data.error || "Ошибка"); return; }
-                window.location.href = data.payment_url || "{% url 'pricing_page' %}?payment_stub=1";
+                const code = (inputEl.value || "").trim();
+                if (code) fd.set("promo_code", code);
+                try {
+                    const res = await fetch(initPayUrl, {
+                        method: "POST",
+                        headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                        body: fd,
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.payment_url) {
+                        alert(data.error || "Не удалось создать платеж.");
+                        return;
+                    }
+                    window.location.href = data.payment_url;
+                } finally {
+                    btn.disabled = false;
+                }
             });
         });
     })();

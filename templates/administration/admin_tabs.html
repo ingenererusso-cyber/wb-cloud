@@ -1,0 +1,23 @@
+<div class="admin-tabs-wrap">
+    <nav class="admin-tabs" aria-label="Разделы администрирования">
+        <a href="{% url 'support_chat_admin' %}" class="admin-tab {% if admin_active_tab == 'chat' %}admin-tab--active{% endif %}">Чат с поддержкой</a>
+        <a href="{% url 'admin_promo_codes' %}" class="admin-tab {% if admin_active_tab == 'promos' %}admin-tab--active{% endif %}">Промокоды</a>
+    </nav>
+</div>
+<style>
+    .admin-tabs-wrap { max-width: var(--page-shell-max-width, 1320px); margin: 0 auto 12px; padding: 0 4px; }
+    .admin-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .admin-tab {
+        padding: 8px 14px;
+        border-radius: 10px;
+        border: 1px solid #dbe3ec;
+        text-decoration: none;
+        color: #1f2a37;
+        font-weight: 600;
+        font-size: 14px;
+        background: #fff;
+        font-family: "Inter", "Segoe UI", sans-serif;
+    }
+    .admin-tab:hover { border-color: #93c5fd; color: #1d4ed8; }
+    .admin-tab--active { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+</style>

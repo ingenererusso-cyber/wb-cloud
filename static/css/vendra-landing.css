@@ -92,23 +92,13 @@ body.vl-page {
 .vl-logo {
   display: flex;
   align-items: center;
-  gap: 8px;
   text-decoration: none;
-  color: var(--vl-dark);
-  font-weight: 800;
-  font-size: 1.125rem;
-  letter-spacing: -0.03em;
 }
 .vl-logo__mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: linear-gradient(145deg, #166534, #0f5132);
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 800;
+  width: 148px;
+  height: auto;
+  display: block;
+  flex: 0 0 auto;
 }
 .vl-nav {
   display: none;
@@ -442,32 +432,30 @@ ul.vl-hero__proof strong {
   box-shadow: var(--vl-shadow-lg);
   overflow: hidden;
   transition: box-shadow 0.35s var(--vl-ease);
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .vl-mock-hero:hover {
   box-shadow: 0 8px 32px -8px rgba(15, 23, 42, 0.12);
 }
-.vl-mock-hero__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: #fafbfc;
-  border-bottom: 1px solid var(--vl-border);
-  font-size: 0.7rem;
-  color: var(--vl-muted);
+.vl-mock-hero__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+  object-fit: contain;
 }
-.vl-mock-hero__dots {
-  display: flex;
-  gap: 5px;
-}
-.vl-mock-hero__dots span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #e2e8f0;
-}
-.vl-mock-hero__body {
-  padding: 16px;
+@media (max-width: 699px) {
+  .vl-mock-hero {
+    max-width: 100%;
+  }
+  .vl-mock-hero__image {
+    max-height: 320px;
+  }
 }
 .vl-kpi-row {
   display: grid;
@@ -1173,8 +1161,8 @@ ul.vl-hero__proof strong {
   .vl-header__inner {
     padding: 0 12px;
   }
-  .vl-logo span {
-    display: none;
+  .vl-logo__mark {
+    width: 128px;
   }
 }
 
@@ -1262,4 +1250,66 @@ ul.vl-hero__proof strong {
 }
 .vl-pricing__empty {
   grid-column: 1 / -1;
+}
+.vl-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.72);
+}
+.vl-image-lightbox.is-open {
+  display: flex;
+}
+.vl-image-lightbox__backdrop {
+  position: absolute;
+  inset: 0;
+}
+.vl-image-lightbox__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(1200px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.28);
+}
+.vl-image-lightbox__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vl-image-lightbox__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 48px);
+  object-fit: contain;
+  background: #f8fafc;
+}
+@media (max-width: 699px) {
+  .vl-image-lightbox {
+    padding: 12px;
+  }
+  .vl-image-lightbox__dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+  .vl-image-lightbox__image {
+    max-height: calc(100vh - 24px);
+  }
 }

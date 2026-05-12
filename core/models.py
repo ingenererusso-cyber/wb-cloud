@@ -754,6 +754,118 @@ class UserSubscription(models.Model):
         ]
 
 
+class BillingPayment(models.Model):
+    PROVIDER_TBANK = "tbank"
+    PROVIDER_CHOICES = [
+        (PROVIDER_TBANK, "T-Bank"),
+    ]
+
+    STATUS_CREATED = "created"
+    STATUS_INIT_FAILED = "init_failed"
+    STATUS_PENDING = "pending"
+    STATUS_AUTHORIZED = "authorized"
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_REJECTED = "rejected"
+    STATUS_CANCELED = "canceled"
+    STATUS_CHOICES = [
+        (STATUS_CREATED, "Создан"),
+        (STATUS_INIT_FAILED, "Ошибка инициализации"),
+        (STATUS_PENDING, "Ожидает оплаты"),
+        (STATUS_AUTHORIZED, "Авторизован"),
+        (STATUS_CONFIRMED, "Оплачен"),
+        (STATUS_REJECTED, "Отклонен"),
+        (STATUS_CANCELED, "Отменен"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="billing_payments")
+    subscription = models.ForeignKey(
+        UserSubscription,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payments",
+    )
+    promo = models.ForeignKey("PromoCode", on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
+    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default=PROVIDER_TBANK)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CREATED)
+    plan_code = models.CharField(max_length=20, choices=UserSubscription.PLAN_CHOICES)
+    order_id = models.CharField(max_length=36, unique=True)
+    provider_payment_id = models.CharField(max_length=64, blank=True, default="")
+    amount_rub = models.PositiveIntegerField(default=0)
+    amount_kopeks = models.PositiveIntegerField(default=0)
+    description = models.CharField(max_length=140, blank=True, default="")
+    payment_url = models.URLField(max_length=1000, blank=True, default="")
+    promo_code = models.CharField(max_length=40, blank=True, default="")
+    promo_snapshot = models.JSONField(default=dict, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    notification_payload = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    paid_at = models.DateTimeField(null=True, blank=True)
+    notification_received_at = models.DateTimeField(null=True, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["provider", "provider_payment_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.order_id}:{self.status}"
+
+
+class PromoCode(models.Model):
+    KIND_PRICE_DISCOUNT = "price_discount"
+    KIND_FREE_DAYS = "free_days"
+    KIND_CHOICES = [
+        (KIND_PRICE_DISCOUNT, "Скидка на тарифы"),
+        (KIND_FREE_DAYS, "Бесплатные дни"),
+    ]
+
+    code = models.CharField(max_length=40, unique=True)
+    title = models.CharField(max_length=200)
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    valid_until = models.DateTimeField()
+    max_uses = models.PositiveIntegerField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    discount_percent = models.PositiveSmallIntegerField(null=True, blank=True)
+    applies_to_plan_codes = models.JSONField(default=list, blank=True)
+    free_days = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["kind", "is_active", "valid_until"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.code = (self.code or "").strip().upper()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.code} ({self.title})"
+
+
+class PromoRedemption(models.Model):
+    promo = models.ForeignKey(PromoCode, on_delete=models.CASCADE, related_name="redemptions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="promo_redemptions")
+    plan_code = models.CharField(max_length=20, blank=True, default="")
+    extra = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["promo", "user"], name="core_promoredemption_promo_user_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["promo", "created_at"]),
+            models.Index(fields=["user", "created_at"]),
+        ]
+
+
 class AppErrorLog(models.Model):
     LEVEL_ERROR = "error"
     LEVEL_WARNING = "warning"

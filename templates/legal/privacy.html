@@ -67,7 +67,6 @@
             {% if legal_operator_inn %}<strong>ИНН:</strong> {{ legal_operator_inn }}<br>{% endif %}
             {% if legal_operator_ogrn %}<strong>ОГРН/ОГРНИП:</strong> {{ legal_operator_ogrn }}<br>{% endif %}
             {% if legal_operator_address %}<strong>Адрес:</strong> {{ legal_operator_address }}<br>{% endif %}
-            {% if legal_operator_email %}<strong>E-mail для запросов субъектов ПДн:</strong> {{ legal_operator_email }}<br>{% endif %}
             {% if legal_operator_phone %}<strong>Телефон:</strong> {{ legal_operator_phone }}{% endif %}
         </section>
 
@@ -118,7 +117,6 @@
         </ul>
 
         <h2>9. Порядок отзыва согласия</h2>
-        <p>Для отзыва согласия субъект может направить запрос оператору на e-mail {% if legal_operator_email %}{{ legal_operator_email }}{% else %}оператора{% endif %}. Оператор рассматривает обращение и принимает меры в сроки, предусмотренные законодательством Российской Федерации.</p>
 
         <h2>10. Меры защиты</h2>
         <p>Оператор принимает разумные правовые, организационные и технические меры для защиты персональных данных, включая разграничение доступа, контроль целостности данных, журналирование значимых действий и использование защищенных механизмов авторизации.</p>

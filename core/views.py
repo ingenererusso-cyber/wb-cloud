@@ -27,7 +27,7 @@ from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.db.models.functions import TruncDate
 from django.db import IntegrityError, OperationalError, ProgrammingError, close_old_connections, transaction
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, reverse
@@ -35,6 +35,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.crypto import get_random_string
 from django.core.validators import validate_email
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 import time
 from app.services.supply_recommendations.loaders import list_available_transit_warehouses, list_regular_warehouses
@@ -50,6 +51,7 @@ from core.models import (
     SellerFbsStock,
     ProductCardSize,
     ProductUnitEconomicsCalculation,
+    BillingPayment,
     SellerWarehouse,
     SignupLead,
     SupportMessage,
@@ -67,6 +69,8 @@ from core.models import (
     WbSaleFact,
     WbWarehouseTariff,
     UserSubscription,
+    PromoCode,
+    PromoRedemption,
 )
 from core.logistics import (
     DEFAULT_LOGISTICS_VOLUME_LITERS,
@@ -94,10 +98,28 @@ from core.services_fbs_stocks import sync_seller_fbs_stocks
 from core.services_fbs_stocks import apply_fbs_stock_updates
 from core.subscriptions import (
     PLAN_LABELS,
+    PLAN_MONTHS,
     PLAN_PRICES,
     build_subscription_summary,
+    extend_subscription_access,
     get_or_create_subscription,
     pricing_cards,
+)
+from core.promo import (
+    PromoValidationError,
+    annotate_promo_list,
+    apply_free_days_promo,
+    create_promo_from_post,
+    get_promo_by_code,
+    normalize_promo_code,
+    preview_promo,
+)
+from core.services_payments_tbank import (
+    TBankError,
+    build_init_payload,
+    init_payment as tbank_init_payment,
+    map_tbank_status,
+    verify_tbank_token,
 )
 from core.services_tariffs import (
     sync_acceptance_coefficients,
@@ -333,13 +355,26 @@ def _build_dashboard_trend_payload(
         bucket_size = timedelta(hours=1)
     else:
         window_days = 1 if period_key == "24h" else {"7d": 7, "14d": 14, "28d": 28}[period_key]
-        bounds = _resolve_rolling_window_bounds(end_dt=anchor_end, period_days=window_days)
-        window_start = bounds["window_start"]
-        window_end = bounds["window_end"]
-        prev_window_start = bounds["previous_window_start"]
-        prev_window_end = bounds["previous_window_end"]
-        bucket_count = 24 if period_key == "24h" else window_days
-        bucket_size = timedelta(hours=1) if period_key == "24h" else timedelta(days=1)
+        if period_key == "24h":
+            bounds = _resolve_rolling_window_bounds(end_dt=anchor_end, period_days=window_days)
+            window_start = bounds["window_start"]
+            window_end = bounds["window_end"]
+            prev_window_start = bounds["previous_window_start"]
+            prev_window_end = bounds["previous_window_end"]
+            bucket_count = 24
+            bucket_size = timedelta(hours=1)
+        else:
+            anchor_date = anchor_end.date()
+            tz = timezone.get_current_timezone()
+            window_end = timezone.make_aware(
+                datetime.combine(anchor_date + timedelta(days=1), datetime.min.time()),
+                tz,
+            )
+            window_start = window_end - timedelta(days=window_days)
+            prev_window_end = window_start
+            prev_window_start = prev_window_end - timedelta(days=window_days)
+            bucket_count = window_days
+            bucket_size = timedelta(days=1)
 
     def _init_values():
         return [0] * bucket_count, [0.0] * bucket_count
@@ -414,8 +449,13 @@ def _build_dashboard_trend_payload(
 
     labels = []
     for idx in range(bucket_count):
+        bucket_start = window_start + bucket_size * idx
         bucket_end = window_start + bucket_size * (idx + 1)
-        labels.append(bucket_end.strftime("%H:%M") if period_key in {"today", "24h"} else bucket_end.strftime("%d.%m"))
+        labels.append(
+            bucket_end.strftime("%H:%M")
+            if period_key in {"today", "24h"}
+            else bucket_start.strftime("%d.%m")
+        )
 
     current_total = int(sum(current_counts))
     previous_total = int(sum(previous_counts))
@@ -2510,10 +2550,12 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             continue
         product = latest_products_by_nm.get(nm_id)
         title = ""
+        vendor_code = ""
         photo_url = ""
         link = ""
         if product:
             title = (product.title or "").strip()
+            vendor_code = (product.vendor_code or "").strip()
             photo_url = (product.photo_url or "").strip()
             link = reverse("product_card_detail", args=[product.id])
         last_order_date = stats.get("last_order_date")
@@ -2526,6 +2568,7 @@ def _build_home_reminder_groups(seller: SellerAccount | None) -> list[dict]:
             {
                 "reminder_id": f"sold_out:{nm_id}",
                 "title": title or f"Товар WB {nm_id}",
+                "vendor_code": vendor_code,
                 "subtitle": "",
                 "meta": f"Заказы за {sold_period_days} дн.: {stats['orders_30d']}",
                 "footnote": f"Последний заказ: {last_order_label}",
@@ -3348,11 +3391,39 @@ def _generate_unique_username_from_email(email: str) -> str:
 
 
 def _build_pricing_context(user=None) -> dict:
+    latest_payment = None
     sub_summary = build_subscription_summary(get_or_create_subscription(user)) if user and user.is_authenticated else None
+    if user and user.is_authenticated:
+        latest_payment = (
+            BillingPayment.objects.filter(user=user, provider=BillingPayment.PROVIDER_TBANK)
+            .order_by("-created_at")
+            .first()
+        )
     return {
         "plans": pricing_cards(),
         "subscription": sub_summary,
+        "latest_payment": latest_payment,
     }
+
+
+def _build_absolute_app_url(path: str) -> str:
+    base = str(getattr(settings, "APP_BASE_URL", "") or "").strip().rstrip("/")
+    if not base:
+        raise ValueError("APP_BASE_URL is not configured")
+    return f"{base}{path}"
+
+
+def _build_tbank_result_urls(payment: BillingPayment) -> tuple[str, str, str]:
+    notification_url = _build_absolute_app_url(reverse("billing_tbank_notification"))
+    result_base = reverse("billing_result")
+    success_url = _build_absolute_app_url(f"{result_base}?order_id={payment.order_id}&result=success")
+    fail_url = _build_absolute_app_url(f"{result_base}?order_id={payment.order_id}&result=fail")
+    return notification_url, success_url, fail_url
+
+
+def _build_payment_description(plan_code: str) -> str:
+    plan_label = PLAN_LABELS.get(plan_code, plan_code)
+    return f"Оплата тарифа Vendra: {plan_label}"
 
 
 def _render_document_hash(template_name: str, request=None) -> str:
@@ -3386,7 +3457,15 @@ def promo_landing(request):
 
 def pricing_page(request):
     ctx = _build_pricing_context(request.user)
-    ctx["payment_stub"] = (request.GET.get("payment_stub") or "").strip() in {"1", "true", "yes"}
+    ctx["payment_stub"] = False
+    if request.user.is_authenticated:
+        order_id = (request.GET.get("order_id") or "").strip()
+        if order_id:
+            ctx["payment_result"] = BillingPayment.objects.filter(user=request.user, order_id=order_id).first()
+        else:
+            ctx["payment_result"] = None
+    else:
+        ctx["payment_result"] = None
     return render(request, "marketing/pricing.html", ctx)
 
 
@@ -3566,23 +3645,338 @@ def billing_init_payment_api(request):
     plan_code = (request.POST.get("plan_code") or "").strip()
     if plan_code not in PLAN_PRICES:
         return JsonResponse({"ok": False, "error": "Некорректный тариф."}, status=400)
-    sub = get_or_create_subscription(request.user)
-    sub.plan_code = plan_code
-    sub.status = UserSubscription.STATUS_PAST_DUE
-    sub.save(update_fields=["plan_code", "status", "updated_at"])
+    if not settings.TBANK_TERMINAL_KEY or not settings.TBANK_PASSWORD:
+        return JsonResponse({"ok": False, "error": "Платежный шлюз еще не настроен."}, status=503)
+    promo_code_raw = (request.POST.get("promo_code") or "").strip()
+    base_price = int(PLAN_PRICES[plan_code])
+    months = PLAN_MONTHS.get(plan_code, 1)
+    charged_total = base_price
+    charged_monthly = int(round(charged_total / max(1, months)))
+    promo = None
+    promo_snapshot: dict[str, object] = {}
+
+    try:
+        sub = get_or_create_subscription(request.user)
+        if promo_code_raw:
+            promo = get_promo_by_code(normalize_promo_code(promo_code_raw))
+            if not promo:
+                raise PromoValidationError("Промокод не найден.")
+            preview = preview_promo(user=request.user, code=promo_code_raw, plan_code=plan_code)
+            if promo.kind == PromoCode.KIND_PRICE_DISCOUNT and plan_code in (promo.applies_to_plan_codes or []):
+                row = (preview.get("prices") or {}).get(plan_code) or {}
+                charged_total = int(row.get("price_total", base_price))
+                charged_monthly = int(row.get("price_monthly", charged_monthly))
+                promo_snapshot = {
+                    "kind": promo.kind,
+                    "promo_id": promo.id,
+                    "promo_code": promo.code,
+                    "discount_percent": int(promo.discount_percent or 0),
+                    "prices": preview.get("prices") or {},
+                }
+            else:
+                raise PromoValidationError("Этот промокод не подходит для оплаты тарифа.")
+        payment = BillingPayment.objects.create(
+            user=request.user,
+            subscription=sub,
+            promo=promo,
+            provider=BillingPayment.PROVIDER_TBANK,
+            status=BillingPayment.STATUS_CREATED,
+            plan_code=plan_code,
+            order_id=uuid.uuid4().hex[:36],
+            amount_rub=charged_total,
+            amount_kopeks=charged_total * 100,
+            description=_build_payment_description(plan_code),
+            promo_code=(promo.code if promo else ""),
+            promo_snapshot=promo_snapshot,
+        )
+        notification_url, success_url, fail_url = _build_tbank_result_urls(payment)
+        payload = build_init_payload(
+            terminal_key=settings.TBANK_TERMINAL_KEY,
+            password=settings.TBANK_PASSWORD,
+            order_id=payment.order_id,
+            amount_kopeks=payment.amount_kopeks,
+            description=payment.description,
+            notification_url=notification_url,
+            success_url=success_url,
+            fail_url=fail_url,
+            customer_key=str(request.user.id),
+            data={
+                "plan": plan_code,
+                "user_id": str(request.user.id),
+                "order_id": payment.order_id,
+            },
+        )
+        provider_data = tbank_init_payment(payload)
+        payment_url = str(provider_data.get("PaymentURL") or provider_data.get("PaymentUrl") or "").strip()
+        if not payment_url:
+            raise TBankError("T-Bank не вернул ссылку на оплату.")
+        payment.status = BillingPayment.STATUS_PENDING
+        payment.payment_url = payment_url
+        payment.provider_payment_id = str(provider_data.get("PaymentId") or "")
+        payment.provider_response = provider_data
+        payment.error_message = ""
+        payment.save(
+            update_fields=[
+                "status",
+                "payment_url",
+                "provider_payment_id",
+                "provider_response",
+                "error_message",
+                "updated_at",
+            ]
+        )
+    except PromoValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    except TBankError as exc:
+        if "payment" in locals():
+            payment.status = BillingPayment.STATUS_INIT_FAILED
+            payment.error_message = str(exc)
+            payment.provider_response = {}
+            payment.save(update_fields=["status", "error_message", "provider_response", "updated_at"])
+        return JsonResponse({"ok": False, "error": str(exc)}, status=502)
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=500)
+
     return JsonResponse(
         {
             "ok": True,
-            "payment_url": reverse("pricing_page") + f"?payment_stub=1&plan={plan_code}",
-            "message": "Заглушка платежа создана. Интеграция с Т-Кассой будет добавлена позже.",
+            "payment_url": payment.payment_url,
+            "payment_id": payment.order_id,
+            "message": "Переходим на оплату в T-Bank.",
+            "charged_total": charged_total,
+            "charged_monthly": charged_monthly,
         },
         status=200,
     )
 
 
 @login_required
+@require_POST
+def billing_promo_preview_api(request):
+    code = (request.POST.get("promo_code") or "").strip()
+    plan_code = (request.POST.get("plan_code") or "").strip() or None
+    if plan_code and plan_code not in PLAN_PRICES:
+        plan_code = None
+    try:
+        payload = preview_promo(user=request.user, code=code, plan_code=plan_code)
+        return JsonResponse(payload, status=200)
+    except PromoValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+
+@login_required
+@require_POST
+def billing_promo_apply_free_days_api(request):
+    code = (request.POST.get("promo_code") or "").strip()
+    try:
+        payload = apply_free_days_promo(user=request.user, code=code)
+        return JsonResponse(payload, status=200)
+    except PromoValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    except IntegrityError:
+        return JsonResponse({"ok": False, "error": "Промокод уже использован."}, status=400)
+
+
+def _mark_payment_confirmed(payment: BillingPayment, payload: dict) -> BillingPayment:
+    now_dt = timezone.now()
+    with transaction.atomic():
+        payment = BillingPayment.objects.select_for_update().select_related("subscription").get(pk=payment.pk)
+        payment.status = BillingPayment.STATUS_CONFIRMED
+        payment.notification_payload = payload
+        payment.notification_received_at = now_dt
+        payment.paid_at = payment.paid_at or now_dt
+        if payment.activated_at is None:
+            subscription = payment.subscription or get_or_create_subscription(payment.user)
+            payment.subscription = subscription
+            extend_subscription_access(subscription, plan_code=payment.plan_code, now_dt=now_dt)
+            payment.activated_at = now_dt
+            if payment.promo and payment.promo.kind == PromoCode.KIND_PRICE_DISCOUNT:
+                if not PromoRedemption.objects.filter(promo=payment.promo, user=payment.user).exists():
+                    PromoRedemption.objects.create(
+                        promo=payment.promo,
+                        user=payment.user,
+                        plan_code=payment.plan_code,
+                        extra={
+                            "kind": payment.promo.kind,
+                            "discount_percent": payment.promo.discount_percent,
+                            "payment_order_id": payment.order_id,
+                        },
+                    )
+        payment.error_message = ""
+        payment.save(
+            update_fields=[
+                "status",
+                "subscription",
+                "notification_payload",
+                "notification_received_at",
+                "paid_at",
+                "activated_at",
+                "error_message",
+                "updated_at",
+            ]
+        )
+    return payment
+
+
+@csrf_exempt
+@require_POST
+def billing_tbank_notification(request):
+    payload = {}
+    if request.content_type and "application/json" in request.content_type.lower():
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return HttpResponse("INVALID", status=400, content_type="text/plain")
+    elif request.POST:
+        payload = request.POST.dict()
+    else:
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            payload = {}
+
+    if not settings.TBANK_PASSWORD:
+        return HttpResponse("INVALID", status=503, content_type="text/plain")
+    if not verify_tbank_token(payload, settings.TBANK_PASSWORD):
+        return HttpResponse("INVALID", status=400, content_type="text/plain")
+
+    order_id = str(payload.get("OrderId") or "").strip()
+    if not order_id:
+        return HttpResponse("INVALID", status=400, content_type="text/plain")
+
+    payment = BillingPayment.objects.filter(order_id=order_id, provider=BillingPayment.PROVIDER_TBANK).first()
+    if not payment:
+        return HttpResponse("INVALID", status=404, content_type="text/plain")
+
+    mapped_status = map_tbank_status(str(payload.get("Status") or ""))
+    payment.provider_payment_id = str(payload.get("PaymentId") or payment.provider_payment_id or "")
+    payment.notification_payload = payload
+    payment.notification_received_at = timezone.now()
+    payment.status = mapped_status
+    payment.error_message = str(payload.get("Message") or payload.get("Details") or "")
+    if mapped_status == BillingPayment.STATUS_CONFIRMED:
+        _mark_payment_confirmed(payment, payload)
+    else:
+        payment.save(
+            update_fields=[
+                "provider_payment_id",
+                "notification_payload",
+                "notification_received_at",
+                "status",
+                "error_message",
+                "updated_at",
+            ]
+        )
+    return HttpResponse("OK", content_type="text/plain")
+
+
+def _superuser_required_json(request):
+    if not request.user.is_authenticated or not request.user.is_superuser:
+        return JsonResponse({"ok": False, "error": "Доступ запрещён."}, status=403)
+    return None
+
+
+@login_required
+@require_GET
+def admin_promos_list_api(request):
+    err = _superuser_required_json(request)
+    if err:
+        return err
+    qs = annotate_promo_list(PromoCode.objects.all().order_by("-created_at"))
+    rows = []
+    for p in qs[:500]:
+        rows.append(
+            {
+                "id": p.id,
+                "code": p.code,
+                "title": p.title,
+                "kind": p.kind,
+                "valid_until": p.valid_until.isoformat() if p.valid_until else None,
+                "max_uses": p.max_uses,
+                "is_active": p.is_active,
+                "discount_percent": p.discount_percent,
+                "applies_to_plan_codes": p.applies_to_plan_codes or [],
+                "free_days": p.free_days,
+                "uses_count": int(getattr(p, "uses_count", 0) or 0),
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+        )
+    return JsonResponse({"ok": True, "promos": rows}, status=200)
+
+
+@login_required
+@require_POST
+def admin_promos_create_api(request):
+    err = _superuser_required_json(request)
+    if err:
+        return err
+    data = request.POST.dict()
+    for key in ("applies_to_plan_codes",):
+        if key not in data and request.POST.getlist(key):
+            data[key] = request.POST.getlist(key)
+    result = create_promo_from_post(data)
+    if isinstance(result, list):
+        return JsonResponse({"ok": False, "errors": result}, status=400)
+    return JsonResponse({"ok": True, "id": result.id, "code": result.code}, status=200)
+
+
+@login_required
+@require_GET
+def admin_promo_redemptions_api(request, promo_id: int):
+    err = _superuser_required_json(request)
+    if err:
+        return err
+    promo = get_object_or_404(PromoCode, pk=promo_id)
+    limit = min(200, max(1, int(request.GET.get("limit") or 50)))
+    qs = (
+        PromoRedemption.objects.filter(promo=promo)
+        .select_related("user")
+        .order_by("-created_at")[:limit]
+    )
+    rows = []
+    for r in qs:
+        u = r.user
+        rows.append(
+            {
+                "id": r.id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "plan_code": r.plan_code,
+                "username": u.username,
+                "email": u.email or "",
+            }
+        )
+    return JsonResponse({"ok": True, "promo": {"id": promo.id, "code": promo.code, "title": promo.title}, "redemptions": rows}, status=200)
+
+
+@login_required
+def admin_promo_codes_page(request):
+    if not request.user.is_superuser:
+        return redirect("support_chat")
+    seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    return render(
+        request,
+        "administration/promo_codes.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+            "admin_active_tab": "promos",
+        },
+    )
+
+
+@login_required
 def billing_paywall(request):
     return render(request, "marketing/paywall.html", _build_pricing_context(request.user))
+
+
+@login_required
+@require_GET
+def billing_result(request):
+    order_id = (request.GET.get("order_id") or "").strip()
+    if not order_id:
+        return redirect("pricing_page")
+    return redirect(f"{reverse('pricing_page')}?order_id={order_id}")
 
 
 def _serialize_running_sync_task(task: SyncTask | None) -> dict | None:
@@ -7147,6 +7541,7 @@ def support_chat_admin(request):
         {
             "seller": seller,
             "last_sync_at": last_sync_at,
+            "admin_active_tab": "chat",
         },
     )
 

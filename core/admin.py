@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
     AppErrorLog,
+    PromoCode,
     SellerAccount,
     TesterFeedback,
     Product,
@@ -15,6 +16,13 @@ from .models import (
     WbCategoryCommission,
     RealizationReportDetail,
 )
+
+
+@admin.register(PromoCode)
+class PromoCodeAdmin(admin.ModelAdmin):
+    list_display = ("code", "title", "kind", "valid_until", "max_uses", "is_active", "created_at")
+    list_filter = ("kind", "is_active")
+    search_fields = ("code", "title")
 
 
 @admin.register(SellerAccount)

@@ -2496,7 +2496,7 @@
                             </div>
                             <div class="reminder-tile-content">
                                 <div class="deck-card-head">
-                                    <h4 class="deck-title">${escapeHtml(card.title || "")}</h4>
+                                    <h4 class="deck-title">${escapeHtml(card.title || "")}${card.vendor_code ? ` · ${escapeHtml(card.vendor_code)}` : ""}</h4>
                                     ${card.badge
                                         ? `<span class="deck-badge ${card.badge_tone === "danger" ? "deck-badge-danger" : "deck-badge-warn"}">${escapeHtml(card.badge)}</span>`
                                         : ""}
@@ -2645,7 +2645,7 @@
                         ? "Сегодня до времени последнего синка vs вчера до того же времени"
                         : trendState.period === "24h"
                         ? "Rolling-окно: последние 24 ч. до синка"
-                        : `Rolling-окно: последние ${trendState.period.replace("d", "")}×24 ч. до синка`;
+                        : `${trendState.period.replace("d", "")} календарных дн. по датам`;
                     trendPreviousCaption.textContent = `${metricLabel} · ${periodLabel} · прошлый период: ${Math.round(previousTotal)} шт. / ${formatMoneyRubWhole(previousAmount)} ₽`;
                 }
                 if (trendDelta) {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import timedelta
 
 from django.utils import timezone
@@ -26,6 +27,18 @@ PLAN_PRICES = {
     UserSubscription.PLAN_MONTH_6: 9990,
     UserSubscription.PLAN_MONTH_12: 17990,
 }
+
+
+def _add_calendar_months(dt_value, months: int):
+    if dt_value is None:
+        dt_value = timezone.now()
+    months = max(0, int(months or 0))
+    month_index = dt_value.month - 1 + months
+    year = dt_value.year + month_index // 12
+    month = month_index % 12 + 1
+    last_day = calendar.monthrange(year, month)[1]
+    day = min(dt_value.day, last_day)
+    return dt_value.replace(year=year, month=month, day=day)
 
 
 def get_or_create_subscription(user) -> UserSubscription:
@@ -67,6 +80,36 @@ def has_active_access(sub: UserSubscription | None) -> bool:
     if sub.access_expires_at and sub.access_expires_at < timezone.now():
         return False
     return True
+
+
+def extend_subscription_access(sub: UserSubscription, *, plan_code: str, now_dt=None) -> UserSubscription:
+    now_dt = now_dt or timezone.now()
+    months = PLAN_MONTHS.get(plan_code)
+    if not months:
+        raise ValueError("Unknown subscription plan")
+
+    sub = normalize_subscription_status(sub)
+    current_expires = sub.access_expires_at
+    base_start = now_dt
+    if current_expires and current_expires > now_dt:
+        base_start = current_expires
+
+    sub.plan_code = plan_code
+    sub.status = UserSubscription.STATUS_ACTIVE
+    sub.paid_from = base_start
+    sub.paid_to = _add_calendar_months(base_start, months)
+    sub.access_expires_at = sub.paid_to
+    sub.save(
+        update_fields=[
+            "plan_code",
+            "status",
+            "paid_from",
+            "paid_to",
+            "access_expires_at",
+            "updated_at",
+        ]
+    )
+    return sub
 
 
 def build_subscription_summary(sub: UserSubscription | None) -> dict:

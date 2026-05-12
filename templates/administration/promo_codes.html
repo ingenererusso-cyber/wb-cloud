@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Администрирование · Промокоды</title>
+    {% include "partials/top_nav_css.html" %}
+    <style>
+        :root { --bg:#edf3f7; --card:#fff; --line:#dbe3ec; --text:#1f2a37; --muted:#6b7280; --page-shell-max-width:1320px; }
+        body { margin:0; padding:12px 20px 28px !important; font-family:"Inter","Segoe UI",sans-serif; background:radial-gradient(circle at top left,#d8efe6 0%,#dfe9f5 45%,var(--bg) 100%); color:var(--text); }
+        .shell { max-width:var(--page-shell-max-width); margin:0 auto; }
+        .card { border:1px solid var(--line); border-radius:16px; background:var(--card); padding:16px; margin-bottom:14px; }
+        .card h2 { margin:0 0 12px; font-size:18px; }
+        .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        @media (max-width:900px){ .grid2 { grid-template-columns:1fr; } }
+        label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+        input, select, textarea { width:100%; border:1px solid var(--line); border-radius:9px; padding:8px 10px; font-size:14px; font-family:inherit; box-sizing:border-box; }
+        textarea { min-height:72px; }
+        .row { margin-bottom:10px; }
+        .btn { border:0; background:linear-gradient(135deg,#147a59 0%,#0e9f6e 100%); color:#fff; border-radius:10px; padding:9px 14px; font-weight:700; cursor:pointer; font-size:14px; }
+        .btn-ghost { border:1px solid var(--line); background:#fff; color:#334155; }
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        th, td { border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; vertical-align:top; }
+        th { color:var(--muted); font-weight:600; }
+        tr[data-id] { cursor:pointer; }
+        tr.promo-row--selected { background:#eff6ff; }
+        .err { color:#b91c1c; font-size:13px; margin-top:8px; }
+        .ok { color:#14532d; font-size:13px; margin-top:8px; }
+        .muted { color:var(--muted); font-size:12px; }
+        .kind-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; background:#f1f5f9; }
+    </style>
+</head>
+<body>
+    {% include "partials/top_nav.html" %}
+    {% include "administration/admin_tabs.html" %}
+    <div class="shell">
+        <div class="card">
+            <h2>Создать промокод</h2>
+            <form id="promo-create-form">
+                <div class="grid2">
+                    <div class="row">
+                        <label for="pc-kind">Тип</label>
+                        <select id="pc-kind" name="kind" required>
+                            <option value="price_discount">Скидка на тарифы (%)</option>
+                            <option value="free_days">Бесплатные дни</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <label for="pc-code">Код (латиница/цифры)</label>
+                        <input id="pc-code" name="code" required maxlength="40" placeholder="Например SUMMER2026">
+                    </div>
+                    <div class="row" style="grid-column:1/-1;">
+                        <label for="pc-title">Наименование</label>
+                        <input id="pc-title" name="title" required maxlength="200" placeholder="Для внутреннего учёта">
+                    </div>
+                    <div class="row">
+                        <label for="pc-valid">Срок действия (до)</label>
+                        <input id="pc-valid" name="valid_until" type="datetime-local" required>
+                    </div>
+                    <div class="row">
+                        <label for="pc-max">Лимит активаций (пусто = без лимита)</label>
+                        <input id="pc-max" name="max_uses" type="number" min="1" placeholder="100">
+                    </div>
+                    <div class="row" id="pc-discount-block">
+                        <label for="pc-pct">Скидка, %</label>
+                        <input id="pc-pct" name="discount_percent" type="number" min="1" max="100" value="10">
+                    </div>
+                    <div class="row" id="pc-plans-block" style="grid-column:1/-1;">
+                        <label>Периоды тарифа</label>
+                        <div>
+                            <label><input type="checkbox" name="applies_to_plan_codes" value="month_1"> 1 месяц</label>
+                            &nbsp;
+                            <label><input type="checkbox" name="applies_to_plan_codes" value="month_6"> 6 месяцев</label>
+                            &nbsp;
+                            <label><input type="checkbox" name="applies_to_plan_codes" value="month_12"> 12 месяцев</label>
+                        </div>
+                    </div>
+                    <div class="row" id="pc-days-block" style="display:none;">
+                        <label for="pc-days">Бесплатных дней</label>
+                        <input id="pc-days" name="free_days" type="number" min="1" value="7">
+                    </div>
+                    <div class="row">
+                        <label><input type="checkbox" name="is_active" value="1" checked> Активен</label>
+                    </div>
+                </div>
+                <button type="submit" class="btn">Создать</button>
+                <div id="create-msg"></div>
+            </form>
+        </div>
+        <div class="card">
+            <h2>Список промокодов</h2>
+            <p class="muted">Нажмите строку, чтобы увидеть последние активации.</p>
+            <div style="overflow:auto;">
+                <table id="promo-table">
+                    <thead>
+                        <tr>
+                            <th>Код</th>
+                            <th>Название</th>
+                            <th>Тип</th>
+                            <th>До</th>
+                            <th>Исп.</th>
+                            <th>Лимит</th>
+                        </tr>
+                    </thead>
+                    <tbody id="promo-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card" id="redemptions-card" style="display:none;">
+            <h2 id="redemptions-title">Активации</h2>
+            <table>
+                <thead><tr><th>Время</th><th>Пользователь</th><th>E-mail</th><th>План</th></tr></thead>
+                <tbody id="redemptions-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        (function () {
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(";").shift();
+                return "";
+            }
+            const kindEl = document.getElementById("pc-kind");
+            const discountBlock = document.getElementById("pc-discount-block");
+            const plansBlock = document.getElementById("pc-plans-block");
+            const daysBlock = document.getElementById("pc-days-block");
+            function syncKindBlocks() {
+                const k = kindEl.value;
+                const disc = k === "price_discount";
+                discountBlock.style.display = disc ? "block" : "none";
+                plansBlock.style.display = disc ? "block" : "none";
+                daysBlock.style.display = disc ? "none" : "block";
+            }
+            kindEl.addEventListener("change", syncKindBlocks);
+            syncKindBlocks();
+
+            async function loadPromos() {
+                const res = await fetch("{% url 'admin_promos_list_api' %}", { headers: { Accept: "application/json" } });
+                const data = await res.json();
+                const tb = document.getElementById("promo-tbody");
+                tb.innerHTML = "";
+                if (!data.ok) { tb.innerHTML = "<tr><td colspan='6'>" + (data.error || "Ошибка") + "</td></tr>"; return; }
+                (data.promos || []).forEach((p) => {
+                    const tr = document.createElement("tr");
+                    tr.dataset.id = String(p.id);
+                    const kindLabel = p.kind === "free_days" ? "Дни" : "Скидка";
+                    tr.innerHTML =
+                        "<td><strong>" + escapeHtml(p.code) + "</strong></td>" +
+                        "<td>" + escapeHtml(p.title) + "</td>" +
+                        "<td><span class='kind-pill'>" + kindLabel + "</span></td>" +
+                        "<td>" + escapeHtml((p.valid_until || "").slice(0, 16).replace("T", " ")) + "</td>" +
+                        "<td>" + p.uses_count + "</td>" +
+                        "<td>" + (p.max_uses == null ? "—" : p.max_uses) + "</td>";
+                    tr.addEventListener("click", () => selectPromo(p.id, tr));
+                    tb.appendChild(tr);
+                });
+            }
+            function escapeHtml(s) {
+                const d = document.createElement("div");
+                d.textContent = s;
+                return d.innerHTML;
+            }
+            let selectedRow = null;
+            async function selectPromo(id, tr) {
+                if (selectedRow) selectedRow.classList.remove("promo-row--selected");
+                selectedRow = tr;
+                tr.classList.add("promo-row--selected");
+                const redemptionsUrl = "{% url 'admin_promo_redemptions_api' promo_id=0 %}".replace("/0/", "/" + id + "/");
+                const res = await fetch(redemptionsUrl + "?limit=80", { headers: { Accept: "application/json" } });
+                const data = await res.json();
+                const card = document.getElementById("redemptions-card");
+                const rt = document.getElementById("redemptions-tbody");
+                rt.innerHTML = "";
+                if (!data.ok) { card.style.display = "block"; rt.innerHTML = "<tr><td colspan='4'>" + (data.error || "Ошибка") + "</td></tr>"; return; }
+                document.getElementById("redemptions-title").textContent = "Активации: " + data.promo.code;
+                (data.redemptions || []).forEach((r) => {
+                    const row = document.createElement("tr");
+                    row.innerHTML =
+                        "<td>" + escapeHtml((r.created_at || "").slice(0, 19).replace("T", " ")) + "</td>" +
+                        "<td>" + escapeHtml(r.username) + "</td>" +
+                        "<td>" + escapeHtml(r.email) + "</td>" +
+                        "<td>" + escapeHtml(r.plan_code || "—") + "</td>";
+                    rt.appendChild(row);
+                });
+                card.style.display = "block";
+            }
+
+            document.getElementById("promo-create-form").addEventListener("submit", async (e) => {
+                e.preventDefault();
+                const msg = document.getElementById("create-msg");
+                msg.innerHTML = "";
+                const fd = new FormData(e.target);
+                if (kindEl.value === "price_discount") {
+                    const boxes = e.target.querySelectorAll('input[name="applies_to_plan_codes"]:checked');
+                    fd.delete("applies_to_plan_codes");
+                    boxes.forEach((b) => fd.append("applies_to_plan_codes", b.value));
+                } else {
+                    fd.delete("applies_to_plan_codes");
+                    fd.delete("discount_percent");
+                }
+                if (kindEl.value === "price_discount") fd.delete("free_days");
+                if (!fd.get("max_uses")) fd.delete("max_uses");
+                if (!e.target.querySelector('input[name="is_active"]').checked) fd.set("is_active", "0");
+                const res = await fetch("{% url 'admin_promos_create_api' %}", {
+                    method: "POST",
+                    headers: { "X-CSRFToken": getCookie("csrftoken"), Accept: "application/json" },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    const err = (data.errors && data.errors.join(" ")) || data.error || "Ошибка";
+                    msg.innerHTML = "<div class='err'>" + escapeHtml(err) + "</div>";
+                    return;
+                }
+                msg.innerHTML = "<div class='ok'>Создан промокод <strong>" + escapeHtml(data.code) + "</strong></div>";
+                e.target.reset();
+                syncKindBlocks();
+                loadPromos();
+            });
+
+            loadPromos();
+        })();
+    </script>
+</body>
+</html>

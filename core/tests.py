@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timedelta
 
 from django.contrib.auth.models import User
@@ -11,12 +12,15 @@ from unittest.mock import patch
 
 from core.models import (
     AppErrorLog,
+    BillingPayment,
     ConsentLog,
     Order,
     Product,
     ProductCardSize,
     ProductSizePrice,
     ProductUnitEconomicsCalculation,
+    PromoCode,
+    PromoRedemption,
     SellerAccount,
     SellerFbsStock,
     SellerWarehouse,
@@ -38,6 +42,8 @@ from core.services_advertising import (
     sync_active_paused_ad_campaigns_full_history,
 )
 from core.services.localization import get_local_orders_percent_last_full_week
+from core.subscriptions import get_or_create_subscription
+from core.services_payments_tbank import build_tbank_token
 from core.views import _build_home_summary_payload, _set_sync_task
 
 
@@ -669,6 +675,31 @@ class DashboardHomeApiTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertIn("groups", payload)
         self.assertIsInstance(payload["groups"], list)
+
+    def test_dashboard_reminders_sold_out_card_includes_vendor_code(self):
+        self.client.login(username="home-user", password="pass12345")
+        order_dt = timezone.now() - timedelta(days=1)
+        self._create_home_order(
+            srid="home-reminder-order",
+            order_dt=order_dt,
+            finished_price=900.0,
+        )
+        Product.objects.create(
+            seller=self.seller,
+            nm_id=1001,
+            vendor_code="SELLER-ART-1001",
+            title="Тестовый товар",
+        )
+
+        response = self.client.get(reverse("dashboard_reminders_api"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        sold_out_group = next((group for group in payload["groups"] if group.get("group_id") == "sold_out"), None)
+        self.assertIsNotNone(sold_out_group)
+        card = sold_out_group["cards"][0]
+        self.assertEqual(card["title"], "Тестовый товар")
+        self.assertEqual(card["vendor_code"], "SELLER-ART-1001")
 
 
 class ApiAuthRedirectMiddlewareTests(TestCase):
@@ -1781,3 +1812,305 @@ class WbPromotionCampaignsTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status, SyncTask.STATUS_ERROR)
         self.assertIn("180 минут", task.message)
+
+
+class PromoCodeFlowTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="promo-user", password="pass12345")
+        self.super = User.objects.create_user(
+            username="promo-admin", password="pass12345", is_superuser=True, is_staff=True
+        )
+        get_or_create_subscription(self.user)
+        get_or_create_subscription(self.super)
+
+    def _future(self):
+        return timezone.now() + timedelta(days=30)
+
+    def _past(self):
+        return timezone.now() - timedelta(days=1)
+
+    def test_preview_requires_login(self):
+        res = self.client.post(reverse("billing_promo_preview_api"), {"promo_code": "ABC"})
+        self.assertIn(res.status_code, (302, 401))
+
+    def test_preview_discount_ok(self):
+        PromoCode.objects.create(
+            code="DISC10",
+            title="Ten off",
+            kind=PromoCode.KIND_PRICE_DISCOUNT,
+            valid_until=self._future(),
+            max_uses=None,
+            discount_percent=10,
+            applies_to_plan_codes=[UserSubscription.PLAN_MONTH_1, UserSubscription.PLAN_MONTH_12],
+        )
+        self.client.login(username="promo-user", password="pass12345")
+        res = self.client.post(reverse("billing_promo_preview_api"), {"promo_code": "disc10"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data.get("ok"))
+        self.assertEqual(data.get("kind"), PromoCode.KIND_PRICE_DISCOUNT)
+        self.assertIn("prices", data)
+        self.assertLess(data["prices"][UserSubscription.PLAN_MONTH_1]["price_total"], 1990)
+
+    def test_preview_expired_promo(self):
+        PromoCode.objects.create(
+            code="OLD",
+            title="Old",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=self._past(),
+            free_days=5,
+        )
+        self.client.login(username="promo-user", password="pass12345")
+        res = self.client.post(reverse("billing_promo_preview_api"), {"promo_code": "old"})
+        self.assertEqual(res.status_code, 400)
+
+    def test_free_days_extends_active_access(self):
+        PromoCode.objects.create(
+            code="FREE7",
+            title="Week",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=self._future(),
+            free_days=7,
+        )
+        self.client.login(username="promo-user", password="pass12345")
+        sub = UserSubscription.objects.get(user=self.user)
+        base = timezone.now() + timedelta(days=10)
+        sub.access_expires_at = base
+        sub.status = UserSubscription.STATUS_ACTIVE
+        sub.save(update_fields=["access_expires_at", "status", "updated_at"])
+
+        res = self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "free7"})
+        self.assertEqual(res.status_code, 200)
+        sub.refresh_from_db()
+        self.assertEqual(sub.access_expires_at, base + timedelta(days=7))
+        self.assertTrue(PromoRedemption.objects.filter(promo__code="FREE7", user=self.user).exists())
+
+    def test_free_days_from_now_when_expired(self):
+        PromoCode.objects.create(
+            code="FREE14",
+            title="Two weeks",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=self._future(),
+            free_days=14,
+        )
+        self.client.login(username="promo-user", password="pass12345")
+        sub = UserSubscription.objects.get(user=self.user)
+        sub.status = UserSubscription.STATUS_EXPIRED
+        sub.access_expires_at = timezone.now() - timedelta(days=5)
+        sub.save(update_fields=["access_expires_at", "status", "updated_at"])
+
+        res = self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "free14"})
+        self.assertEqual(res.status_code, 200)
+        sub.refresh_from_db()
+        self.assertIsNotNone(sub.access_expires_at)
+        self.assertGreater(sub.access_expires_at, timezone.now() + timedelta(days=13))
+
+    def test_free_days_double_apply_fails(self):
+        PromoCode.objects.create(
+            code="ONCE",
+            title="Once",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=self._future(),
+            free_days=3,
+        )
+        self.client.login(username="promo-user", password="pass12345")
+        r1 = self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "once"})
+        self.assertEqual(r1.status_code, 200)
+        r2 = self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "once"})
+        self.assertEqual(r2.status_code, 400)
+
+    def test_max_uses_blocks_second_user(self):
+        PromoCode.objects.create(
+            code="LIMIT1",
+            title="One use",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=self._future(),
+            free_days=1,
+            max_uses=1,
+        )
+        self.client.login(username="promo-user", password="pass12345")
+        self.assertEqual(self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "limit1"}).status_code, 200)
+        other = User.objects.create_user(username="promo-user-2", password="pass12345")
+        self.client.logout()
+        self.client.login(username="promo-user-2", password="pass12345")
+        res = self.client.post(reverse("billing_promo_preview_api"), {"promo_code": "limit1"})
+        self.assertEqual(res.status_code, 400)
+
+    @override_settings(
+        TBANK_TERMINAL_KEY="1548954253179DEMO",
+        TBANK_PASSWORD="szup5snpnaevomee",
+        APP_BASE_URL="https://vendra.ru",
+        TBANK_INIT_URL="https://securepay.tinkoff.ru/v2/Init",
+    )
+    @patch("core.services_payments_tbank.requests.post")
+    def test_billing_init_creates_pending_payment_with_discount_promo(self, mock_post):
+        PromoCode.objects.create(
+            code="PAY20",
+            title="Twenty",
+            kind=PromoCode.KIND_PRICE_DISCOUNT,
+            valid_until=self._future(),
+            discount_percent=20,
+            applies_to_plan_codes=[UserSubscription.PLAN_MONTH_1],
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "Success": True,
+            "PaymentURL": "https://securepay.tinkoff.ru/mock-pay",
+            "PaymentId": "123456",
+            "Status": "NEW",
+        }
+        self.client.login(username="promo-user", password="pass12345")
+        res = self.client.post(
+            reverse("billing_init_payment_api"),
+            {"plan_code": UserSubscription.PLAN_MONTH_1, "promo_code": "pay20"},
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["charged_total"], 1592)
+        payment = BillingPayment.objects.get(user=self.user, promo__code="PAY20")
+        self.assertEqual(payment.status, BillingPayment.STATUS_PENDING)
+        self.assertEqual(payment.amount_rub, 1592)
+        self.assertFalse(PromoRedemption.objects.filter(user=self.user, promo__code="PAY20").exists())
+
+    def test_admin_promos_list_forbidden_for_normal_user(self):
+        self.client.login(username="promo-user", password="pass12345")
+        res = self.client.get(reverse("admin_promos_list_api"))
+        self.assertEqual(res.status_code, 403)
+
+    def test_admin_promos_list_ok_for_superuser(self):
+        self.client.login(username="promo-admin", password="pass12345")
+        res = self.client.get(reverse("admin_promos_list_api"))
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json().get("ok"))
+
+
+class TBankPaymentFlowTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="billing-user", password="pass12345")
+        self.client.login(username="billing-user", password="pass12345")
+        self.subscription = get_or_create_subscription(self.user)
+
+    @override_settings(
+        TBANK_TERMINAL_KEY="1548954253179DEMO",
+        TBANK_PASSWORD="szup5snpnaevomee",
+        APP_BASE_URL="https://vendra.ru",
+        TBANK_INIT_URL="https://securepay.tinkoff.ru/v2/Init",
+    )
+    @patch("core.services_payments_tbank.requests.post")
+    def test_init_payment_returns_provider_url(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "Success": True,
+            "PaymentURL": "https://securepay.tinkoff.ru/payment-page",
+            "PaymentId": "pay-42",
+            "Status": "NEW",
+        }
+
+        response = self.client.post(reverse("billing_init_payment_api"), {"plan_code": UserSubscription.PLAN_MONTH_6})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["payment_url"], "https://securepay.tinkoff.ru/payment-page")
+        payment = BillingPayment.objects.get(user=self.user)
+        self.assertEqual(payment.status, BillingPayment.STATUS_PENDING)
+        self.assertEqual(payment.provider_payment_id, "pay-42")
+        self.assertEqual(payment.amount_rub, 9990)
+        self.subscription.refresh_from_db()
+        self.assertEqual(self.subscription.status, UserSubscription.STATUS_TRIAL)
+
+    @override_settings(TBANK_PASSWORD="szup5snpnaevomee")
+    def test_notification_confirms_payment_and_extends_active_subscription(self):
+        base_expiry = timezone.now() + timedelta(days=10)
+        self.subscription.status = UserSubscription.STATUS_ACTIVE
+        self.subscription.access_expires_at = base_expiry
+        self.subscription.save(update_fields=["status", "access_expires_at", "updated_at"])
+        payment = BillingPayment.objects.create(
+            user=self.user,
+            subscription=self.subscription,
+            provider=BillingPayment.PROVIDER_TBANK,
+            status=BillingPayment.STATUS_PENDING,
+            plan_code=UserSubscription.PLAN_MONTH_1,
+            order_id="order-confirm-1",
+            provider_payment_id="provider-1",
+            amount_rub=1990,
+            amount_kopeks=199000,
+            description="Оплата тарифа",
+        )
+        payload = {
+            "TerminalKey": "1548954253179DEMO",
+            "OrderId": payment.order_id,
+            "Success": "true",
+            "Status": "CONFIRMED",
+            "PaymentId": "provider-1",
+            "ErrorCode": "0",
+            "Amount": str(payment.amount_kopeks),
+        }
+        payload["Token"] = build_tbank_token(payload, "szup5snpnaevomee")
+
+        response = self.client.post(
+            reverse("billing_tbank_notification"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode("utf-8"), "OK")
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, BillingPayment.STATUS_CONFIRMED)
+        self.assertIsNotNone(payment.activated_at)
+        self.subscription.refresh_from_db()
+        self.assertEqual(self.subscription.status, UserSubscription.STATUS_ACTIVE)
+        self.assertGreater(self.subscription.access_expires_at, base_expiry + timedelta(days=25))
+
+    @override_settings(TBANK_PASSWORD="szup5snpnaevomee")
+    def test_notification_is_idempotent_for_confirmed_payment(self):
+        payment = BillingPayment.objects.create(
+            user=self.user,
+            subscription=self.subscription,
+            provider=BillingPayment.PROVIDER_TBANK,
+            status=BillingPayment.STATUS_PENDING,
+            plan_code=UserSubscription.PLAN_MONTH_6,
+            order_id="order-confirm-2",
+            provider_payment_id="provider-2",
+            amount_rub=9990,
+            amount_kopeks=999000,
+            description="Оплата тарифа",
+        )
+        payload = {
+            "TerminalKey": "1548954253179DEMO",
+            "OrderId": payment.order_id,
+            "Success": "true",
+            "Status": "CONFIRMED",
+            "PaymentId": "provider-2",
+            "ErrorCode": "0",
+            "Amount": str(payment.amount_kopeks),
+        }
+        payload["Token"] = build_tbank_token(payload, "szup5snpnaevomee")
+
+        first = self.client.post(
+            reverse("billing_tbank_notification"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        second = self.client.post(
+            reverse("billing_tbank_notification"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        payment.refresh_from_db()
+        activated_at = payment.activated_at
+        self.assertIsNotNone(activated_at)
+        self.subscription.refresh_from_db()
+        expiry_after_first_confirm = self.subscription.access_expires_at
+        self.client.post(
+            reverse("billing_tbank_notification"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        payment.refresh_from_db()
+        self.subscription.refresh_from_db()
+        self.assertEqual(payment.activated_at, activated_at)
+        self.assertEqual(self.subscription.access_expires_at, expiry_after_first_confirm)

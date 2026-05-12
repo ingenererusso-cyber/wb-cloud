@@ -227,6 +227,11 @@ DEFAULT_FROM_EMAIL = os.getenv(
     EMAIL_HOST_USER or "noreply@vendra.local",
 )
 
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://vendra.ru").strip().rstrip("/")
+TBANK_TERMINAL_KEY = os.getenv("TBANK_TERMINAL_KEY", "").strip()
+TBANK_PASSWORD = os.getenv("TBANK_PASSWORD", "")
+TBANK_INIT_URL = os.getenv("TBANK_INIT_URL", "https://securepay.tinkoff.ru/v2/Init").strip()
+
 LEGAL_DOC_VERSIONS = {
     "privacy": "2026-05-01",
     "consent": "2026-05-01",
