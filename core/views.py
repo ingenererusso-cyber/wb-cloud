@@ -3780,7 +3780,7 @@ def billing_promo_apply_free_days_api(request):
 def _mark_payment_confirmed(payment: BillingPayment, payload: dict) -> BillingPayment:
     now_dt = timezone.now()
     with transaction.atomic():
-        payment = BillingPayment.objects.select_for_update().select_related("subscription").get(pk=payment.pk)
+        payment = BillingPayment.objects.select_for_update().get(pk=payment.pk)
         payment.status = BillingPayment.STATUS_CONFIRMED
         payment.notification_payload = payload
         payment.notification_received_at = now_dt
