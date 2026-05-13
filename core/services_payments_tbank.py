@@ -60,8 +60,6 @@ def build_init_payload(
     amount_kopeks: int,
     description: str,
     notification_url: str,
-    success_url: str,
-    fail_url: str,
     customer_key: str,
     data: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -73,8 +71,6 @@ def build_init_payload(
         "PayType": "O",
         "Language": "ru",
         "NotificationURL": notification_url,
-        "SuccessURL": success_url,
-        "FailURL": fail_url,
         "CustomerKey": customer_key[:36],
     }
     if data:

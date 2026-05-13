@@ -3413,12 +3413,8 @@ def _build_absolute_app_url(path: str) -> str:
     return f"{base}{path}"
 
 
-def _build_tbank_result_urls(payment: BillingPayment) -> tuple[str, str, str]:
-    notification_url = _build_absolute_app_url(reverse("billing_tbank_notification"))
-    result_base = reverse("billing_result")
-    success_url = _build_absolute_app_url(f"{result_base}?order_id={payment.order_id}&result=success")
-    fail_url = _build_absolute_app_url(f"{result_base}?order_id={payment.order_id}&result=fail")
-    return notification_url, success_url, fail_url
+def _build_tbank_notification_url() -> str:
+    return _build_absolute_app_url(reverse("billing_tbank_notification"))
 
 
 def _build_payment_description(plan_code: str) -> str:
@@ -3689,7 +3685,7 @@ def billing_init_payment_api(request):
             promo_code=(promo.code if promo else ""),
             promo_snapshot=promo_snapshot,
         )
-        notification_url, success_url, fail_url = _build_tbank_result_urls(payment)
+        notification_url = _build_tbank_notification_url()
         payload = build_init_payload(
             terminal_key=settings.TBANK_TERMINAL_KEY,
             password=settings.TBANK_PASSWORD,
@@ -3697,8 +3693,6 @@ def billing_init_payment_api(request):
             amount_kopeks=payment.amount_kopeks,
             description=payment.description,
             notification_url=notification_url,
-            success_url=success_url,
-            fail_url=fail_url,
             customer_key=str(request.user.id),
             data={
                 "plan": plan_code,
