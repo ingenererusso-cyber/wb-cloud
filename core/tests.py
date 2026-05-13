@@ -43,7 +43,7 @@ from core.services_advertising import (
 )
 from core.services.localization import get_local_orders_percent_last_full_week
 from core.subscriptions import get_or_create_subscription
-from core.services_payments_tbank import build_tbank_token
+from core.services_payments_tbank import build_tbank_token, verify_tbank_token
 from core.views import _build_home_summary_payload, _set_sync_task
 
 
@@ -1989,6 +1989,20 @@ class TBankPaymentFlowTests(TestCase):
         self.user = User.objects.create_user(username="billing-user", password="pass12345")
         self.client.login(username="billing-user", password="pass12345")
         self.subscription = get_or_create_subscription(self.user)
+
+    def test_verify_tbank_token_accepts_boolean_success_field(self):
+        payload = {
+            "TerminalKey": "1548954253179DEMO",
+            "OrderId": "bool-order",
+            "Success": True,
+            "Status": "CONFIRMED",
+            "PaymentId": "bool-pay",
+            "ErrorCode": "0",
+            "Amount": 199000,
+        }
+        payload["Token"] = build_tbank_token(payload, "szup5snpnaevomee")
+
+        self.assertTrue(verify_tbank_token(payload, "szup5snpnaevomee"))
 
     @override_settings(
         TBANK_TERMINAL_KEY="1548954253179DEMO",

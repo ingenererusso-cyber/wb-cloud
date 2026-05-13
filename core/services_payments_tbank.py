@@ -25,6 +25,12 @@ class TBankError(Exception):
     pass
 
 
+def _stringify_scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def _root_scalar_fields(payload: dict[str, Any]) -> dict[str, str]:
     result: dict[str, str] = {}
     for key, value in payload.items():
@@ -34,13 +40,13 @@ def _root_scalar_fields(payload: dict[str, Any]) -> dict[str, str]:
             continue
         if value is None:
             continue
-        result[str(key)] = str(value)
+        result[str(key)] = _stringify_scalar(value)
     return result
 
 
 def build_tbank_token(payload: dict[str, Any], password: str) -> str:
     parts = _root_scalar_fields(payload)
-    parts["Password"] = str(password)
+    parts["Password"] = _stringify_scalar(password)
     raw = "".join(parts[key] for key in sorted(parts))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
