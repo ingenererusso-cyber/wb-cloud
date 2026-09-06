@@ -46,7 +46,45 @@
             display: flex;
             flex-direction: column;
             align-items: flex-end;
-            gap: 8px;
+            gap: 12px;
+        }
+        .action-block {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+        .action-block--write {
+            border-color: rgba(59, 130, 246, 0.35);
+            background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
+        }
+        .action-block-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .action-block--write .action-block-label {
+            color: #1d4ed8;
+        }
+        .write-upsell {
+            font-size: 13px;
+            color: #1e3a8a;
+            max-width: 320px;
+            text-align: right;
+        }
+        .write-upsell a {
+            color: #1d4ed8;
+            font-weight: 700;
+        }
+        .amount-input[readonly] {
+            background: #f8fafc;
+            color: var(--muted);
         }
         h1 { margin: 0; font-size: 30px; }
         .btn {
@@ -173,17 +211,32 @@
     <div class="top">
         <h1>Управление остатками FBS</h1>
         <div class="top-actions">
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="sync_fbs_stocks">
-                <button type="submit" class="btn">Синхронизировать остатки FBS</button>
-            </form>
-            <form method="post" id="update-form">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="update_fbs_stocks">
-                <input type="hidden" name="changes_json" id="changes-json">
-                <button type="submit" class="btn btn-blue" id="submit-changes-btn" disabled>Отправить изменения</button>
-            </form>
+            <div class="action-block read-actions">
+                <span class="action-block-label">Чтение · синхронизация</span>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="sync_fbs_stocks">
+                    <button type="submit" class="btn">Синхронизировать остатки FBS</button>
+                </form>
+            </div>
+            <div class="action-block action-block--write write-actions">
+                <span class="action-block-label">Запись в WB</span>
+                <form method="post" id="update-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update_fbs_stocks">
+                    <input type="hidden" name="changes_json" id="changes-json">
+                    <button type="submit"
+                            class="btn btn-blue"
+                            id="submit-changes-btn"
+                            {% if not has_write_access %}disabled{% endif %}>Отправить изменения</button>
+                </form>
+                {% if not has_write_access %}
+                <p class="write-upsell">
+                    Доступно в тарифе «Чтение + запись».
+                    <a href="{% url 'pricing_page' %}">Выбрать тариф</a>
+                </p>
+                {% endif %}
+            </div>
         </div>
     </div>
 
@@ -252,6 +305,7 @@
                                 data-chrt-id="{{ row.chrt_id }}"
                                 data-warehouse-id="{{ row.seller_warehouse_id }}"
                                 data-original="{{ row.amount }}"
+                                {% if not has_write_access %}readonly{% endif %}
                             >
                         </td>
                         <td class="muted">{{ row.updated_at|date:"d.m.Y H:i" }}</td>

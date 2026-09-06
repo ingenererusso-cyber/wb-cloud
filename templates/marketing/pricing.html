@@ -5,14 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vendra — тарифы</title>
     <style>
-        :root{--ink:#132033;--muted:#5a6778;--line:rgba(19,32,51,.14);--surface:rgba(255,255,255,.9);--accent:#14532d;--page-shell-max-width:1200px}
+        :root{--ink:#132033;--muted:#5a6778;--line:rgba(19,32,51,.14);--surface:rgba(255,255,255,.9);--accent:#14532d;--write:#1d4ed8;--page-shell-max-width:1200px}
         *{box-sizing:border-box} body{margin:0;font-family:"Trebuchet MS","Segoe UI",sans-serif;color:var(--ink);background:linear-gradient(135deg,#eff7ff 0%,#f7fdf5 55%,#eef6ff 100%)}
         .wrap{width:min(var(--page-shell-max-width),calc(100% - 32px));margin:18px auto}
         .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
         .btn{display:inline-flex;text-decoration:none;border-radius:10px;padding:10px 14px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;font-size:14px}
         .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+        .btn-write{background:linear-gradient(135deg,#1d4ed8 0%,#3b82f6 100%);color:#fff;border-color:#1d4ed8}
+        .tier-section{margin-top:18px;border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:14px}
+        .tier-section--write{border-color:rgba(29,78,216,.25);background:linear-gradient(180deg,rgba(239,246,255,.95) 0%,rgba(255,255,255,.92) 100%)}
+        .tier-head{margin-bottom:10px}
+        .tier-head h2{margin:0 0 4px;font-size:22px}
         .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-        .card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px}
+        .card{border:1px solid var(--line);border-radius:14px;background:#fff;padding:14px}
         .price{font-size:34px;font-weight:800;margin:8px 0 2px}.muted{color:var(--muted);font-size:13px}
         .ok{margin-top:10px;border:1px solid #bfdbfe;background:#dbeafe;color:#1e3a8a;padding:8px 10px;border-radius:10px;font-size:13px}
         .promo-box{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
@@ -21,6 +26,7 @@
         .promo-row input{flex:1;min-width:160px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:14px}
         .err{color:#b91c1c;font-size:13px;margin-top:6px}
         .ok-msg{color:#14532d;font-size:13px;margin-top:6px}
+        .promo-hint{font-size:12px;color:var(--muted);margin-top:6px}
         @media (max-width:960px){.grid{grid-template-columns:1fr}}
     </style>
 </head>
@@ -31,7 +37,10 @@
         <a class="btn" href="{% url 'home' %}" onclick="if (window.history.length > 1) { event.preventDefault(); window.history.back(); }">Назад</a>
     </div>
     {% if subscription %}
-    <div class="ok" id="sub-banner">Ваш статус: {{ subscription.status_label }} · План: {{ subscription.plan_label }}{% if subscription.access_expires_at %} · Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}</div>
+    <div class="ok" id="sub-banner">
+        Ваш статус: {{ subscription.status_label }} · Блок: {{ subscription.tier_label }} · Период: {{ subscription.plan_label }}
+        {% if subscription.access_expires_at %} · Доступ до {{ subscription.access_expires_at|date:"d.m.Y H:i" }}{% endif %}
+    </div>
     {% endif %}
     {% if payment_result %}
     <div class="ok">
@@ -60,23 +69,53 @@
         </div>
         <div class="err" id="promo-err" style="display:none;"></div>
         <div class="ok-msg" id="promo-ok" style="display:none;"></div>
+        <div class="promo-hint" id="promo-hint" style="display:none;"></div>
     </div>
     {% endif %}
-    <div class="grid" style="margin-top:12px;">
-        {% for plan in plans %}
-        <article class="card" data-plan="{{ plan.code }}" data-base-total="{{ plan.price_total }}" data-base-monthly="{{ plan.price_monthly }}">
-            <h2 style="margin:0;">{{ plan.label }}</h2>
-            <p class="price"><span class="js-price-total">{{ plan.price_total }}</span> ₽</p>
-            <p class="muted"><span class="js-price-monthly">{{ plan.price_monthly }}</span> ₽ / мес.</p>
-            <p class="muted">Оплата через платежную страницу T-Bank. После подтверждения банком доступ продлится автоматически.</p>
-            {% if request.user.is_authenticated %}
-            <button class="btn btn-primary js-plan-btn" type="button" data-plan="{{ plan.code }}" style="margin-top:10px;">Оплатить</button>
-            {% else %}
-            <a class="btn" href="{% url 'home' %}#signup" style="margin-top:10px;">Зарегистрироваться и получить бесплатный полный доступ</a>
-            {% endif %}
-        </article>
-        {% endfor %}
-    </div>
+
+    {% for section in pricing_sections %}
+    <section class="tier-section {% if section.tier_code == 'read_write' %}tier-section--write{% endif %}">
+        <div class="tier-head">
+            <h2>{{ section.tier_label }}</h2>
+            <p class="muted" style="margin:0;">{{ section.description }}</p>
+        </div>
+        <div class="grid">
+            {% for plan in section.plans %}
+            <article class="card js-plan-card"
+                     data-tier="{{ section.tier_code }}"
+                     data-plan="{{ plan.code }}"
+                     data-base-total="{{ plan.price_total }}"
+                     data-base-monthly="{{ plan.price_monthly }}">
+                <h3 style="margin:0;">{{ plan.label }}</h3>
+                <p class="price"><span class="js-price-total">{{ plan.price_total }}</span> ₽</p>
+                <p class="muted"><span class="js-price-monthly">{{ plan.price_monthly }}</span> ₽ / мес.</p>
+                {% if section.tier_code == 'read' %}
+                <ul class="muted" style="padding-left:18px;margin:8px 0;">
+                    <li>Синхронизация и отчёты</li>
+                    <li>Аналитика и рекомендации</li>
+                </ul>
+                {% else %}
+                <ul class="muted" style="padding-left:18px;margin:8px 0;">
+                    <li>Всё из «Чтение»</li>
+                    <li>Отправка FBS-остатков в WB</li>
+                    <li>Будущие write-методы API</li>
+                </ul>
+                {% endif %}
+                <p class="muted">Оплата через T-Bank. После подтверждения банком доступ продлится автоматически.</p>
+                {% if request.user.is_authenticated %}
+                <button class="btn {% if section.tier_code == 'read_write' %}btn-write{% else %}btn-primary{% endif %} js-plan-btn"
+                        type="button"
+                        data-tier="{{ section.tier_code }}"
+                        data-plan="{{ plan.code }}"
+                        style="margin-top:10px;">Оплатить</button>
+                {% else %}
+                <a class="btn" href="{% url 'home' %}#signup" style="margin-top:10px;">Зарегистрироваться</a>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
 </div>
 {% include "partials/site_footer.html" %}
 {% include "partials/cookie_banner.html" %}
@@ -90,6 +129,7 @@
         const inputEl = document.getElementById("promo-input");
         const errEl = document.getElementById("promo-err");
         const okEl = document.getElementById("promo-ok");
+        const hintEl = document.getElementById("promo-hint");
         const freeApplyBtn = document.getElementById("promo-free-apply-btn");
         let lastPreview = null;
 
@@ -101,9 +141,13 @@
             okEl.style.display = t ? "block" : "none";
             okEl.textContent = t || "";
         }
+        function showHint(t) {
+            hintEl.style.display = t ? "block" : "none";
+            hintEl.textContent = t || "";
+        }
 
         function resetPricesToBase() {
-            document.querySelectorAll("article.card[data-plan]").forEach((card) => {
+            document.querySelectorAll("article.js-plan-card").forEach((card) => {
                 const total = card.getAttribute("data-base-total");
                 const monthly = card.getAttribute("data-base-monthly");
                 const pt = card.querySelector(".js-price-total");
@@ -113,10 +157,12 @@
             });
         }
 
-        function applyDiscountPrices(prices) {
-            document.querySelectorAll("article.card[data-plan]").forEach((card) => {
+        function applyDiscountPrices(pricesByTier) {
+            document.querySelectorAll("article.js-plan-card").forEach((card) => {
+                const tier = card.getAttribute("data-tier");
                 const code = card.getAttribute("data-plan");
-                const row = prices && prices[code];
+                const tierPrices = pricesByTier && pricesByTier[tier];
+                const row = tierPrices && tierPrices[code];
                 const pt = card.querySelector(".js-price-total");
                 const pm = card.querySelector(".js-price-monthly");
                 if (!row || !pt || !pm) return;
@@ -128,6 +174,7 @@
         document.getElementById("promo-preview-btn").addEventListener("click", async () => {
             showErr("");
             showOk("");
+            showHint("");
             freeApplyBtn.style.display = "none";
             lastPreview = null;
             const code = (inputEl.value || "").trim();
@@ -151,12 +198,17 @@
             }
             lastPreview = data;
             if (data.kind === "price_discount") {
-                applyDiscountPrices(data.prices);
-                showOk("Скидка применена к отображаемым ценам. После обновления страницы цены снова станут обычными.");
+                applyDiscountPrices(data.prices || {});
+                const scope = data.tier_scope_label || "выбранные блоки";
+                showOk("Скидка применена к блокам: " + scope + ".");
+                showHint("Цены в других блоках без изменений, если промокод на них не распространяется.");
                 freeApplyBtn.style.display = "none";
             } else if (data.kind === "free_days") {
                 resetPricesToBase();
                 showOk(data.message || ("Можно активировать " + data.free_days + " дн."));
+                if (data.tier_scope_label) {
+                    showHint("Блок промокода: " + data.tier_scope_label + ".");
+                }
                 freeApplyBtn.style.display = "inline-flex";
             }
         });
@@ -185,13 +237,14 @@
             btn.addEventListener("click", async () => {
                 btn.disabled = true;
                 const fd = new FormData();
+                fd.set("tier_code", btn.dataset.tier || "");
                 fd.set("plan_code", btn.dataset.plan || "");
                 const code = (inputEl.value || "").trim();
                 if (code) fd.set("promo_code", code);
                 try {
                     const res = await fetch(initPayUrl, {
                         method: "POST",
-                        headers: { "X-CSRFToken": getCookie("csrftoken"), "Accept": "application/json" },
+                        headers: { "X-CSRFToken": getCookie("csrftoken"), Accept: "application/json" },
                         body: fd,
                     });
                     const data = await res.json();

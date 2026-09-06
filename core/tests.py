@@ -41,8 +41,13 @@ from core.services_advertising import (
     sync_ad_campaigns_and_stats,
     sync_active_paused_ad_campaigns_full_history,
 )
+from core.services_stocks import sync_supplier_stocks
 from core.services.localization import get_local_orders_percent_last_full_week
-from core.subscriptions import get_or_create_subscription
+from core.subscriptions import (
+    get_or_create_subscription,
+    has_write_access,
+    extend_subscription_access,
+)
 from core.services_payments_tbank import build_tbank_token, verify_tbank_token
 from core.views import _build_home_summary_payload, _set_sync_task
 
@@ -211,6 +216,69 @@ class DashboardHomeApiTests(TestCase):
         r_bad = self.client.get(reverse("dashboard_summary_api"), {"weeks": "99"})
         self.assertEqual(r_bad.status_code, 200)
         self.assertEqual(r_bad.json()["summary"]["period_weeks"], 1)
+
+
+class SupplierStocksSyncTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="stocks-user", password="pass12345")
+        self.seller = SellerAccount.objects.create(user=self.user, name="Seller")
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+
+    @patch("core.services_stocks._sync_product_card_sizes")
+    @patch("core.services_stocks.WBAnalyticsClient")
+    def test_sync_supplier_stocks_removes_rows_missing_from_latest_wb_payload(self, client_cls, sync_sizes):
+        WarehouseStockDetailed.objects.create(
+            seller=self.seller,
+            nm_id=1001,
+            supplier_article="tw-1028b",
+            tech_size="0",
+            warehouse_name="Коледино",
+            quantity=22,
+        )
+
+        client_cls.return_value.get_wb_warehouse_stocks.return_value = []
+
+        synced_rows = sync_supplier_stocks(self.seller)
+
+        self.assertEqual(synced_rows, 0)
+        self.assertFalse(WarehouseStockDetailed.objects.filter(seller=self.seller).exists())
+        sync_sizes.assert_called_once_with(self.seller)
+
+    @patch("core.services_stocks._sync_product_card_sizes")
+    @patch("core.services_stocks.WBAnalyticsClient")
+    def test_sync_supplier_stocks_uses_current_analytics_payload(self, client_cls, sync_sizes):
+        ProductCardSize.objects.create(
+            seller=self.seller,
+            chrt_id=501,
+            nm_id=1001,
+            vendor_code="SKU-1",
+            tech_size="42",
+            wb_size="L",
+        )
+        client_cls.return_value.get_wb_warehouse_stocks.return_value = [
+            {
+                "nmId": 1001,
+                "chrtId": 501,
+                "warehouseId": 507,
+                "warehouseName": "Коледино",
+                "regionName": "Центральный",
+                "quantity": 43,
+                "inWayToClient": 14,
+                "inWayFromClient": 11,
+            }
+        ]
+
+        synced_rows = sync_supplier_stocks(self.seller)
+
+        self.assertEqual(synced_rows, 1)
+        stock = WarehouseStockDetailed.objects.get(seller=self.seller)
+        self.assertEqual(stock.nm_id, 1001)
+        self.assertEqual(stock.supplier_article, "SKU-1")
+        self.assertEqual(stock.tech_size, "42")
+        self.assertEqual(stock.warehouse_name, "Коледино")
+        self.assertEqual(stock.quantity, 43)
+        sync_sizes.assert_called_once_with(self.seller)
 
     def test_dashboard_summary_revenue_and_avg_check_use_order_date_without_cancels(self):
         self.client.login(username="home-user", password="pass12345")
@@ -1850,7 +1918,10 @@ class PromoCodeFlowTests(TestCase):
         self.assertTrue(data.get("ok"))
         self.assertEqual(data.get("kind"), PromoCode.KIND_PRICE_DISCOUNT)
         self.assertIn("prices", data)
-        self.assertLess(data["prices"][UserSubscription.PLAN_MONTH_1]["price_total"], 1990)
+        read_prices = data["prices"][UserSubscription.TIER_READ]
+        write_prices = data["prices"][UserSubscription.TIER_READ_WRITE]
+        self.assertLess(read_prices[UserSubscription.PLAN_MONTH_1]["price_total"], 1990)
+        self.assertLess(write_prices[UserSubscription.PLAN_MONTH_1]["price_total"], 2985)
 
     def test_preview_expired_promo(self):
         PromoCode.objects.create(
@@ -1962,7 +2033,11 @@ class PromoCodeFlowTests(TestCase):
         self.client.login(username="promo-user", password="pass12345")
         res = self.client.post(
             reverse("billing_init_payment_api"),
-            {"plan_code": UserSubscription.PLAN_MONTH_1, "promo_code": "pay20"},
+            {
+                "tier_code": UserSubscription.TIER_READ,
+                "plan_code": UserSubscription.PLAN_MONTH_1,
+                "promo_code": "pay20",
+            },
         )
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -2020,7 +2095,13 @@ class TBankPaymentFlowTests(TestCase):
             "Status": "NEW",
         }
 
-        response = self.client.post(reverse("billing_init_payment_api"), {"plan_code": UserSubscription.PLAN_MONTH_6})
+        response = self.client.post(
+            reverse("billing_init_payment_api"),
+            {
+                "tier_code": UserSubscription.TIER_READ,
+                "plan_code": UserSubscription.PLAN_MONTH_6,
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -2043,6 +2124,7 @@ class TBankPaymentFlowTests(TestCase):
             subscription=self.subscription,
             provider=BillingPayment.PROVIDER_TBANK,
             status=BillingPayment.STATUS_PENDING,
+            tier_code=UserSubscription.TIER_READ,
             plan_code=UserSubscription.PLAN_MONTH_1,
             order_id="order-confirm-1",
             provider_payment_id="provider-1",
@@ -2083,6 +2165,7 @@ class TBankPaymentFlowTests(TestCase):
             subscription=self.subscription,
             provider=BillingPayment.PROVIDER_TBANK,
             status=BillingPayment.STATUS_PENDING,
+            tier_code=UserSubscription.TIER_READ,
             plan_code=UserSubscription.PLAN_MONTH_6,
             order_id="order-confirm-2",
             provider_payment_id="provider-2",
@@ -2128,3 +2211,188 @@ class TBankPaymentFlowTests(TestCase):
         self.subscription.refresh_from_db()
         self.assertEqual(payment.activated_at, activated_at)
         self.assertEqual(self.subscription.access_expires_at, expiry_after_first_confirm)
+
+
+class TierAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="tier-user", password="pass12345")
+        self.super = User.objects.create_user(
+            username="tier-admin", password="pass12345", is_superuser=True, is_staff=True
+        )
+        self.client = Client()
+        self.sub = get_or_create_subscription(self.user)
+        self.seller = SellerAccount.objects.create(user=self.user, name="Tier Seller")
+        self.seller.set_api_token("test-token")
+        self.seller.save(update_fields=["api_token"])
+        self.warehouse = SellerWarehouse.objects.create(
+            seller=self.seller,
+            seller_warehouse_id=101,
+            name="FBS WH",
+            delivery_type=1,
+        )
+        ProductCardSize.objects.create(
+            seller=self.seller,
+            chrt_id=555,
+            nm_id=12345,
+            vendor_code="SKU-1",
+            title="Test",
+        )
+        SellerFbsStock.objects.create(
+            seller=self.seller,
+            seller_warehouse=self.warehouse,
+            warehouse_name="FBS WH",
+            chrt_id=555,
+            amount=5,
+        )
+
+    def test_trial_has_read_but_not_write(self):
+        self.assertEqual(self.sub.tier_code, UserSubscription.TIER_READ)
+        self.assertFalse(has_write_access(self.user, self.sub))
+        self.assertTrue(has_write_access(self.super, get_or_create_subscription(self.super)))
+
+    def test_read_tier_blocks_fbs_update_post(self):
+        self.client.login(username="tier-user", password="pass12345")
+        changes = json.dumps([{"seller_warehouse_id": 101, "chrt_id": 555, "amount": 7}])
+        res = self.client.post(
+            reverse("fbs_stocks_report"),
+            {"action": "update_fbs_stocks", "changes_json": changes},
+        )
+        self.assertEqual(res.status_code, 302)
+        stock = SellerFbsStock.objects.get(seller=self.seller, chrt_id=555)
+        self.assertEqual(stock.amount, 5)
+
+    @patch("core.services_fbs_stocks.WBMarketplaceClient")
+    def test_write_tier_allows_fbs_update_post(self, mock_client_cls):
+        mock_client_cls.return_value.update_seller_warehouse_stocks.return_value = None
+        self.sub.tier_code = UserSubscription.TIER_READ_WRITE
+        self.sub.status = UserSubscription.STATUS_ACTIVE
+        self.sub.access_expires_at = timezone.now() + timedelta(days=30)
+        self.sub.save(update_fields=["tier_code", "status", "access_expires_at", "updated_at"])
+        self.client.login(username="tier-user", password="pass12345")
+        changes = json.dumps([{"seller_warehouse_id": 101, "chrt_id": 555, "amount": 7}])
+        res = self.client.post(
+            reverse("fbs_stocks_report"),
+            {"action": "update_fbs_stocks", "changes_json": changes},
+        )
+        self.assertEqual(res.status_code, 302)
+        stock = SellerFbsStock.objects.get(seller=self.seller, chrt_id=555)
+        self.assertEqual(stock.amount, 7)
+
+    @patch("core.views.WBDiscountsPricesClient")
+    def test_write_tier_updates_product_price_via_wb_api(self, mock_client_cls):
+        mock_client_cls.return_value.set_prices_discounts.return_value = {
+            "data": {"id": 123},
+            "error": False,
+            "errorText": "",
+        }
+        self.sub.tier_code = UserSubscription.TIER_READ_WRITE
+        self.sub.status = UserSubscription.STATUS_ACTIVE
+        self.sub.access_expires_at = timezone.now() + timedelta(days=30)
+        self.sub.save(update_fields=["tier_code", "status", "access_expires_at", "updated_at"])
+        product = Product.objects.create(seller=self.seller, nm_id=777, vendor_code="SKU-777", title="Item")
+        ProductSizePrice.objects.create(
+            seller=self.seller,
+            nm_id=777,
+            size_id=11,
+            price=1000,
+            discount_percent=10,
+            discounted_price=900,
+            editable_size_price=False,
+        )
+        self.client.login(username="tier-user", password="pass12345")
+
+        res = self.client.post(
+            reverse("product_price_update_api", args=[product.id]),
+            data=json.dumps({"rows": [{"size_id": 11, "price": 1200, "discount": 15}]}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        mock_client_cls.return_value.set_prices_discounts.assert_called_once_with(
+            [{"nmID": 777, "price": 1200, "discount": 15}]
+        )
+        price_row = ProductSizePrice.objects.get(seller=self.seller, nm_id=777, size_id=11)
+        self.assertEqual(price_row.price, 1200)
+        self.assertEqual(price_row.discount_percent, 15)
+        self.assertEqual(price_row.discounted_price, 1020)
+
+    def test_extend_subscription_sets_write_tier(self):
+        extend_subscription_access(
+            self.sub,
+            plan_code=UserSubscription.PLAN_MONTH_6,
+            tier_code=UserSubscription.TIER_READ_WRITE,
+        )
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.tier_code, UserSubscription.TIER_READ_WRITE)
+        self.assertTrue(has_write_access(self.user, self.sub))
+
+    def test_promo_discount_read_tier_only(self):
+        PromoCode.objects.create(
+            code="READONLY10",
+            title="Read only",
+            kind=PromoCode.KIND_PRICE_DISCOUNT,
+            valid_until=timezone.now() + timedelta(days=30),
+            discount_percent=10,
+            applies_to_plan_codes=[UserSubscription.PLAN_MONTH_1],
+            applies_to_tier_codes=[UserSubscription.TIER_READ],
+        )
+        self.client.login(username="tier-user", password="pass12345")
+        res = self.client.post(reverse("billing_promo_preview_api"), {"promo_code": "readonly10"})
+        data = res.json()
+        read_total = data["prices"][UserSubscription.TIER_READ][UserSubscription.PLAN_MONTH_1]["price_total"]
+        write_total = data["prices"][UserSubscription.TIER_READ_WRITE][UserSubscription.PLAN_MONTH_1]["price_total"]
+        self.assertLess(read_total, 1990)
+        self.assertEqual(write_total, 2985)
+
+    def test_free_days_promo_sets_write_tier(self):
+        PromoCode.objects.create(
+            code="WRITE7",
+            title="Write week",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=timezone.now() + timedelta(days=30),
+            free_days=7,
+            applies_to_tier_codes=[UserSubscription.TIER_READ_WRITE],
+        )
+        self.client.login(username="tier-user", password="pass12345")
+        res = self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "write7"})
+        self.assertEqual(res.status_code, 200)
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.tier_code, UserSubscription.TIER_READ_WRITE)
+
+    def test_free_days_read_promo_does_not_downgrade_write_tier(self):
+        self.sub.tier_code = UserSubscription.TIER_READ_WRITE
+        self.sub.status = UserSubscription.STATUS_ACTIVE
+        self.sub.access_expires_at = timezone.now() + timedelta(days=10)
+        self.sub.save(update_fields=["tier_code", "status", "access_expires_at", "updated_at"])
+        PromoCode.objects.create(
+            code="READ3",
+            title="Read days",
+            kind=PromoCode.KIND_FREE_DAYS,
+            valid_until=timezone.now() + timedelta(days=30),
+            free_days=3,
+            applies_to_tier_codes=[UserSubscription.TIER_READ],
+        )
+        self.client.login(username="tier-user", password="pass12345")
+        self.client.post(reverse("billing_promo_apply_free_days_api"), {"promo_code": "read3"})
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.tier_code, UserSubscription.TIER_READ_WRITE)
+
+    def test_admin_create_promo_with_tier_scope(self):
+        self.client.login(username="tier-admin", password="pass12345")
+        res = self.client.post(
+            reverse("admin_promos_create_api"),
+            {
+                "kind": PromoCode.KIND_FREE_DAYS,
+                "code": "TIERWRITE",
+                "title": "Write promo",
+                "valid_until": (timezone.now() + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M"),
+                "free_days": 5,
+                "applies_to_tier_codes": UserSubscription.TIER_READ_WRITE,
+                "is_active": "1",
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        promo = PromoCode.objects.get(code="TIERWRITE")
+        self.assertEqual(promo.applies_to_tier_codes, [UserSubscription.TIER_READ_WRITE])

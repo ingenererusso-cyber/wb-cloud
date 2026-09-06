@@ -44,6 +44,8 @@ from core.models import (
     AppErrorLog,
     ConsentLog,
     Order,
+    PriceRobotRun,
+    PricingPolicy,
     Product,
     ProductSizePrice,
     RealizationReportDetail,
@@ -91,20 +93,29 @@ from core.services_offices import sync_wb_offices
 from core.services_orders import sync_fbw_orders, sync_sales_buyout_flags
 from core.services_products import sync_products_content
 from core.services_prices import sync_product_size_prices
+from core.price_robot import (
+    apply_plan as price_robot_apply_plan,
+    build_plan as price_robot_build_plan,
+    default_target_zero_date,
+)
 from core.services_commissions import sync_category_commissions
 from core.services_stocks import sync_supplier_stocks
 from core.services_seller_warehouses import sync_seller_warehouses
 from core.services_fbs_stocks import sync_seller_fbs_stocks
 from core.services_fbs_stocks import apply_fbs_stock_updates
+from wb_api.client import WBDiscountsPricesClient
 from core.subscriptions import (
     PLAN_LABELS,
     PLAN_MONTHS,
-    PLAN_PRICES,
+    TIER_LABELS,
+    TIER_PRICE_TABLES,
     build_subscription_summary,
     extend_subscription_access,
     get_or_create_subscription,
-    pricing_cards,
+    get_plan_price,
+    pricing_sections,
 )
+from core.wb_access import require_write_access_html, require_write_access_json
 from core.promo import (
     PromoValidationError,
     annotate_promo_list,
@@ -113,6 +124,7 @@ from core.promo import (
     get_promo_by_code,
     normalize_promo_code,
     preview_promo,
+    tier_scope_label,
 )
 from core.services_payments_tbank import (
     TBankError,
@@ -3392,7 +3404,7 @@ def _generate_unique_username_from_email(email: str) -> str:
 
 def _build_pricing_context(user=None) -> dict:
     latest_payment = None
-    sub_summary = build_subscription_summary(get_or_create_subscription(user)) if user and user.is_authenticated else None
+    sub_summary = build_subscription_summary(get_or_create_subscription(user), user=user) if user and user.is_authenticated else None
     if user and user.is_authenticated:
         latest_payment = (
             BillingPayment.objects.filter(user=user, provider=BillingPayment.PROVIDER_TBANK)
@@ -3400,7 +3412,7 @@ def _build_pricing_context(user=None) -> dict:
             .first()
         )
     return {
-        "plans": pricing_cards(),
+        "pricing_sections": pricing_sections(),
         "subscription": sub_summary,
         "latest_payment": latest_payment,
     }
@@ -3417,9 +3429,10 @@ def _build_tbank_notification_url() -> str:
     return _build_absolute_app_url(reverse("billing_tbank_notification"))
 
 
-def _build_payment_description(plan_code: str) -> str:
+def _build_payment_description(plan_code: str, tier_code: str | None = None) -> str:
     plan_label = PLAN_LABELS.get(plan_code, plan_code)
-    return f"Оплата тарифа Vendra: {plan_label}"
+    tier_label = TIER_LABELS.get(tier_code or UserSubscription.TIER_READ, "Чтение")
+    return f"Оплата тарифа Vendra ({tier_label}): {plan_label}"
 
 
 def _render_document_hash(template_name: str, request=None) -> str:
@@ -3547,7 +3560,7 @@ def register_trial(request):
             mail_subject = "Подтвердите регистрацию в Vendra"
             mail_body = (
                 f"{full_name}, здравствуйте!\n\n"
-                "Спасибо за регистрацию. Подтвердите e-mail, чтобы активировать бесплатный полный доступ на 3 дня:\n"
+                "Спасибо за регистрацию. Подтвердите e-mail, чтобы активировать бесплатный доступ (чтение) на 3 дня:\n"
                 f"{confirm_url}\n\n"
                 "Ссылка действует 24 часа."
             )
@@ -3639,12 +3652,15 @@ def signup_confirm(request, token: str):
 @require_POST
 def billing_init_payment_api(request):
     plan_code = (request.POST.get("plan_code") or "").strip()
-    if plan_code not in PLAN_PRICES:
-        return JsonResponse({"ok": False, "error": "Некорректный тариф."}, status=400)
+    tier_code = (request.POST.get("tier_code") or UserSubscription.TIER_READ).strip()
+    if tier_code not in TIER_PRICE_TABLES:
+        return JsonResponse({"ok": False, "error": "Некорректный блок тарифа."}, status=400)
+    if plan_code not in PLAN_MONTHS:
+        return JsonResponse({"ok": False, "error": "Некорректный период тарифа."}, status=400)
     if not settings.TBANK_TERMINAL_KEY or not settings.TBANK_PASSWORD:
         return JsonResponse({"ok": False, "error": "Платежный шлюз еще не настроен."}, status=503)
     promo_code_raw = (request.POST.get("promo_code") or "").strip()
-    base_price = int(PLAN_PRICES[plan_code])
+    base_price = get_plan_price(tier_code, plan_code)
     months = PLAN_MONTHS.get(plan_code, 1)
     charged_total = base_price
     charged_monthly = int(round(charged_total / max(1, months)))
@@ -3657,15 +3673,24 @@ def billing_init_payment_api(request):
             promo = get_promo_by_code(normalize_promo_code(promo_code_raw))
             if not promo:
                 raise PromoValidationError("Промокод не найден.")
-            preview = preview_promo(user=request.user, code=promo_code_raw, plan_code=plan_code)
-            if promo.kind == PromoCode.KIND_PRICE_DISCOUNT and plan_code in (promo.applies_to_plan_codes or []):
-                row = (preview.get("prices") or {}).get(plan_code) or {}
+            preview = preview_promo(
+                user=request.user,
+                code=promo_code_raw,
+                plan_code=plan_code,
+                tier_code=tier_code,
+            )
+            if promo.kind == PromoCode.KIND_PRICE_DISCOUNT:
+                tier_prices = (preview.get("prices") or {}).get(tier_code) or {}
+                row = tier_prices.get(plan_code) or {}
+                if plan_code not in (promo.applies_to_plan_codes or []) or tier_code not in preview.get("applies_to_tiers", []):
+                    raise PromoValidationError("Промокод не распространяется на выбранный блок или период.")
                 charged_total = int(row.get("price_total", base_price))
                 charged_monthly = int(row.get("price_monthly", charged_monthly))
                 promo_snapshot = {
                     "kind": promo.kind,
                     "promo_id": promo.id,
                     "promo_code": promo.code,
+                    "tier_code": tier_code,
                     "discount_percent": int(promo.discount_percent or 0),
                     "prices": preview.get("prices") or {},
                 }
@@ -3677,11 +3702,12 @@ def billing_init_payment_api(request):
             promo=promo,
             provider=BillingPayment.PROVIDER_TBANK,
             status=BillingPayment.STATUS_CREATED,
+            tier_code=tier_code,
             plan_code=plan_code,
             order_id=uuid.uuid4().hex[:36],
             amount_rub=charged_total,
             amount_kopeks=charged_total * 100,
-            description=_build_payment_description(plan_code),
+            description=_build_payment_description(plan_code, tier_code),
             promo_code=(promo.code if promo else ""),
             promo_snapshot=promo_snapshot,
         )
@@ -3696,6 +3722,7 @@ def billing_init_payment_api(request):
             customer_key=str(request.user.id),
             data={
                 "plan": plan_code,
+                "tier": tier_code,
                 "user_id": str(request.user.id),
                 "order_id": payment.order_id,
             },
@@ -3749,10 +3776,13 @@ def billing_init_payment_api(request):
 def billing_promo_preview_api(request):
     code = (request.POST.get("promo_code") or "").strip()
     plan_code = (request.POST.get("plan_code") or "").strip() or None
-    if plan_code and plan_code not in PLAN_PRICES:
+    tier_code = (request.POST.get("tier_code") or "").strip() or None
+    if plan_code and plan_code not in PLAN_MONTHS:
         plan_code = None
+    if tier_code and tier_code not in TIER_PRICE_TABLES:
+        tier_code = None
     try:
-        payload = preview_promo(user=request.user, code=code, plan_code=plan_code)
+        payload = preview_promo(user=request.user, code=code, plan_code=plan_code, tier_code=tier_code)
         return JsonResponse(payload, status=200)
     except PromoValidationError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
@@ -3782,7 +3812,12 @@ def _mark_payment_confirmed(payment: BillingPayment, payload: dict) -> BillingPa
         if payment.activated_at is None:
             subscription = payment.subscription or get_or_create_subscription(payment.user)
             payment.subscription = subscription
-            extend_subscription_access(subscription, plan_code=payment.plan_code, now_dt=now_dt)
+            extend_subscription_access(
+                subscription,
+                plan_code=payment.plan_code,
+                tier_code=payment.tier_code or UserSubscription.TIER_READ,
+                now_dt=now_dt,
+            )
             payment.activated_at = now_dt
             if payment.promo and payment.promo.kind == PromoCode.KIND_PRICE_DISCOUNT:
                 if not PromoRedemption.objects.filter(promo=payment.promo, user=payment.user).exists():
@@ -3793,6 +3828,7 @@ def _mark_payment_confirmed(payment: BillingPayment, payload: dict) -> BillingPa
                         extra={
                             "kind": payment.promo.kind,
                             "discount_percent": payment.promo.discount_percent,
+                            "tier_code": payment.tier_code,
                             "payment_order_id": payment.order_id,
                         },
                     )
@@ -3890,6 +3926,8 @@ def admin_promos_list_api(request):
                 "is_active": p.is_active,
                 "discount_percent": p.discount_percent,
                 "applies_to_plan_codes": p.applies_to_plan_codes or [],
+                "applies_to_tier_codes": p.applies_to_tier_codes or [],
+                "tier_scope_label": tier_scope_label(p),
                 "free_days": p.free_days,
                 "uses_count": int(getattr(p, "uses_count", 0) or 0),
                 "created_at": p.created_at.isoformat() if p.created_at else None,
@@ -3905,7 +3943,7 @@ def admin_promos_create_api(request):
     if err:
         return err
     data = request.POST.dict()
-    for key in ("applies_to_plan_codes",):
+    for key in ("applies_to_plan_codes", "applies_to_tier_codes"):
         if key not in data and request.POST.getlist(key):
             data[key] = request.POST.getlist(key)
     result = create_promo_from_post(data)
@@ -5306,7 +5344,10 @@ def account_settings(request):
         return redirect(reverse("account_settings"))
 
     try:
-        subscription_summary = build_subscription_summary(get_or_create_subscription(request.user))
+        subscription_summary = build_subscription_summary(
+            get_or_create_subscription(request.user),
+            user=request.user,
+        )
     except (OperationalError, ProgrammingError):
         # Keep settings page usable when subscription schema is not migrated yet.
         subscription_summary = None
@@ -5949,6 +5990,9 @@ def fbs_stocks_report(request):
             return redirect("fbs_stocks_report")
 
         if action == "update_fbs_stocks":
+            denied = require_write_access_html(request)
+            if denied:
+                return denied
             try:
                 raw_changes = (request.POST.get("changes_json") or "").strip()
                 changes = json.loads(raw_changes) if raw_changes else []
@@ -6024,6 +6068,9 @@ def fbs_stocks_report(request):
         rows.append(row)
         total_amount += row["amount"]
 
+    sub = get_or_create_subscription(request.user)
+    access_summary = build_subscription_summary(sub, user=request.user)
+
     return render(
         request,
         "warehouses/fbs_stocks.html",
@@ -6036,6 +6083,7 @@ def fbs_stocks_report(request):
             "query": query,
             "positions_count": len(rows),
             "total_amount": total_amount,
+            "has_write_access": access_summary.get("has_write_access", False),
         },
     )
 
@@ -6827,6 +6875,29 @@ def product_card_detail(request, product_id: int):
     )
     default_sale_price = round(_to_float_or_default(discounted_price_from_prices, 0.0), 2)
     default_purchase_price = round(_to_float_or_default(product.purchase_price, 0.0), 2)
+    price_control_rows = [
+        {
+            "size_id": row.size_id,
+            "tech_size_name": row.tech_size_name or row.size_id,
+            "price": round(float(row.price), 2) if row.price is not None else None,
+            "discounted_price": round(float(row.discounted_price), 2) if row.discounted_price is not None else None,
+            "club_discounted_price": round(float(row.club_discounted_price), 2) if row.club_discounted_price is not None else None,
+            "currency": row.currency_iso_code_4217 or "RUB",
+            "discount_percent": round(float(row.discount_percent), 2) if row.discount_percent is not None else None,
+            "club_discount_percent": round(float(row.club_discount_percent), 2) if row.club_discount_percent is not None else None,
+            "editable_size_price": bool(row.editable_size_price),
+            "updated_at": row.updated_at,
+        }
+        for row in (
+            ProductSizePrice.objects
+            .filter(seller=seller, nm_id=nm_id)
+            .order_by("tech_size_name", "size_id", "-updated_at")
+        )
+    ]
+    price_control_last_updated_at = max(
+        (row["updated_at"] for row in price_control_rows if row.get("updated_at")),
+        default=None,
+    )
 
     settings_obj = _get_or_create_unit_economics_settings(seller)
 
@@ -7017,6 +7088,8 @@ def product_card_detail(request, product_id: int):
             "unit_settings": settings_obj,
             "unit_default_sale_price": default_sale_price,
             "unit_default_purchase_price": default_purchase_price,
+            "price_control_rows": price_control_rows,
+            "price_control_last_updated_at": price_control_last_updated_at,
             "unit_buyout_percent_all_time": buyout_percent_all_time,
             "unit_avg_sales_per_day_14d": avg_sales_per_day_14d,
             "unit_latest_theoretical_il": latest_theoretical_il,
@@ -7030,6 +7103,179 @@ def product_card_detail(request, product_id: int):
             "unit_saved_calcs_json": saved_unit_calcs_payload,
             "unit_has_saved_calc": bool(saved_unit_calcs_payload),
         },
+    )
+
+
+@login_required
+@require_POST
+def product_price_update_api(request, product_id: int):
+    denied = require_write_access_json(request)
+    if denied:
+        return denied
+
+    seller = _get_or_create_seller_for_user(request.user)
+    product = Product.objects.filter(seller=seller, id=product_id).first()
+    if not product:
+        return JsonResponse({"ok": False, "error": "Карточка товара не найдена."}, status=404)
+    if not seller.has_api_token:
+        return JsonResponse({"ok": False, "error": "У продавца не указан WB API token."}, status=400)
+
+    try:
+        if (request.content_type or "").startswith("application/json"):
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+            changes = payload.get("rows") or payload.get("changes") or []
+        else:
+            raw_changes = (request.POST.get("changes_json") or "").strip()
+            changes = json.loads(raw_changes) if raw_changes else []
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"ok": False, "error": "Некорректный JSON изменений."}, status=400)
+    if not isinstance(changes, list) or not changes:
+        return JsonResponse({"ok": False, "error": "Нет изменений для отправки."}, status=400)
+    if len(changes) > 1000:
+        return JsonResponse({"ok": False, "error": "За один раз можно отправить не больше 1000 строк."}, status=400)
+
+    nm_id = int(product.nm_id)
+    price_rows = {
+        int(row.size_id): row
+        for row in ProductSizePrice.objects.filter(seller=seller, nm_id=nm_id)
+    }
+    if not price_rows:
+        return JsonResponse({"ok": False, "error": "По товару нет синхронизированных строк цен."}, status=400)
+
+    prepared_rows = []
+    for item in changes:
+        if not isinstance(item, dict):
+            return JsonResponse({"ok": False, "error": "Некорректная строка изменений."}, status=400)
+        size_id = int(_to_float_or_default(item.get("size_id"), -1))
+        row = price_rows.get(size_id)
+        if row is None:
+            return JsonResponse({"ok": False, "error": f"Размер {size_id} не найден у товара."}, status=400)
+        price = _to_float_or_default(item.get("price"), -1.0)
+        discount = _to_float_or_default(item.get("discount"), -1.0)
+        if price <= 0:
+            return JsonResponse({"ok": False, "error": "Цена должна быть больше 0."}, status=400)
+        if discount < 0 or discount > 100:
+            return JsonResponse({"ok": False, "error": "Скидка должна быть от 0 до 100%."}, status=400)
+        prepared_rows.append(
+            {
+                "row": row,
+                "size_id": size_id,
+                "price": round(float(price), 2),
+                "price_int": int(round(float(price))),
+                "discount": round(float(discount), 2),
+                "discount_int": int(round(float(discount))),
+                "price_changed": row.price is None or abs(float(row.price) - float(price)) > 0.000001,
+                "discount_changed": row.discount_percent is None or abs(float(row.discount_percent) - float(discount)) > 0.000001,
+            }
+        )
+
+    changed_discounts = {item["discount_int"] for item in prepared_rows if item["discount_changed"]}
+    if len(changed_discounts) > 1:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "WB применяет скидку ко всему артикулу, поэтому скидка во всех измененных строках должна быть одинаковой.",
+            },
+            status=400,
+        )
+
+    global_price_candidates = {
+        item["price_int"]
+        for item in prepared_rows
+        if item["price_changed"] and not bool(item["row"].editable_size_price)
+    }
+    if len(global_price_candidates) > 1:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "Для товара без размерных цен цена должна быть одинаковой во всех измененных строках.",
+            },
+            status=400,
+        )
+
+    global_payload = []
+    size_payload = []
+    discount_for_global = next(iter(changed_discounts), None)
+    global_price = next(iter(global_price_candidates), None)
+    if global_price is None and discount_for_global is not None:
+        global_price = prepared_rows[0]["price_int"]
+    if discount_for_global is None and global_price is not None:
+        discount_for_global = int(round(_to_float_or_default(prepared_rows[0]["row"].discount_percent, 0.0)))
+    has_global_price_change = bool(global_price_candidates)
+    if global_price is not None or discount_for_global is not None:
+        global_payload.append(
+            {
+                "nmID": nm_id,
+                "price": int(global_price or prepared_rows[0]["price_int"]),
+                "discount": int(discount_for_global or 0),
+            }
+        )
+
+    for item in prepared_rows:
+        if item["price_changed"] and bool(item["row"].editable_size_price):
+            size_payload.append(
+                {
+                    "nmID": nm_id,
+                    "sizeID": int(item["size_id"]),
+                    "price": int(item["price_int"]),
+                }
+            )
+
+    if not global_payload and not size_payload:
+        return JsonResponse({"ok": False, "error": "Нет изменений для отправки."}, status=400)
+
+    client = WBDiscountsPricesClient(seller.api_token_plain)
+    wb_tasks = []
+    try:
+        if global_payload:
+            wb_tasks.append({"kind": "price_discount", "response": client.set_prices_discounts(global_payload)})
+        if size_payload:
+            wb_tasks.append({"kind": "size_price", "response": client.set_size_prices(size_payload)})
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=502)
+
+    now_dt = timezone.now()
+    updated_rows_payload = []
+    with transaction.atomic():
+        prepared_by_size = {int(item["size_id"]): item for item in prepared_rows}
+        rows_to_refresh = (
+            ProductSizePrice.objects.filter(seller=seller, nm_id=nm_id)
+            if global_payload
+            else ProductSizePrice.objects.filter(seller=seller, nm_id=nm_id, size_id__in=prepared_by_size.keys())
+        )
+        for row in rows_to_refresh:
+            item = prepared_by_size.get(int(row.size_id))
+            update_fields = ["updated_at"]
+            if has_global_price_change and not bool(row.editable_size_price):
+                row.price = float(global_price)
+                update_fields.append("price")
+            if item and item["price_changed"] and bool(row.editable_size_price):
+                row.price = float(item["price_int"])
+                update_fields.append("price")
+            if discount_for_global is not None:
+                row.discount_percent = float(discount_for_global)
+                update_fields.append("discount_percent")
+            if row.price is not None and row.discount_percent is not None:
+                row.discounted_price = round(float(row.price) * (1.0 - float(row.discount_percent) / 100.0), 2)
+                update_fields.append("discounted_price")
+            row.updated_at = now_dt
+            row.save(update_fields=sorted(set(update_fields)))
+            updated_rows_payload.append(
+                {
+                    "size_id": int(row.size_id),
+                    "price": round(float(row.price), 2) if row.price is not None else None,
+                    "discount": round(float(row.discount_percent), 2) if row.discount_percent is not None else None,
+                    "discounted_price": round(float(row.discounted_price), 2) if row.discounted_price is not None else None,
+                }
+            )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "Задача изменения цены отправлена в WB.",
+            "wb_tasks": wb_tasks,
+            "rows": updated_rows_payload,
+        }
     )
 
 
@@ -7084,7 +7330,6 @@ def product_card_detail_heavy_api(request, product_id: int):
             "fact_profit_month": heavy_context["fact_profit_month"],
         }
     )
-
 
 @login_required
 @require_POST
@@ -7741,3 +7986,156 @@ def support_unread_count_api(request):
         .get("total")
     )
     return JsonResponse({"ok": True, "unread_count": int(unread or 0)}, status=200)
+
+
+# ============================================================
+#            Ц Е Н О В О Й   Р О Б О Т
+# ============================================================
+
+def _serialize_price_robot_run(run: PriceRobotRun | None) -> dict | None:
+    if run is None:
+        return None
+    result = run.result if isinstance(run.result, dict) else {}
+    return {
+        "id": run.id,
+        "mode": run.mode,
+        "status": run.status,
+        "phase": run.season_phase,
+        "phase_label": result.get("phase_label", ""),
+        "today": result.get("today", ""),
+        "target_zero_date": result.get("target_zero_date", ""),
+        "hard_deadline": result.get("hard_deadline", ""),
+        "days_left": result.get("days_left", 0),
+        "summary": run.summary if isinstance(run.summary, dict) else {},
+        "decisions": result.get("decisions", []),
+        "error": run.error or "",
+        "created_at": run.created_at.isoformat() if run.created_at else "",
+    }
+
+
+@login_required
+def price_robot_report(request):
+    seller = _get_or_create_seller_for_user(request.user)
+    last_sync_at = _get_last_sync_at_for_user(request.user, seller)
+    access_summary = build_subscription_summary(
+        get_or_create_subscription(request.user), user=request.user
+    )
+
+    last_run = (
+        PriceRobotRun.objects
+        .filter(seller=seller)
+        .order_by("-created_at")
+        .first()
+    )
+    run_data = _serialize_price_robot_run(last_run)
+    target_zero = default_target_zero_date(timezone.localdate())
+
+    return render(
+        request,
+        "products/price_robot.html",
+        {
+            "seller": seller,
+            "last_sync_at": last_sync_at,
+            "run": run_data,
+            "run_json": json.dumps(run_data or {}, ensure_ascii=False),
+            "default_target_zero_date": target_zero.isoformat(),
+            "has_write_access": access_summary.get("has_write_access", False),
+        },
+    )
+
+
+@login_required
+@require_POST
+def price_robot_run_api(request):
+    """Пересчитать план цен (dry-run, только локальные данные). В WB ничего не пишет."""
+    seller = _get_or_create_seller_for_user(request.user)
+    target_zero = None
+    raw_target = (request.POST.get("target_zero_date") or "").strip()
+    if raw_target:
+        try:
+            target_zero = date.fromisoformat(raw_target)
+        except ValueError:
+            return JsonResponse({"error": "Некорректная дата дедлайна."}, status=400)
+
+    run = PriceRobotRun.objects.create(
+        seller=seller,
+        user=request.user,
+        mode=PriceRobotRun.MODE_PLAN,
+        status=PriceRobotRun.STATUS_RUNNING,
+    )
+    try:
+        plan = price_robot_build_plan(seller, target_zero_date=target_zero)
+        run.season_phase = plan.get("phase", "")
+        run.summary = plan.get("summary", {})
+        run.result = plan
+        run.status = PriceRobotRun.STATUS_SUCCESS
+        run.finished_at = timezone.now()
+        run.save()
+        return JsonResponse({"ok": True, "run": _serialize_price_robot_run(run)})
+    except Exception as exc:
+        run.status = PriceRobotRun.STATUS_ERROR
+        run.error = str(exc)
+        run.finished_at = timezone.now()
+        run.save()
+        _log_app_error(
+            source="price_robot.run",
+            message=f"Ошибка расчёта плана цен: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": _ui_error_message("Ошибка расчёта плана", exc)}, status=500)
+
+
+@login_required
+@require_POST
+def price_robot_apply_api(request):
+    """Применить последний рассчитанный план: записать цены в WB. Осознанное действие."""
+    denied = require_write_access_json(request)
+    if denied:
+        return denied
+
+    seller = _get_or_create_seller_for_user(request.user)
+    if not seller.has_api_token:
+        return JsonResponse({"error": "Сначала добавьте API-ключ в настройках аккаунта."}, status=400)
+
+    last_run = (
+        PriceRobotRun.objects
+        .filter(seller=seller, mode=PriceRobotRun.MODE_PLAN, status=PriceRobotRun.STATUS_SUCCESS)
+        .order_by("-created_at")
+        .first()
+    )
+    if last_run is None:
+        return JsonResponse({"error": "Нет рассчитанного плана. Сначала пересчитайте план."}, status=400)
+
+    decisions = (last_run.result or {}).get("decisions", []) if isinstance(last_run.result, dict) else []
+    apply_run = PriceRobotRun.objects.create(
+        seller=seller,
+        user=request.user,
+        mode=PriceRobotRun.MODE_APPLY,
+        status=PriceRobotRun.STATUS_RUNNING,
+        season_phase=last_run.season_phase,
+        result=last_run.result,
+    )
+    try:
+        info = price_robot_apply_plan(seller, decisions)
+        apply_run.summary = {**(last_run.summary or {}), "applied_sent": info.get("sent", 0)}
+        apply_run.status = PriceRobotRun.STATUS_SUCCESS
+        apply_run.finished_at = timezone.now()
+        apply_run.save()
+        return JsonResponse({"ok": True, "sent": info.get("sent", 0)})
+    except Exception as exc:
+        apply_run.status = PriceRobotRun.STATUS_ERROR
+        apply_run.error = str(exc)
+        apply_run.finished_at = timezone.now()
+        apply_run.save()
+        _log_app_error(
+            source="price_robot.apply",
+            message=f"Ошибка применения цен: {exc}",
+            user=request.user,
+            seller=seller,
+            path=request.path,
+            traceback_text=traceback.format_exc(),
+        )
+        return JsonResponse({"error": _ui_error_message("Ошибка применения цен", exc)}, status=500)

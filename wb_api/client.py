@@ -93,6 +93,61 @@ class WBStocksSupplierClient:
         )
 
         return self._handle_response(response)
+
+
+class WBAnalyticsClient:
+    """
+    Клиент для Analytics API.
+    """
+
+    WB_WAREHOUSE_STOCKS_URL = "https://seller-analytics-api.wildberries.ru/api/analytics/v1/stocks-report/wb-warehouses"
+
+    def __init__(self, api_token: str):
+        self.headers = {
+            "Authorization": api_token,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    def get_wb_warehouse_stocks(
+        self,
+        *,
+        limit: int = 250000,
+        offset: int = 0,
+        nm_ids: List[int] | None = None,
+        chrt_ids: List[int] | None = None,
+    ) -> List[Dict]:
+        """
+        Получить актуальные остатки на складах WB.
+
+        Источник: POST /api/analytics/v1/stocks-report/wb-warehouses.
+        Метод заменяет deprecated GET /api/v1/supplier/stocks.
+        """
+        payload = {
+            "limit": int(limit),
+            "offset": int(offset),
+        }
+        if nm_ids is not None:
+            payload["nmIds"] = [int(x) for x in nm_ids if x is not None]
+        if chrt_ids is not None:
+            payload["chrtIds"] = [int(x) for x in chrt_ids if x is not None]
+
+        response = _request_with_retry(
+            "POST",
+            self.WB_WAREHOUSE_STOCKS_URL,
+            headers=self.headers,
+            json=payload,
+            timeout=60,
+        )
+        if response.status_code != 200:
+            raise Exception(
+                f"WB Analytics Stocks API Error {response.status_code}:\n{response.text}"
+            )
+        data = response.json()
+        items = ((data or {}).get("data") or {}).get("items") or []
+        if isinstance(items, list):
+            return items
+        return []
     
 class WBOrdersSupplierClient:
 
@@ -552,6 +607,8 @@ class WBDiscountsPricesClient:
 
     BASE_URL = "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/size/nm"
     FILTER_URL = "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter"
+    UPLOAD_TASK_URL = "https://discounts-prices-api.wildberries.ru/api/v2/upload/task"
+    UPLOAD_SIZE_TASK_URL = "https://discounts-prices-api.wildberries.ru/api/v2/upload/task/size"
 
     def __init__(self, api_token: str):
         self.headers = {
@@ -604,6 +661,43 @@ class WBDiscountsPricesClient:
             return payload
         return {"data": {"listGoods": []}}
 
+    def _handle_upload_response(self, response: requests.Response, api_name: str) -> Dict:
+        if response.status_code not in {200, 208}:
+            raise Exception(f"{api_name} Error {response.status_code}: {response.text}")
+        payload = response.json()
+        if isinstance(payload, dict):
+            if payload.get("error"):
+                raise Exception(f"{api_name} Error: {payload.get('errorText') or payload}")
+            return payload
+        return {"data": None, "error": False, "errorText": ""}
+
+    def set_prices_discounts(self, items: List[Dict]) -> Dict:
+        """
+        Создать задачу WB на изменение цен и скидок по nmID.
+        Ожидаемый payload: {"data": [{"nmID": 123, "price": 999, "discount": 30}]}.
+        """
+        response = _request_with_retry(
+            "POST",
+            self.UPLOAD_TASK_URL,
+            headers={**self.headers, "Content-Type": "application/json"},
+            json={"data": items},
+            timeout=60,
+        )
+        return self._handle_upload_response(response, "WB Prices Upload API")
+
+    def set_size_prices(self, items: List[Dict]) -> Dict:
+        """
+        Создать задачу WB на изменение цен по размерам.
+        Ожидаемый payload: {"data": [{"nmID": 123, "sizeID": 98989887, "price": 999}]}.
+        """
+        response = _request_with_retry(
+            "POST",
+            self.UPLOAD_SIZE_TASK_URL,
+            headers={**self.headers, "Content-Type": "application/json"},
+            json={"data": items},
+            timeout=60,
+        )
+        return self._handle_upload_response(response, "WB Size Prices Upload API")
 
 class WBPromotionClient:
     """

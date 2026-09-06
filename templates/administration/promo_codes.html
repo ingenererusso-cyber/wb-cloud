@@ -65,6 +65,15 @@
                         <label for="pc-pct">Скидка, %</label>
                         <input id="pc-pct" name="discount_percent" type="number" min="1" max="100" value="10">
                     </div>
+                    <div class="row" id="pc-tiers-block" style="grid-column:1/-1;">
+                        <label>Блоки доступа</label>
+                        <div>
+                            <label><input type="checkbox" name="applies_to_tier_codes" value="read"> Блок чтения</label>
+                            &nbsp;
+                            <label><input type="checkbox" name="applies_to_tier_codes" value="read_write"> Блок записи</label>
+                        </div>
+                        <p class="muted" style="margin:4px 0 0;">Если ничего не выбрано — промокод действует на оба блока.</p>
+                    </div>
                     <div class="row" id="pc-plans-block" style="grid-column:1/-1;">
                         <label>Периоды тарифа</label>
                         <div>
@@ -97,6 +106,7 @@
                             <th>Код</th>
                             <th>Название</th>
                             <th>Тип</th>
+                            <th>Блоки</th>
                             <th>До</th>
                             <th>Исп.</th>
                             <th>Лимит</th>
@@ -141,7 +151,7 @@
                 const data = await res.json();
                 const tb = document.getElementById("promo-tbody");
                 tb.innerHTML = "";
-                if (!data.ok) { tb.innerHTML = "<tr><td colspan='6'>" + (data.error || "Ошибка") + "</td></tr>"; return; }
+                if (!data.ok) { tb.innerHTML = "<tr><td colspan='7'>" + (data.error || "Ошибка") + "</td></tr>"; return; }
                 (data.promos || []).forEach((p) => {
                     const tr = document.createElement("tr");
                     tr.dataset.id = String(p.id);
@@ -150,6 +160,7 @@
                         "<td><strong>" + escapeHtml(p.code) + "</strong></td>" +
                         "<td>" + escapeHtml(p.title) + "</td>" +
                         "<td><span class='kind-pill'>" + kindLabel + "</span></td>" +
+                        "<td>" + escapeHtml(p.tier_scope_label || "Оба") + "</td>" +
                         "<td>" + escapeHtml((p.valid_until || "").slice(0, 16).replace("T", " ")) + "</td>" +
                         "<td>" + p.uses_count + "</td>" +
                         "<td>" + (p.max_uses == null ? "—" : p.max_uses) + "</td>";
@@ -192,6 +203,9 @@
                 const msg = document.getElementById("create-msg");
                 msg.innerHTML = "";
                 const fd = new FormData(e.target);
+                const tierBoxes = e.target.querySelectorAll('input[name="applies_to_tier_codes"]:checked');
+                fd.delete("applies_to_tier_codes");
+                tierBoxes.forEach((b) => fd.append("applies_to_tier_codes", b.value));
                 if (kindEl.value === "price_discount") {
                     const boxes = e.target.querySelectorAll('input[name="applies_to_plan_codes"]:checked');
                     fd.delete("applies_to_plan_codes");

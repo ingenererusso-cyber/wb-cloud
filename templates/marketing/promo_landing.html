@@ -101,7 +101,7 @@
             </article>
         </div>
         <div class="vl-cta-strip">
-            <p>Посмотрите, где <strong>ваши</strong> деньги оседают в рекламе и логистике — на своих товарах, не на чужом демо.<small>Регистрация занимает пару минут, бесплатный полный доступ — 3 дня.</small></p>
+            <p>Посмотрите, где <strong>ваши</strong> деньги оседают в рекламе и логистике — на своих товарах, не на чужом демо.<small>Регистрация занимает пару минут, бесплатный доступ (чтение) — 3 дня.</small></p>
             <a class="vl-btn vl-btn--primary vl-btn--cta" href="#register">Попробовать 3 дня бесплатно</a>
         </div>
     </section>
@@ -302,26 +302,27 @@
     <section class="vl-section" id="pricing" aria-labelledby="price-title">
         <span class="vl-section__kicker">Стоимость</span>
         <h2 id="price-title" class="vl-h2 vl-h2--lg">Тарифы</h2>
-        <p class="vl-text-muted vl-section-intro--tight">Оплата — после окончания бесплатного полного доступа. Сейчас тестовый запуск, списаний с карты нет. <a class="vl-text-link" href="{% url 'pricing_page' %}">Полные условия</a> на отдельной странице.</p>
+        <p class="vl-text-muted vl-section-intro--tight">Оплата — после окончания бесплатного доступа (чтение, 3 дня). Сейчас тестовый запуск, списаний с карты нет. <a class="vl-text-link" href="{% url 'pricing_page' %}">Полные условия</a> на отдельной странице.</p>
+        {% for section in pricing_sections %}
+        <h3 class="vl-h3" style="margin:16px 0 8px;">{{ section.tier_label }}</h3>
         <div class="vl-pricing-grid vl-pricing-grid--align">
-            {% for plan in plans %}
-            <div class="vl-plan {% if plan.code == 'month_6' %}vl-plan--rec{% endif %}">
-                {% if plan.code == 'month_6' %}
+            {% for plan in section.plans %}
+            <div class="vl-plan {% if plan.code == 'month_6' and section.tier_code == 'read' %}vl-plan--rec{% endif %}">
+                {% if plan.code == 'month_6' and section.tier_code == 'read' %}
                 <span class="vl-plan__badge">Рекомендуем</span>
                 {% endif %}
                 <p class="vl-plan__name">{{ plan.label }}</p>
                 <p class="vl-plan__price">{{ plan.price_total|floatformat:0 }} ₽</p>
                 <p class="vl-plan__per">≈ {{ plan.price_monthly|floatformat:0 }} ₽ / мес при оплате периодом</p>
                 <ul>
+                    {% if section.tier_code == 'read' %}
                     <li>Доступ к аналитике продаж и отчётам</li>
                     <li>Реклама, склейки, юнит-экономика</li>
                     <li>Остатки и сигналы по логистике</li>
-                    {% if plan.code == 'month_1' %}
-                    <li>Для старта и оценки сервиса</li>
-                    {% elif plan.code == 'month_6' %}
-                    <li>Баланс срока и скидки</li>
                     {% else %}
-                    <li>Минимальная цена за месяц на длинном горизонте</li>
+                    <li>Всё из тарифа «Чтение»</li>
+                    <li>Отправка FBS-остатков в WB</li>
+                    <li>Будущие write-методы API</li>
                     {% endif %}
                 </ul>
                 <a class="vl-btn vl-btn--primary vl-btn--cta vl-btn--block" href="#register">Попробовать 3 дня бесплатно</a>
@@ -330,6 +331,9 @@
             <div class="vl-plan vl-plan--empty vl-pricing__empty">Тарифы временно недоступны. Пишите в поддержку.</div>
             {% endfor %}
         </div>
+        {% empty %}
+        <div class="vl-plan vl-plan--empty vl-pricing__empty">Тарифы временно недоступны. Пишите в поддержку.</div>
+        {% endfor %}
     </section>
 
     {# --- FAQ --- #}

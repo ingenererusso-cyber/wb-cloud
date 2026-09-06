@@ -1,5 +1,7 @@
 from django.conf import settings
 
+from core.subscriptions import build_subscription_summary, get_or_create_subscription
+
 
 def legal_context(_request):
     return {
@@ -15,4 +17,26 @@ def legal_context(_request):
         "legal_operator_bank_bik": getattr(settings, "LEGAL_OPERATOR_BANK_BIK", ""),
         "legal_operator_bank_name": getattr(settings, "LEGAL_OPERATOR_BANK_NAME", ""),
         "legal_operator_bank_corr": getattr(settings, "LEGAL_OPERATOR_BANK_CORR", ""),
+    }
+
+
+def subscription_access(request):
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return {
+            "subscription_access": {
+                "has_read_access": False,
+                "has_write_access": False,
+                "tier_code": None,
+                "tier_label": "",
+            }
+        }
+    summary = build_subscription_summary(get_or_create_subscription(user), user=user)
+    return {
+        "subscription_access": {
+            "has_read_access": summary.get("has_read_access", False),
+            "has_write_access": summary.get("has_write_access", False),
+            "tier_code": summary.get("tier_code"),
+            "tier_label": summary.get("tier_label", ""),
+        }
     }

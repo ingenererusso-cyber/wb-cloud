@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ценовой робот</title>
+    <style>
+        :root {
+            --ink: #132033;
+            --muted: #5a6778;
+            --accent: #14532d;
+            --line: rgba(19, 32, 51, 0.12);
+            --surface: rgba(255, 255, 255, 0.92);
+            --shadow: 0 16px 36px rgba(19, 32, 51, 0.14);
+            --up: #0f766e;
+            --up-bg: #ecfdf5;
+            --down: #b91c1c;
+            --down-bg: #fef2f2;
+            --hold: #64748b;
+            --hold-bg: #f1f5f9;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh;
+            font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 12% 18%, rgba(85, 215, 166, 0.4), transparent 30%),
+                radial-gradient(circle at 82% 8%, rgba(136, 195, 255, 0.34), transparent 28%),
+                linear-gradient(135deg, #eff7ff 0%, #f7fdf5 55%, #eef6ff 100%);
+            padding: 20px;
+        }
+        .page {
+            border: 1px solid var(--line); border-radius: 24px;
+            background: var(--surface); box-shadow: var(--shadow);
+            padding: 18px; overflow: hidden;
+        }
+        h1 { margin: 0 0 4px; font-size: 22px; }
+        .sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; max-width: 900px; line-height: 1.5; }
+        .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+        .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .btn {
+            border: 1px solid var(--line); background: #fff; color: var(--ink);
+            border-radius: 12px; padding: 10px 16px; font-size: 14px; cursor: pointer;
+            font-family: inherit; transition: background .15s, border-color .15s;
+        }
+        .btn:hover { background: #f6faf8; }
+        .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .btn-primary:hover { background: #0f3f22; }
+        .btn:disabled { opacity: .55; cursor: default; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+        .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+        .card .k { color: var(--muted); font-size: 12px; }
+        .card .v { font-size: 22px; font-weight: 600; margin-top: 2px; }
+        .phase-banner {
+            border-radius: 14px; padding: 12px 16px; margin: 4px 0 8px;
+            background: #ecfeff; border: 1px solid #a5f3fc; font-size: 14px;
+        }
+        .phase-banner b { font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead th {
+            position: sticky; top: 0; background: #f8fafc; text-align: right;
+            padding: 8px 10px; border-bottom: 2px solid var(--line); color: var(--muted); font-weight: 600; white-space: nowrap;
+        }
+        thead th.l, tbody td.l { text-align: left; }
+        tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+        tbody tr:hover { background: #f9fcff; }
+        .tbl-wrap { max-height: 70vh; overflow: auto; border: 1px solid var(--line); border-radius: 14px; }
+        .art { font-weight: 600; }
+        .title { color: var(--muted); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .b-raise { color: var(--up); background: var(--up-bg); }
+        .b-lower { color: var(--down); background: var(--down-bg); }
+        .b-hold, .b-no_stock, .b-no_data { color: var(--hold); background: var(--hold-bg); }
+        .wave { color: #b45309; font-size: 11px; margin-left: 6px; }
+        .net-new { font-weight: 700; }
+        .net-up { color: var(--up); }
+        .net-down { color: var(--down); }
+        .reason { color: var(--muted); font-size: 12px; text-align: left; max-width: 260px; white-space: normal; }
+        .empty { text-align: center; color: var(--muted); padding: 40px 10px; }
+        #status { font-size: 13px; color: var(--muted); }
+        .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+    </style>
+    {% include "partials/top_nav_css.html" %}
+</head>
+<body>
+{% include "partials/top_nav.html" %}
+<main class="page">
+    <div class="top">
+        <div>
+            <h1>Ценовой робот</h1>
+            <p class="sub">
+                Робот распределяет остаток по дням сезона с учётом кривой спроса
+                (декабрь ≈ половина сезона, пик 15–26 дек, обвал после 26) и сравнивает
+                фактическую скорость <b>заказов</b> с целевой. Продаётся быстрее плана — поднимает цену,
+                медленнее — снижает. Цель — выйти в 0 к дедлайну. Расчёт идёт по локальным данным и в WB ничего
+                не пишет, пока вы не нажмёте «Применить цены».
+            </p>
+        </div>
+        <div class="actions">
+            <span id="status"></span>
+            <button class="btn btn-primary" id="recalc-btn" type="button">Пересчитать план</button>
+            {% if has_write_access %}
+            <button class="btn" id="apply-btn" type="button" title="Отправить рассчитанные цены в WB">Применить цены в WB</button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if run %}
+    <div class="phase-banner">
+        Фаза: <b>{{ run.phase_label }}</b> · сегодня {{ run.today }} · дедлайн в 0: <b>{{ run.target_zero_date }}</b>
+        (осталось {{ run.days_left }} дн, крайний срок {{ run.hard_deadline }}).
+        {% if run.mode == 'apply' %}<b>Последний прогон применял цены.</b>{% endif %}
+    </div>
+
+    <div class="cards">
+        <div class="card"><div class="k">Артикулов</div><div class="v">{{ run.summary.total_sku }}</div></div>
+        <div class="card"><div class="k">Поднять цену ↑</div><div class="v" style="color:var(--up)">{{ run.summary.raise }}</div></div>
+        <div class="card"><div class="k">Снизить цену ↓</div><div class="v" style="color:var(--down)">{{ run.summary.lower }}</div></div>
+        <div class="card"><div class="k">Держать</div><div class="v" style="color:var(--hold)">{{ run.summary.hold }}</div></div>
+        <div class="card"><div class="k">Всего остаток, шт</div><div class="v">{{ run.summary.total_stock }}</div></div>
+    </div>
+
+    <div class="tbl-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th class="l">Артикул</th>
+                    <th>Остаток (FBO+FBS)</th>
+                    <th>Скорость 7д</th>
+                    <th>Нужно/день</th>
+                    <th>Хватит на, дн</th>
+                    <th>Цена</th>
+                    <th>Скидка</th>
+                    <th>→ Скидка</th>
+                    <th>→ Итоговая цена</th>
+                    <th>Действие</th>
+                    <th class="l">Причина</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in run.decisions %}
+                <tr>
+                    <td class="l">
+                        <div class="art">{{ d.vendor_code|default:d.nm_id }}</div>
+                        {% if d.title %}<div class="title" title="{{ d.title }}">{{ d.title }}</div>{% endif %}
+                    </td>
+                    <td>{{ d.stock_total }} <span style="color:var(--muted)">({{ d.stock_fbo }}/{{ d.stock_fbs }})</span></td>
+                    <td>{{ d.velocity_7d }}</td>
+                    <td>{{ d.required_orders_rate }}</td>
+                    <td>{% if d.days_of_cover %}{{ d.days_of_cover }}{% else %}—{% endif %}</td>
+                    <td>{% if d.current_net %}{{ d.current_net }} ₽{% else %}—{% endif %}</td>
+                    <td>{% if d.current_discount != None %}{{ d.current_discount }}%{% else %}—{% endif %}</td>
+                    <td>{% if d.new_discount != None %}{{ d.new_discount }}%{% else %}—{% endif %}</td>
+                    <td>
+                        {% if d.new_net %}
+                            <span class="net-new {% if d.action == 'raise' %}net-up{% elif d.action == 'lower' %}net-down{% endif %}">{{ d.new_net }} ₽</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {% if d.action == 'raise' %}<span class="badge b-raise">↑ вверх</span>
+                        {% elif d.action == 'lower' %}<span class="badge b-lower">↓ вниз</span>
+                        {% elif d.action == 'no_stock' %}<span class="badge b-no_stock">нет остатка</span>
+                        {% elif d.action == 'no_data' %}<span class="badge b-no_data">нет цены</span>
+                        {% else %}<span class="badge b-hold">держим</span>{% endif %}
+                        {% if d.is_wave %}<span class="wave">волна</span>{% endif %}
+                    </td>
+                    <td class="reason">{{ d.reason }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="note">
+        План рассчитан: {{ run.created_at }}. Скорость и остатки берутся из последней синхронизации —
+        обновите данные кнопкой «Синхронизировать данные», затем пересчитайте план.
+    </p>
+    {% else %}
+    <div class="empty">
+        <p>План ещё не рассчитан.</p>
+        <p>Нажмите «Пересчитать план», чтобы робот проанализировал остатки, скорость продаж и предложил цены.</p>
+    </div>
+    {% endif %}
+</main>
+
+<script>
+(function priceRobotSetup() {
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(";").shift();
+        return "";
+    }
+    const statusEl = document.getElementById("status");
+    const recalcBtn = document.getElementById("recalc-btn");
+    const applyBtn = document.getElementById("apply-btn");
+
+    function setStatus(text) { if (statusEl) statusEl.textContent = text || ""; }
+
+    if (recalcBtn) {
+        recalcBtn.addEventListener("click", async () => {
+            recalcBtn.disabled = true;
+            if (applyBtn) applyBtn.disabled = true;
+            setStatus("Считаю план…");
+            try {
+                const res = await fetch("{% url 'price_robot_run_api' %}", {
+                    method: "POST",
+                    headers: { "Accept": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка расчёта");
+                setStatus("Готово, обновляю…");
+                window.location.reload();
+            } catch (err) {
+                setStatus("Ошибка: " + err.message);
+                recalcBtn.disabled = false;
+                if (applyBtn) applyBtn.disabled = false;
+            }
+        });
+    }
+
+    if (applyBtn) {
+        applyBtn.addEventListener("click", async () => {
+            if (!window.confirm("Отправить рассчитанные цены в Wildberries? Это изменит реальные цены.")) return;
+            applyBtn.disabled = true;
+            recalcBtn.disabled = true;
+            setStatus("Отправляю цены в WB…");
+            try {
+                const res = await fetch("{% url 'price_robot_apply_api' %}", {
+                    method: "POST",
+                    headers: { "Accept": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Ошибка применения");
+                setStatus(`Отправлено в WB: ${data.sent} позиций.`);
+                applyBtn.disabled = false;
+                recalcBtn.disabled = false;
+            } catch (err) {
+                setStatus("Ошибка: " + err.message);
+                applyBtn.disabled = false;
+                recalcBtn.disabled = false;
+            }
+        });
+    }
+})();
+</script>
+</body>
+</html>

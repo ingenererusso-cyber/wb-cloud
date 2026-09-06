@@ -338,6 +338,11 @@
             background: #166534;
             color: #fff;
         }
+        .btn-blue {
+            border-color: #2563eb;
+            background: #2563eb;
+            color: #fff;
+        }
         .btn-secondary {
             border-color: #94a3b8;
             background: #f8fafc;
@@ -563,6 +568,95 @@
             margin-top: 8px;
             font-size: 12px;
             color: #7a8798;
+        }
+        .price-control {
+            margin-top: 12px;
+            border: 1px solid #d7e3f0;
+            border-radius: 12px;
+            background: #fbfdff;
+            padding: 12px;
+        }
+        .price-control-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .price-control-head h3 {
+            margin: 0 0 6px;
+            font-size: 16px;
+            color: #1f2f46;
+        }
+        .price-control-head p {
+            margin: 0;
+            font-size: 13px;
+            color: #5f6f82;
+            line-height: 1.45;
+        }
+        .price-control-actions {
+            flex: 0 0 auto;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .price-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+        }
+        .price-table td:last-child {
+            text-align: left;
+            font-weight: 400;
+        }
+        .price-table .num {
+            text-align: right;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .price-table .size-cell {
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .price-edit-input {
+            width: 96px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 7px 8px;
+            font-size: 13px;
+            font-weight: 700;
+            text-align: right;
+            background: #fff;
+            color: #1f2a37;
+        }
+        .price-edit-input:focus {
+            outline: 2px solid rgba(37, 99, 235, 0.18);
+            border-color: #2563eb;
+        }
+        .price-calculated {
+            display: inline-block;
+            min-width: 86px;
+        }
+        .price-row-dirty .price-calculated,
+        .price-row-dirty .price-edit-input {
+            color: #1d4ed8;
+        }
+        .price-control-updated {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #7a8798;
+        }
+        .price-control-status {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #64748b;
+        }
+        .price-control-status.ok {
+            color: #166534;
+        }
+        .price-control-status.error {
+            color: #b91c1c;
+            font-weight: 700;
         }
         .unit-result {
             border: 1px solid #dbe7f3;
@@ -797,6 +891,8 @@
         }
         @media (max-width: 900px) {
             .hero { grid-template-columns: 1fr; }
+            .price-control-head { flex-direction: column; }
+            .price-control-actions { width: 100%; justify-content: flex-start; }
         }
     </style>
     {% include "partials/top_nav_css.html" %}
@@ -1116,6 +1212,91 @@
             </div>
             <div class="muted-inline">Заглушка: настройки пока не применяются к расчетам и ценам.</div>
         </div>
+
+        <div class="price-control">
+            <div class="price-control-head">
+                <div>
+                    <h3>Управление ценой</h3>
+                    <p>Текущие цены и скидки из последней выгрузки WB Discounts & Prices API.</p>
+                </div>
+                {% if price_control_rows %}
+                    <div class="price-control-actions">
+                        <button type="button" class="btn btn-secondary" id="price-control-reset">Сбросить изменения</button>
+                        <button type="button" class="btn btn-blue" id="price-control-save">Изменить цену</button>
+                    </div>
+                {% endif %}
+            </div>
+            {% if price_control_rows %}
+                <div class="price-table-wrap">
+                    <table class="price-table">
+                        <thead>
+                            <tr>
+                                <th>Размер</th>
+                                <th class="num">Цена</th>
+                                <th class="num">Цена со скидкой</th>
+                                <th class="num">Скидка</th>
+                                <th class="num">Клубная цена</th>
+                                <th class="num">Клубная скидка</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in price_control_rows %}
+                                <tr class="price-control-row" data-size-id="{{ row.size_id }}">
+                                    <td class="size-cell">{{ row.tech_size_name|default:"-" }}</td>
+                                    <td class="num">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            class="price-edit-input price-source-input"
+                                            value="{% if row.price is not None %}{{ row.price|stringformat:'.2f' }}{% endif %}"
+                                            data-original-value="{% if row.price is not None %}{{ row.price|stringformat:'.2f' }}{% endif %}"
+                                            data-size-id="{{ row.size_id }}"
+                                            aria-label="Цена для размера {{ row.tech_size_name|default:row.size_id }}"
+                                        >
+                                    </td>
+                                    <td class="num">
+                                        <span
+                                            class="price-calculated"
+                                            data-original-value="{% if row.discounted_price is not None %}{{ row.discounted_price|stringformat:'.2f' }}{% endif %}"
+                                        >{% if row.discounted_price is not None %}{{ row.discounted_price|floatformat:2 }} ₽{% else %}-{% endif %}</span>
+                                    </td>
+                                    <td class="num">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            max="100"
+                                            class="price-edit-input price-discount-input"
+                                            value="{% if row.discount_percent is not None %}{{ row.discount_percent|stringformat:'.2f' }}{% endif %}"
+                                            data-original-value="{% if row.discount_percent is not None %}{{ row.discount_percent|stringformat:'.2f' }}{% endif %}"
+                                            data-size-id="{{ row.size_id }}"
+                                            aria-label="Скидка для размера {{ row.tech_size_name|default:row.size_id }}"
+                                        >
+                                    </td>
+                                    <td class="num">{% if row.club_discounted_price is not None %}{{ row.club_discounted_price|floatformat:2 }} ₽{% else %}-{% endif %}</td>
+                                    <td class="num">{% if row.club_discount_percent is not None %}{{ row.club_discount_percent|floatformat:2 }}%{% else %}-{% endif %}</td>
+                                    <td>
+                                        {% if row.editable_size_price %}
+                                            <span class="status-badge status-blue">Можно менять</span>
+                                        {% else %}
+                                            <span class="status-badge status-gray">Общая цена</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if price_control_last_updated_at %}
+                    <div class="price-control-updated">Обновлено: {{ price_control_last_updated_at|date:"d.m.Y H:i" }}</div>
+                {% endif %}
+                <div class="price-control-status" id="price-control-status"></div>
+            {% else %}
+                <div class="empty-box">Данных по ценам пока нет. Запустите синхронизацию блока «Цены и скидки», после этого здесь появятся текущие цены WB.</div>
+            {% endif %}
+        </div>
     </section>
 </div>
 
@@ -1231,6 +1412,196 @@
             return fallback;
         }
     }
+
+    (function () {
+        const rows = Array.from(document.querySelectorAll(".price-control-row"));
+        const resetBtn = document.getElementById("price-control-reset");
+        const saveBtn = document.getElementById("price-control-save");
+        const statusEl = document.getElementById("price-control-status");
+        if (!rows.length) return;
+
+        function parseDecimal(value) {
+            const normalized = String(value ?? "").trim().replace(/\s/g, "").replace(",", ".");
+            if (!normalized) return null;
+            const num = Number(normalized);
+            return Number.isFinite(num) ? num : null;
+        }
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(";").shift();
+            return "";
+        }
+
+        function formatMoney(value) {
+            return Number.isFinite(value) ? `${value.toFixed(2)} ₽` : "-";
+        }
+
+        function originalValue(input) {
+            return String(input?.dataset?.originalValue ?? "").trim();
+        }
+
+        function isChanged(input) {
+            const currentRaw = String(input?.value ?? "").trim();
+            const originalRaw = originalValue(input);
+            const current = parseDecimal(currentRaw);
+            const original = parseDecimal(originalRaw);
+            if (current === null || original === null) {
+                return currentRaw !== originalRaw;
+            }
+            return Math.abs(current - original) > 0.000001;
+        }
+
+        function updateDirtyState(row) {
+            const priceInput = row.querySelector(".price-source-input");
+            const discountInput = row.querySelector(".price-discount-input");
+            const isDirty = isChanged(priceInput) || isChanged(discountInput);
+            row.classList.toggle("price-row-dirty", isDirty);
+        }
+
+        function setStatus(message, kind = "") {
+            if (!statusEl) return;
+            statusEl.textContent = message || "";
+            statusEl.classList.toggle("ok", kind === "ok");
+            statusEl.classList.toggle("error", kind === "error");
+        }
+
+        function recalcRow(row) {
+            const priceInput = row.querySelector(".price-source-input");
+            const discountInput = row.querySelector(".price-discount-input");
+            const discountedEl = row.querySelector(".price-calculated");
+            if (!priceInput || !discountInput || !discountedEl) return;
+
+            const price = parseDecimal(priceInput.value);
+            let discount = parseDecimal(discountInput.value);
+            if (discount !== null) {
+                discount = Math.min(100, Math.max(0, discount));
+                if (String(discountInput.value).trim() !== String(discount)) {
+                    discountInput.value = discount.toFixed(2);
+                }
+            }
+
+            if (price === null || discount === null) {
+                discountedEl.textContent = "-";
+            } else {
+                const discountedPrice = Math.max(0, price * (1 - discount / 100));
+                discountedEl.textContent = formatMoney(discountedPrice);
+            }
+            updateDirtyState(row);
+        }
+
+        function resetRow(row) {
+            const priceInput = row.querySelector(".price-source-input");
+            const discountInput = row.querySelector(".price-discount-input");
+            const discountedEl = row.querySelector(".price-calculated");
+            if (priceInput) priceInput.value = originalValue(priceInput);
+            if (discountInput) discountInput.value = originalValue(discountInput);
+            if (discountedEl) {
+                const originalDiscounted = parseDecimal(discountedEl.dataset.originalValue);
+                discountedEl.textContent = originalDiscounted === null ? "-" : formatMoney(originalDiscounted);
+            }
+            updateDirtyState(row);
+        }
+
+        function collectRows() {
+            return rows.filter((row) => row.classList.contains("price-row-dirty")).map((row) => {
+                const priceInput = row.querySelector(".price-source-input");
+                const discountInput = row.querySelector(".price-discount-input");
+                return {
+                    size_id: Number(row.dataset.sizeId || priceInput?.dataset?.sizeId || discountInput?.dataset?.sizeId || 0),
+                    price: parseDecimal(priceInput?.value),
+                    discount: parseDecimal(discountInput?.value),
+                };
+            });
+        }
+
+        function applySavedRows(savedRows) {
+            const bySize = new Map((Array.isArray(savedRows) ? savedRows : []).map((item) => [Number(item.size_id), item]));
+            rows.forEach((row) => {
+                const payload = bySize.get(Number(row.dataset.sizeId || 0));
+                if (!payload) return;
+                const price = parseDecimal(payload.price);
+                const discount = parseDecimal(payload.discount);
+                const discountedPrice = parseDecimal(payload.discounted_price);
+                const priceInput = row.querySelector(".price-source-input");
+                const discountInput = row.querySelector(".price-discount-input");
+                const discountedEl = row.querySelector(".price-calculated");
+                if (priceInput && price !== null) {
+                    priceInput.value = price.toFixed(2);
+                    priceInput.dataset.originalValue = price.toFixed(2);
+                }
+                if (discountInput && discount !== null) {
+                    discountInput.value = discount.toFixed(2);
+                    discountInput.dataset.originalValue = discount.toFixed(2);
+                }
+                if (discountedEl && discountedPrice !== null) {
+                    discountedEl.textContent = formatMoney(discountedPrice);
+                    discountedEl.dataset.originalValue = discountedPrice.toFixed(2);
+                }
+                updateDirtyState(row);
+            });
+        }
+
+        function taskStatusText(data) {
+            const tasks = Array.isArray(data?.wb_tasks) ? data.wb_tasks : [];
+            const ids = tasks
+                .map((task) => task?.response?.data?.id)
+                .filter((id) => id !== undefined && id !== null);
+            if (!ids.length) return data?.message || "Задача изменения цены отправлена в WB.";
+            return `${data?.message || "Задача изменения цены отправлена в WB."} ID задачи: ${ids.join(", ")}.`;
+        }
+
+        rows.forEach((row) => {
+            row.querySelectorAll(".price-edit-input").forEach((input) => {
+                input.addEventListener("input", () => recalcRow(row));
+                input.addEventListener("change", () => recalcRow(row));
+            });
+            updateDirtyState(row);
+        });
+
+        resetBtn?.addEventListener("click", () => {
+            rows.forEach(resetRow);
+            setStatus("");
+        });
+
+        saveBtn?.addEventListener("click", async () => {
+            const payloadRows = collectRows();
+            if (!payloadRows.length) {
+                setStatus("Нет изменений для отправки.", "error");
+                return;
+            }
+            if (payloadRows.some((row) => row.price === null || row.discount === null)) {
+                setStatus("Заполните цену и скидку в измененных строках.", "error");
+                return;
+            }
+            saveBtn.disabled = true;
+            resetBtn.disabled = true;
+            setStatus("Отправляем задачу изменения цены в WB...");
+            try {
+                const res = await fetch("{% url 'product_price_update_api' product.id %}", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "X-CSRFToken": getCookie("csrftoken"),
+                    },
+                    body: JSON.stringify({ rows: payloadRows }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.message || data.error || "Не удалось изменить цену.");
+                }
+                applySavedRows(data.rows);
+                setStatus(taskStatusText(data), "ok");
+            } catch (error) {
+                setStatus(`Ошибка: ${error.message || error}`, "error");
+            } finally {
+                saveBtn.disabled = false;
+                resetBtn.disabled = false;
+            }
+        });
+    })();
 
     (function () {
         const points = parseScriptJson("card-detail-sales-points-data", []);

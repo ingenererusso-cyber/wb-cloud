@@ -723,13 +723,20 @@ class UserSubscription(models.Model):
         (PLAN_MONTH_12, "12 месяцев"),
     ]
 
+    TIER_READ = "read"
+    TIER_READ_WRITE = "read_write"
+    TIER_CHOICES = [
+        (TIER_READ, "Чтение"),
+        (TIER_READ_WRITE, "Чтение + запись"),
+    ]
+
     STATUS_TRIAL = "trial"
     STATUS_ACTIVE = "active"
     STATUS_PAST_DUE = "past_due"
     STATUS_EXPIRED = "expired"
     STATUS_CANCELED = "canceled"
     STATUS_CHOICES = [
-        (STATUS_TRIAL, "Бесплатный полный доступ"),
+        (STATUS_TRIAL, "Бесплатный доступ (чтение)"),
         (STATUS_ACTIVE, "Active"),
         (STATUS_PAST_DUE, "Past due"),
         (STATUS_EXPIRED, "Expired"),
@@ -737,6 +744,7 @@ class UserSubscription(models.Model):
     ]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="subscription")
+    tier_code = models.CharField(max_length=20, choices=TIER_CHOICES, default=TIER_READ)
     plan_code = models.CharField(max_length=20, choices=PLAN_CHOICES, default=PLAN_MONTH_1)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_TRIAL)
     trial_started_at = models.DateTimeField(null=True, blank=True)
@@ -751,6 +759,7 @@ class UserSubscription(models.Model):
         indexes = [
             models.Index(fields=["status", "access_expires_at"]),
             models.Index(fields=["plan_code"]),
+            models.Index(fields=["tier_code"]),
         ]
 
 
@@ -788,6 +797,11 @@ class BillingPayment(models.Model):
     promo = models.ForeignKey("PromoCode", on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
     provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default=PROVIDER_TBANK)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CREATED)
+    tier_code = models.CharField(
+        max_length=20,
+        choices=UserSubscription.TIER_CHOICES,
+        default=UserSubscription.TIER_READ,
+    )
     plan_code = models.CharField(max_length=20, choices=UserSubscription.PLAN_CHOICES)
     order_id = models.CharField(max_length=36, unique=True)
     provider_payment_id = models.CharField(max_length=64, blank=True, default="")
@@ -833,6 +847,7 @@ class PromoCode(models.Model):
     is_active = models.BooleanField(default=True)
     discount_percent = models.PositiveSmallIntegerField(null=True, blank=True)
     applies_to_plan_codes = models.JSONField(default=list, blank=True)
+    applies_to_tier_codes = models.JSONField(default=list, blank=True)
     free_days = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -891,4 +906,99 @@ class AppErrorLog(models.Model):
             models.Index(fields=["source", "created_at"]),
             models.Index(fields=["level", "created_at"]),
             models.Index(fields=["user", "created_at"]),
+        ]
+
+
+class PricingPolicy(models.Model):
+    """
+    Конфиг ценового робота по артикулу (nm_id). Все поля опциональны:
+    если политики нет, робот использует глобальные дефолты из core.price_robot.
+
+    См. PRICE_ROBOT.md.
+    """
+
+    MODE_OFF = "off"
+    MODE_DRY_RUN = "dry_run"
+    MODE_AUTO = "auto"
+    MODE_CHOICES = [
+        (MODE_OFF, "Выключен"),
+        (MODE_DRY_RUN, "Только план (dry-run)"),
+        (MODE_AUTO, "Авто (пишет цены в WB)"),
+    ]
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE, related_name="pricing_policies")
+    nm_id = models.BigIntegerField()
+    vendor_code = models.CharField(max_length=255, blank=True, default="")
+
+    enabled = models.BooleanField(default=True)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_DRY_RUN)
+
+    # Целевая дата выхода в 0 (единый дедлайн сезона; endgame считается от неё).
+    target_zero_date = models.DateField(null=True, blank=True)
+
+    # Сколько ещё приедет к сезону (из плана закупок) и закупочная цена за штуку.
+    incoming_qty = models.IntegerField(default=0)
+    purchase_price = models.FloatField(null=True, blank=True)
+
+    # Доля выкупа по артикулу (для проекции остатка). None => глобальный дефолт.
+    buyout_rate = models.FloatField(null=True, blank=True)
+
+    # Границы цены. floor вне endgame; None => берётся из юнит-экономики/дефолта.
+    floor_price = models.FloatField(null=True, blank=True)
+    ceiling_price = models.FloatField(null=True, blank=True)
+
+    # Кап дневного шага (в пунктах скидки). None => глобальные дефолты.
+    max_step_up_points = models.IntegerField(null=True, blank=True)
+    max_step_down_points = models.IntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("seller", "nm_id")]
+        indexes = [
+            models.Index(fields=["seller", "nm_id"]),
+            models.Index(fields=["seller", "enabled"]),
+        ]
+
+
+class PriceRobotRun(models.Model):
+    """
+    Один прогон ценового робота: план (dry-run) или применение цен (apply).
+    План по всем артикулам хранится в result["decisions"] (см. core.price_robot).
+    """
+
+    MODE_PLAN = "plan"
+    MODE_APPLY = "apply"
+    MODE_CHOICES = [
+        (MODE_PLAN, "План (dry-run)"),
+        (MODE_APPLY, "Применение цен"),
+    ]
+
+    STATUS_RUNNING = "running"
+    STATUS_SUCCESS = "success"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "Running"),
+        (STATUS_SUCCESS, "Success"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE, related_name="price_robot_runs")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_PLAN)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+
+    season_phase = models.CharField(max_length=32, blank=True, default="")
+    summary = models.JSONField(default=dict, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["seller", "created_at"]),
+            models.Index(fields=["seller", "mode", "created_at"]),
         ]
