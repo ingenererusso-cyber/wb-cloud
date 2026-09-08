@@ -1904,7 +1904,15 @@
                 regionSelect.appendChild(opt);
             });
             const hasSaved = Boolean(savedRegion) && marketplaceRegionOptions.some((x) => (x.region_name || "") === savedRegion);
-            regionSelect.value = hasSaved ? savedRegion : "";
+            if (hasSaved) {
+                regionSelect.value = savedRegion;
+            } else {
+                // По умолчанию (когда нет сохранённого расчёта) — Центральный ФО.
+                const defaultRegionRow = marketplaceRegionOptions.find(
+                    (x) => String(x.region_name || "").trim().toLowerCase() === "центральный федеральный округ"
+                );
+                regionSelect.value = defaultRegionRow ? String(defaultRegionRow.region_name).trim() : "";
+            }
         }
 
         function renderWarehouseOptions(filterText = "") {
@@ -2236,7 +2244,11 @@
             const factPenalty = perBuyout(factProfitMonth.penalty_sum, buyouts);
             const factAdSpend = perBuyout(factProfitMonth.ad_spend_sum, buyouts);
             const factAcceptance = perBuyout(factProfitMonth.acceptance_sum, buyouts);
-            const factCommission = factSalePrice * (Math.max(categoryCommissionPercent, 0) / 100.0);
+            // Реальная комиссия WB = сколько WB фактически удержал сверх эквайринга:
+            // цена − сумма к переводу (forPay уже без комиссии и эквайринга) − эквайринг.
+            // Раньше здесь бралась ставка из юнитки (напр. 41%), из-за чего строка комиссии
+            // не билась с фактической чистой прибылью (та считается от forPay).
+            const factCommission = Math.max(factSalePrice - factTransfer - factAcquiring, 0);
             const factExtra = Number(breakdown.extra_cost || 0);
             const unitSppPercent = Number(
                 breakdown.spp_percent ?? inputData.spp_percent ?? 0

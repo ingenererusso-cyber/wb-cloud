@@ -26,6 +26,11 @@ class Command(BaseCommand):
             help="Отправить рассчитанные цены в WB (иначе только план/dry-run).",
         )
         parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Обойти кулдаун «раз в сутки на артикул» при --apply (для отладки).",
+        )
+        parser.add_argument(
             "--date",
             type=str,
             default=None,
@@ -47,6 +52,7 @@ class Command(BaseCommand):
             target_zero = datetime.date.fromisoformat(options["target_zero_date"])
 
         do_apply = bool(options.get("apply"))
+        force = bool(options.get("force"))
 
         sellers = self._select_sellers(options.get("seller"))
         if not sellers:
@@ -54,14 +60,14 @@ class Command(BaseCommand):
             return
 
         for seller in sellers:
-            self._run_for_seller(seller, today=today, target_zero=target_zero, do_apply=do_apply)
+            self._run_for_seller(seller, today=today, target_zero=target_zero, do_apply=do_apply, force=force)
 
     def _select_sellers(self, seller_id):
         if seller_id:
             return list(SellerAccount.objects.filter(id=seller_id))
         return [s for s in SellerAccount.objects.all() if s.has_api_token]
 
-    def _run_for_seller(self, seller, *, today, target_zero, do_apply):
+    def _run_for_seller(self, seller, *, today, target_zero, do_apply, force=False):
         eff_target = target_zero or default_target_zero_date(today or timezone.localdate())
         run = PriceRobotRun.objects.create(
             seller=seller,
@@ -78,8 +84,12 @@ class Command(BaseCommand):
             if do_apply:
                 if not seller.has_api_token:
                     raise RuntimeError("У продавца нет API-ключа — применение цен невозможно.")
-                applied_info = apply_plan(seller, plan.get("decisions", []))
-                run.summary = {**run.summary, "applied_sent": applied_info.get("sent", 0)}
+                applied_info = apply_plan(seller, plan.get("decisions", []), force=force, run=run)
+                run.summary = {
+                    **run.summary,
+                    "applied_sent": applied_info.get("sent", 0),
+                    "skipped_cooldown": applied_info.get("skipped_cooldown", 0),
+                }
 
             run.status = PriceRobotRun.STATUS_SUCCESS
             run.finished_at = timezone.now()
@@ -93,7 +103,10 @@ class Command(BaseCommand):
                 f"={s.get('hold', 0)} без остатка {s.get('no_stock', 0)}."
             ))
             if do_apply and applied_info is not None:
-                self.stdout.write(self.style.SUCCESS(f"[{seller.name}] Отправлено в WB: {applied_info.get('sent', 0)} позиций."))
+                self.stdout.write(self.style.SUCCESS(
+                    f"[{seller.name}] Отправлено в WB: {applied_info.get('sent', 0)} позиций; "
+                    f"пропущено по кулдауну (раз в сутки на артикул): {applied_info.get('skipped_cooldown', 0)}."
+                ))
         except Exception as exc:
             run.status = PriceRobotRun.STATUS_ERROR
             run.error = str(exc)

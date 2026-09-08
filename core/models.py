@@ -1002,3 +1002,42 @@ class PriceRobotRun(models.Model):
             models.Index(fields=["seller", "created_at"]),
             models.Index(fields=["seller", "mode", "created_at"]),
         ]
+
+
+class PriceChange(models.Model):
+    """
+    История фактически применённых изменений цен (по артикулу).
+
+    Пишется при отправке цен в WB. Даёт аудит (что/когда/с→на) и служит
+    источником правды для кулдауна «не чаще раза в сутки на артикул».
+    """
+
+    SOURCE_ROBOT = "robot"
+    SOURCE_MANUAL = "manual"
+    SOURCE_CHOICES = [
+        (SOURCE_ROBOT, "Ценовой робот"),
+        (SOURCE_MANUAL, "Вручную"),
+    ]
+
+    seller = models.ForeignKey(SellerAccount, on_delete=models.CASCADE, related_name="price_changes")
+    run = models.ForeignKey(
+        "PriceRobotRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="price_changes"
+    )
+    nm_id = models.BigIntegerField()
+    vendor_code = models.CharField(max_length=255, blank=True, default="")
+
+    old_price = models.FloatField(null=True, blank=True)
+    new_price = models.FloatField(null=True, blank=True)
+    old_discount = models.FloatField(null=True, blank=True)
+    new_discount = models.FloatField(null=True, blank=True)
+    old_net = models.FloatField(null=True, blank=True)
+    new_net = models.FloatField(null=True, blank=True)
+
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_ROBOT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["seller", "nm_id", "created_at"]),
+            models.Index(fields=["seller", "created_at"]),
+        ]

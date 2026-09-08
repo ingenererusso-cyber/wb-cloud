@@ -24,6 +24,7 @@ from django.utils import timezone
 
 from core.models import (
     Order,
+    PriceChange,
     PricingPolicy,
     Product,
     ProductCardSize,
@@ -51,6 +52,9 @@ STEP_DOWN_TAIL = 3                 # после 26 дек спрос обвал�
 STEP_DOWN_ENDGAME = 4             # финальная распродажа
 
 PRICE_NUDGE_PCT = 0.01             # шаг базовой цены, когда скидка упёрлась в границу
+
+MIN_HOURS_BETWEEN_CHANGES = 20     # не чаще ~раза в сутки на артикул (защита от дёрганья цен и лимитов WB)
+APPLY_GLOBAL_COOLDOWN_MINUTES = 60  # минимальный интервал между применениями цен (анти-спам кнопки)
 
 
 # --- Фазы сезона и сезонные веса ---
@@ -513,29 +517,78 @@ def build_plan(
     }
 
 
-def apply_plan(seller: SellerAccount, decisions: list[dict], *, only_changed: bool = True) -> dict:
+def nm_ids_on_cooldown(seller: SellerAccount, *, now_dt=None) -> set[int]:
+    """Артикулы, которым цену меняли за последние MIN_HOURS_BETWEEN_CHANGES часов."""
+    now_dt = now_dt or timezone.now()
+    cutoff = now_dt - datetime.timedelta(hours=MIN_HOURS_BETWEEN_CHANGES)
+    return {
+        int(nm)
+        for nm in PriceChange.objects.filter(seller=seller, created_at__gte=cutoff)
+        .values_list("nm_id", flat=True)
+        .distinct()
+    }
+
+
+def apply_plan(
+    seller: SellerAccount,
+    decisions: list[dict],
+    *,
+    only_changed: bool = True,
+    force: bool = False,
+    source: str = PriceChange.SOURCE_ROBOT,
+    run=None,
+) -> dict:
     """
-    Пишет цены в WB по плану. Вызывается ТОЛЬКО осознанно (--apply / mode=auto).
-    Читает back-цены отдельным синком уже не здесь — верификацию делает вызывающий.
+    Пишет цены в WB по плану. Вызывается ТОЛЬКО осознанно (--apply / кнопка / mode=auto).
+
+    Защиты:
+    - **кулдаун по артикулу**: не меняем цену чаще ~раза в сутки (MIN_HOURS_BETWEEN_CHANGES),
+      источник правды — история PriceChange. `force=True` обходит (для отладки).
+    - **история**: на каждый реально отправленный артикул пишем строку PriceChange.
     """
     from wb_api.client import WBDiscountsPricesClient
 
+    on_cooldown = set() if force else nm_ids_on_cooldown(seller)
+
     items = []
+    change_rows: list[dict] = []
+    skipped_cooldown = 0
     for d in decisions:
         action = d.get("action")
         if only_changed and action not in ("raise", "lower"):
             continue
         if d.get("new_price") is None or d.get("new_discount") is None:
             continue
+        nm_id = int(d["nm_id"])
+        if nm_id in on_cooldown:
+            skipped_cooldown += 1
+            continue
         items.append({
-            "nmID": int(d["nm_id"]),
+            "nmID": nm_id,
             "price": int(d["new_price"]),
             "discount": int(d["new_discount"]),
         })
+        change_rows.append({
+            "seller": seller,
+            "run": run,
+            "nm_id": nm_id,
+            "vendor_code": d.get("vendor_code") or "",
+            "old_price": d.get("current_price"),
+            "new_price": d.get("new_price"),
+            "old_discount": d.get("current_discount"),
+            "new_discount": d.get("new_discount"),
+            "old_net": d.get("current_net"),
+            "new_net": d.get("new_net"),
+            "source": source,
+        })
 
     if not items:
-        return {"sent": 0, "response": None}
+        return {"sent": 0, "skipped_cooldown": skipped_cooldown, "response": None}
 
     client = WBDiscountsPricesClient(seller.api_token_plain)
     response = client.set_prices_discounts(items)
-    return {"sent": len(items), "response": response}
+
+    # История пишется только после успешной отправки в WB.
+    PriceChange.objects.bulk_create([PriceChange(**row) for row in change_rows])
+
+    return {"sent": len(items), "skipped_cooldown": skipped_cooldown, "response": response}

@@ -44,6 +44,7 @@ from core.models import (
     AppErrorLog,
     ConsentLog,
     Order,
+    PriceChange,
     PriceRobotRun,
     PricingPolicy,
     Product,
@@ -94,6 +95,8 @@ from core.services_orders import sync_fbw_orders, sync_sales_buyout_flags
 from core.services_products import sync_products_content
 from core.services_prices import sync_product_size_prices
 from core.price_robot import (
+    APPLY_GLOBAL_COOLDOWN_MINUTES,
+    MIN_HOURS_BETWEEN_CHANGES,
     apply_plan as price_robot_apply_plan,
     build_plan as price_robot_build_plan,
     default_target_zero_date,
@@ -2953,6 +2956,8 @@ def _friendly_api_error_text(exc: Exception | str) -> str:
         return "Временная сетевая ошибка при обращении к WB API. Повторите попытку позже."
     if "name resolution" in lowered or "failed to resolve" in lowered:
         return "Не удалось подключиться к WB API (ошибка DNS/сети). Повторите попытку позже."
+    if "temporarily disabled" in lowered or "временно" in lowered and "отключ" in lowered:
+        return "Метод WB API временно отключён самим Wildberries — это не ошибка вашего аккаунта. Шаг пропущен, повторите позже."
     return raw or "Неизвестная ошибка WB API."
 
 
@@ -3047,6 +3052,7 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
         ]
 
         total_steps = len(steps) + 1  # + отчеты реализации
+        step_warnings = []
         for idx, (label, key, fn, kwargs) in enumerate(steps, start=1):
             _raise_if_sync_task_canceled(task_id)
             _set_sync_task(
@@ -3062,11 +3068,27 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
                     "result": result,
                 },
             )
-            step_result = _run_with_db_lock_retry(lambda: fn(**kwargs))
-            if isinstance(step_result, dict):
-                result[key] = step_result
-            else:
-                result[key] = int(step_result or 0)
+            # Каждый шаг изолирован: сбой одного источника (например, временно
+            # отключённый WB-метод) не должен ронять весь синк. Пропускаем шаг
+            # с предупреждением и продолжаем с остальными.
+            try:
+                step_result = _run_with_db_lock_retry(lambda: fn(**kwargs))
+                if isinstance(step_result, dict):
+                    result[key] = step_result
+                else:
+                    result[key] = int(step_result or 0)
+            except SyncTaskCanceled:
+                raise
+            except Exception as exc:
+                result[key] = {"error": str(exc)}
+                step_warnings.append(f"{label}: {_friendly_api_error_text(exc)}")
+                _log_app_error(
+                    source="sync.general.step",
+                    message=f"Шаг синка '{label}' пропущен: {exc}",
+                    user=seller.user if seller else None,
+                    seller=seller,
+                    traceback_text=traceback.format_exc(),
+                )
 
         ads_warning = None
         ads_result = result.get("ads")
@@ -3138,6 +3160,8 @@ def _run_sync_orders_task(task_id: str, seller_id: int, user_id: int) -> None:
             f"строк FBS-остатков {((result.get('fbs_stocks') or {}).get('stocks_rows', 0) if isinstance(result.get('fbs_stocks'), dict) else result.get('fbs_stocks', 0))}, "
             f"строк отчёта реализации {result.get('realization_rows', 0)}."
         )
+        if step_warnings:
+            message += " Пропущены шаги (WB временно недоступен или ошибка источника): " + "; ".join(step_warnings)
         if realization_warning:
             message += f" Отчёты реализации частично пропущены: {realization_warning}"
         if ads_warning:
@@ -8030,6 +8054,12 @@ def price_robot_report(request):
     run_data = _serialize_price_robot_run(last_run)
     target_zero = default_target_zero_date(timezone.localdate())
 
+    last_apply_at = _price_robot_last_apply_at(seller)
+    cooldown_remaining_min = _price_robot_apply_cooldown_remaining_min(last_apply_at)
+    recent_changes = list(
+        PriceChange.objects.filter(seller=seller).order_by("-created_at")[:30]
+    )
+
     return render(
         request,
         "products/price_robot.html",
@@ -8040,8 +8070,30 @@ def price_robot_report(request):
             "run_json": json.dumps(run_data or {}, ensure_ascii=False),
             "default_target_zero_date": target_zero.isoformat(),
             "has_write_access": access_summary.get("has_write_access", False),
+            "last_apply_at": last_apply_at,
+            "cooldown_remaining_min": cooldown_remaining_min,
+            "min_hours_between_changes": MIN_HOURS_BETWEEN_CHANGES,
+            "recent_changes": recent_changes,
         },
     )
+
+
+def _price_robot_last_apply_at(seller):
+    run = (
+        PriceRobotRun.objects
+        .filter(seller=seller, mode=PriceRobotRun.MODE_APPLY, status=PriceRobotRun.STATUS_SUCCESS)
+        .order_by("-created_at")
+        .first()
+    )
+    return run.created_at if run else None
+
+
+def _price_robot_apply_cooldown_remaining_min(last_apply_at) -> int:
+    if not last_apply_at:
+        return 0
+    elapsed = timezone.now() - last_apply_at
+    remaining = APPLY_GLOBAL_COOLDOWN_MINUTES - int(elapsed.total_seconds() // 60)
+    return max(0, remaining)
 
 
 @login_required
@@ -8100,6 +8152,18 @@ def price_robot_apply_api(request):
     if not seller.has_api_token:
         return JsonResponse({"error": "Сначала добавьте API-ключ в настройках аккаунта."}, status=400)
 
+    # Глобальный кулдаун на кнопку: нельзя применять цены чаще, чем раз в
+    # APPLY_GLOBAL_COOLDOWN_MINUTES. Артикульный кулдаун (раз в сутки) — внутри apply_plan.
+    remaining = _price_robot_apply_cooldown_remaining_min(_price_robot_last_apply_at(seller))
+    if remaining > 0:
+        return JsonResponse(
+            {
+                "error": f"Цены уже применялись недавно. Следующее применение будет доступно через {remaining} мин.",
+                "cooldown_remaining_min": remaining,
+            },
+            status=429,
+        )
+
     last_run = (
         PriceRobotRun.objects
         .filter(seller=seller, mode=PriceRobotRun.MODE_PLAN, status=PriceRobotRun.STATUS_SUCCESS)
@@ -8119,12 +8183,22 @@ def price_robot_apply_api(request):
         result=last_run.result,
     )
     try:
-        info = price_robot_apply_plan(seller, decisions)
-        apply_run.summary = {**(last_run.summary or {}), "applied_sent": info.get("sent", 0)}
+        info = price_robot_apply_plan(
+            seller, decisions, source=PriceChange.SOURCE_ROBOT, run=apply_run
+        )
+        apply_run.summary = {
+            **(last_run.summary or {}),
+            "applied_sent": info.get("sent", 0),
+            "skipped_cooldown": info.get("skipped_cooldown", 0),
+        }
         apply_run.status = PriceRobotRun.STATUS_SUCCESS
         apply_run.finished_at = timezone.now()
         apply_run.save()
-        return JsonResponse({"ok": True, "sent": info.get("sent", 0)})
+        return JsonResponse({
+            "ok": True,
+            "sent": info.get("sent", 0),
+            "skipped_cooldown": info.get("skipped_cooldown", 0),
+        })
     except Exception as exc:
         apply_run.status = PriceRobotRun.STATUS_ERROR
         apply_run.error = str(exc)

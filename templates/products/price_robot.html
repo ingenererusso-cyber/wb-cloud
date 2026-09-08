@@ -80,6 +80,12 @@
         .empty { text-align: center; color: var(--muted); padding: 40px 10px; }
         #status { font-size: 13px; color: var(--muted); }
         .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+        .safety-note { font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
+        .safety-note i { color: var(--ink); font-style: normal; font-weight: 600; }
+        .cooldown { color: var(--down); font-weight: 600; }
+        .history { margin-top: 22px; }
+        .history h2 { font-size: 16px; margin: 0 0 10px; }
+        .history .empty-h { color: var(--muted); font-size: 13px; }
     </style>
     {% include "partials/top_nav_css.html" %}
 </head>
@@ -101,10 +107,20 @@
             <span id="status"></span>
             <button class="btn btn-primary" id="recalc-btn" type="button">Пересчитать план</button>
             {% if has_write_access %}
-            <button class="btn" id="apply-btn" type="button" title="Отправить рассчитанные цены в WB">Применить цены в WB</button>
+            <button class="btn" id="apply-btn" type="button"
+                    {% if cooldown_remaining_min %}disabled title="Цены применялись недавно. Доступно через {{ cooldown_remaining_min }} мин."{% else %}title="Отправить рассчитанные цены в WB"{% endif %}>
+                Применить цены в WB
+            </button>
             {% endif %}
         </div>
     </div>
+
+    <p class="safety-note">
+        <i>Защита:</i> цена одного артикула меняется не чаще раза в {{ min_hours_between_changes }} ч, а кнопку «Применить цены»
+        нельзя жать чаще раза в час.
+        {% if last_apply_at %}Последнее применение цен: <b>{{ last_apply_at|date:"d.m.Y H:i" }}</b>.{% else %}Цены ещё ни разу не применялись.{% endif %}
+        {% if cooldown_remaining_min %}<span class="cooldown">Повторно доступно через {{ cooldown_remaining_min }} мин.</span>{% endif %}
+    </p>
 
     {% if run %}
     <div class="phase-banner">
@@ -181,6 +197,44 @@
         <p>Нажмите «Пересчитать план», чтобы робот проанализировал остатки, скорость продаж и предложил цены.</p>
     </div>
     {% endif %}
+
+    <section class="history">
+        <h2>История изменений цен</h2>
+        {% if recent_changes %}
+        <div class="tbl-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="l">Когда</th>
+                        <th class="l">Артикул</th>
+                        <th>Скидка</th>
+                        <th>Итоговая цена</th>
+                        <th class="l">Источник</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ch in recent_changes %}
+                    <tr>
+                        <td class="l">{{ ch.created_at|date:"d.m.Y H:i" }}</td>
+                        <td class="l art">{{ ch.vendor_code|default:ch.nm_id }}</td>
+                        <td>
+                            {% if ch.old_discount != None %}{{ ch.old_discount }}%{% else %}—{% endif %}
+                            → {% if ch.new_discount != None %}{{ ch.new_discount }}%{% else %}—{% endif %}
+                        </td>
+                        <td>
+                            {% if ch.old_net != None %}{{ ch.old_net }}{% else %}—{% endif %}
+                            → <b>{% if ch.new_net != None %}{{ ch.new_net }} ₽{% else %}—{% endif %}</b>
+                        </td>
+                        <td class="l">{{ ch.get_source_display }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-h">Изменений цен ещё не было. Здесь появятся все применённые роботом цены — что, когда и с какой на какую.</p>
+        {% endif %}
+    </section>
 </main>
 
 <script>
@@ -232,9 +286,9 @@
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Ошибка применения");
-                setStatus(`Отправлено в WB: ${data.sent} позиций.`);
-                applyBtn.disabled = false;
-                recalcBtn.disabled = false;
+                const skipped = data.skipped_cooldown || 0;
+                setStatus(`Отправлено в WB: ${data.sent} позиций${skipped ? `; пропущено по кулдауну: ${skipped}` : ""}. Обновляю…`);
+                setTimeout(() => window.location.reload(), 1200);
             } catch (err) {
                 setStatus("Ошибка: " + err.message);
                 applyBtn.disabled = false;
